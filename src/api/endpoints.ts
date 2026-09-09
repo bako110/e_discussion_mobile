@@ -79,9 +79,11 @@ export const Endpoints = {
     history: `${V1}/calls`,
     start: `${V1}/calls`,
     clear: `${V1}/calls`,
+    clearStuck: `${V1}/calls/clear-stuck`,
     byId: (id: string) => `${V1}/calls/${id}`,
     accept: (id: string) => `${V1}/calls/${id}/accept`,
-    reject: (id: string) => `${V1}/calls/${id}/reject`,
+    reject: (id: string, reason?: string) =>
+      `${V1}/calls/${id}/reject${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`,
     cancel: (id: string) => `${V1}/calls/${id}/cancel`,
     hangup: (id: string) => `${V1}/calls/${id}/hangup`,
   },

@@ -46,9 +46,14 @@ export const callService = {
     return apiClient.post<CallToken>(Endpoints.calls.accept(callId));
   },
 
-  /** Le destinataire refuse la sonnerie. */
-  reject(callId: string): Promise<CallLog> {
-    return apiClient.post<CallLog>(Endpoints.calls.reject(callId));
+  /** Le destinataire refuse la sonnerie (`reason: 'busy'` si déjà en ligne). */
+  reject(callId: string, reason?: 'busy' | 'declined'): Promise<CallLog> {
+    return apiClient.post<CallLog>(Endpoints.calls.reject(callId, reason));
+  },
+
+  /** Clôt de force tout appel « en cours » resté fantôme (récup après crash). */
+  clearStuck(): Promise<{ message: string }> {
+    return apiClient.post<{ message: string }>(Endpoints.calls.clearStuck);
   },
 
   /** L'appelant annule avant que ça décroche. */

@@ -263,7 +263,11 @@
     "clearBody": "All calls will be removed from the list.",
     "switchToVideo": "Switch to video",
     "switchToVoice": "Switch to voice",
-    "chat": "Chat"
+    "chat": "Chat",
+    "peerBusy": "Busy",
+    "declined": "Call declined",
+    "noAnswer": "No answer",
+    "failed": "Call failed"
   },
   "settings": {
     "title": "Settings",

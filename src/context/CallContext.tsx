@@ -59,6 +59,9 @@ export type CallPhase =
   | 'active' // média établi
   | 'ended'; // court instant avant retour à idle
 
+/** Pourquoi l'appel s'est terminé — affiché brièvement avant retour à idle. */
+export type EndReason = 'ended' | 'busy' | 'declined' | 'missed' | 'failed' | 'cancelled';
+
 export interface ActiveCall {
   callId: string;
   roomName: string;
@@ -72,6 +75,8 @@ export interface ActiveCall {
 
 interface CallContextValue {
   phase: CallPhase;
+  /** motif de fin, valable pendant la phase 'ended'. */
+  endReason: EndReason | null;
   call: ActiveCall | null;
   room: Room | null;
   /** secondes écoulées depuis la connexion média (0 hors appel actif). */
@@ -102,6 +107,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [available, setAvailable] = useState(false);
   const [phase, setPhase] = useState<CallPhase>('idle');
+  const [endReason, setEndReason] = useState<EndReason | null>(null);
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -133,6 +139,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     let alive = true;
     void ensureNotificationSetup();
+    // récupération : au démarrage, on clôt tout appel resté fantôme côté
+    // serveur (client tué / réseau coupé pendant un précédent appel) — évite
+    // les 409 « already_in_call » au prochain appel.
+    void callService.clearStuck().catch(() => undefined);
 
     const check = async (attempt = 0): Promise<void> => {
       try {
@@ -194,13 +204,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const resetToIdle = useCallback(() => {
+  const resetToIdle = useCallback((reason?: EndReason) => {
+    setEndReason(reason ?? 'ended');
     setPhase('ended');
     setCall(null);
-    // petit délai pour laisser l'UI afficher "Appel terminé"
+    // petit délai pour laisser l'UI afficher "Appel terminé / Occupé / Refusé"
     setTimeout(() => {
       setPhase((p) => (p === 'ended' ? 'idle' : p));
-    }, 1200);
+      setEndReason(null);
+    }, 1600);
   }, []);
 
   // ── connexion à la room LiveKit ──────────────────────────────────────
@@ -299,8 +311,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         outgoing: true,
         e2eeKey,
       });
+      let createdId: string | null = null;
       try {
         const res = await callService.start(callee.id, type, e2eeKey);
+        createdId = res.id;
         setCall({
           callId: res.id,
           roomName: res.room_name,
@@ -318,13 +332,39 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           callType: type,
         });
       } catch (e) {
+        const code = (e as { code?: string; status?: number })?.code;
+        const status = (e as { status?: number })?.status;
+
+        // 409 : le destinataire est déjà en ligne (callee_busy) OU on a
+        // soi-même un appel fantôme (already_in_call). Dans le 2e cas on
+        // nettoie et on laisse l'utilisateur réessayer.
+        if (status === 409 && code === 'already_in_call') {
+          await callService.clearStuck().catch(() => undefined);
+        }
+        // si le CallLog a été créé côté serveur mais qu'on n'a pas pu
+        // rejoindre la room -> l'annuler, sinon appel zombie. Retry.
+        if (createdId) {
+          for (let i = 0; i < 2; i++) {
+            try {
+              await callService.cancel(createdId);
+              break;
+            } catch {
+              await new Promise<void>((res) => setTimeout(() => res(), 800));
+            }
+          }
+        }
         await teardown();
-        setPhase('idle');
         setCall(null);
+        // 'busy' -> on montre brièvement « Occupé » plutôt que rien
+        if (status === 409 && code === 'callee_busy') {
+          resetToIdle('busy');
+        } else {
+          setPhase('idle');
+        }
         throw e;
       }
     },
-    [connectRoom, teardown],
+    [connectRoom, teardown, resetToIdle],
   );
 
   const acceptCall = useCallback(async () => {
@@ -366,14 +406,25 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const c = callRef.current;
     if (!c) return;
     void clearIncomingCall();
-    try {
-      if (phaseRef.current === 'outgoing') await callService.cancel(c.callId);
-      else await callService.hangup(c.callId);
-    } catch {
-      /* ignore */
-    }
+    const wasOutgoing = phaseRef.current === 'outgoing' || phaseRef.current === 'connecting';
+
+    // libère l'UI et le média TOUT DE SUITE — on ne fait pas attendre
+    // l'utilisateur sur le réseau.
     await teardown();
     resetToIdle();
+
+    // puis on clôt côté serveur, avec retry (sinon appel zombie -> 409).
+    if (c.callId && c.callId !== 'pending') {
+      const close = wasOutgoing ? callService.cancel : callService.hangup;
+      for (let i = 0; i < 3; i++) {
+        try {
+          await close(c.callId);
+          break;
+        } catch {
+          await new Promise<void>((res) => setTimeout(() => res(), 2 ** i * 700));
+        }
+      }
+    }
   }, [teardown, resetToIdle]);
 
   const toggleMute = useCallback(async () => {
@@ -446,10 +497,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const off = addListener((e: WsEvent) => {
       switch (e.type) {
         case 'call.incoming': {
-          // déjà en appel -> on refuse automatiquement (busy)
+          // déjà en appel -> refus automatique avec le motif "occupé"
+          // (l'appelant verra « Occupé », pas « Refusé »).
           if (phaseRef.current !== 'idle') {
             const cid = String(e.call_id);
-            void callService.reject(cid).catch(() => undefined);
+            void callService.reject(cid, 'busy').catch(() => undefined);
             return;
           }
           const caller = (e.caller ?? null) as UserPublic | null;
@@ -492,7 +544,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (c && String(e.call_id) === c.callId) {
             void clearIncomingCall();
             void teardown();
-            resetToIdle();
+            let reason: EndReason = 'ended';
+            if (e.type === 'call.rejected') {
+              reason = e.reason === 'busy' ? 'busy' : 'declined';
+            } else if (e.type === 'call.cancelled') {
+              reason = 'cancelled';
+            } else if (e.status === 'missed') {
+              reason = 'missed';
+            }
+            resetToIdle(reason);
           }
           break;
         }
@@ -525,6 +585,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo<CallContextValue>(
     () => ({
       phase,
+      endReason,
       call,
       room,
       elapsed,
@@ -544,6 +605,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }),
     [
       phase,
+      endReason,
       call,
       room,
       elapsed,
