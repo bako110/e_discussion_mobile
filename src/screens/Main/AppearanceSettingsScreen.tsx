@@ -5,15 +5,27 @@ import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Icon, Screen } from '@/components/common';
 import { SettingsSection } from '@/components/settings';
+import { useAuth } from '@/context/AuthContext';
 import { useTheme, type ThemeMode } from '@/context/ThemeContext';
 import { SUPPORTED_LOCALES, setLocale, type Locale } from '@/i18n';
 import type { MainNav } from '@/navigation/types';
+import { userService } from '@/services';
 
 export const AppearanceSettingsScreen: React.FC = () => {
   const navigation = useNavigation<MainNav>();
   const { t, i18n } = useTranslation();
   const { theme, mode, setMode } = useTheme();
+  const { me } = useAuth();
   const c = theme.colors;
+
+  const changeLocale = (l: Locale) => {
+    if (l === i18n.language) return;
+    setLocale(l); // i18n + header Accept-Language (immédiat, hors-ligne OK)
+    // persiste aussi sur le serveur : i18n des notifications push côté backend
+    if (me && me.locale !== l) {
+      void userService.updateMe({ locale: l }).catch(() => undefined);
+    }
+  };
 
   const themeOpts: { key: ThemeMode; label: string }[] = [
     { key: 'system', label: t('settings.themeSystem') },
@@ -68,7 +80,7 @@ export const AppearanceSettingsScreen: React.FC = () => {
             {SUPPORTED_LOCALES.map((l) => (
               <Pressable
                 key={l}
-                onPress={() => setLocale(l as Locale)}
+                onPress={() => changeLocale(l as Locale)}
                 style={[styles.seg, i18n.language === l && { backgroundColor: c.primary }]}
               >
                 <Text

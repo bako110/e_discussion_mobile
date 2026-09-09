@@ -14,14 +14,14 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
-import { useAuth } from '@/context/AuthContext';
+import { AppHeader, Avatar, Icon, Screen, showSheet } from '@/components/common';
 import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainNav } from '@/navigation/types';
-import { conversationService, messageService } from '@/services';
-import type { ChatMessage, ConversationSummary, MessageType } from '@/types';
+import { onLocalMessageEvent } from '@/context/MessageSync';
+import { conversationService } from '@/services';
+import type { ConversationSummary, MessageType } from '@/types';
 import { relativeTime } from '@/utils/time';
 
 const BADGE = require('@/assets/logo_badge.png');
@@ -55,15 +55,15 @@ function previewMeta(
   }
 }
 
+type ConvFilter = 'all' | 'unread' | 'muted' | 'requests';
+
 export const ConversationsScreen: React.FC = () => {
   const navigation = useNavigation<MainNav>();
   const { t } = useTranslation();
   const { theme } = useTheme();
-  const { me } = useAuth();
   const { addListener } = useWs();
   const { ready, syncNow, online, syncing, pending } = useSync();
   const c = theme.colors;
-  const myId = me?.id ?? '';
 
   // rotation continue de l'icone de synchro tant qu'une passe tourne
   const spin = useRef(new Animated.Value(0)).current;
@@ -90,6 +90,7 @@ export const ConversationsScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
+  const [convFilter, setConvFilter] = useState<ConvFilter>('all');
 
   const load = useCallback(async () => {
     if (!ready) return;
@@ -106,22 +107,22 @@ export const ConversationsScreen: React.FC = () => {
     }, [load]),
   );
 
+  // message entrant ingéré globalement -> on recharge la liste (dernier msg,
+  // ordre, non-lus). Les autres events (lecture, présence, suppression) via WS.
+  useEffect(() => onLocalMessageEvent(() => void load()), [load]);
+
   useEffect(() => {
     return addListener((e) => {
       if (
-        e.type === 'message.new' ||
         e.type === 'message.deleted' ||
         e.type === 'receipt.read' ||
+        e.type === 'receipt.delivered' ||
         e.type === 'presence.update'
       ) {
-        if (e.type === 'message.new' && e.message) {
-          void messageService.ingestRealtime(e.message as ChatMessage, myId).then(load);
-        } else {
-          void load();
-        }
+        void load();
       }
     });
-  }, [addListener, load, myId]);
+  }, [addListener, load]);
 
   const labels = {
     encrypted: t('conversations.encryptedMessage'),
@@ -134,13 +135,38 @@ export const ConversationsScreen: React.FC = () => {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((it) => {
+    let list = items;
+    if (convFilter === 'unread') {
+      list = list.filter((it) => (it.unread_count ?? 0) > 0);
+    } else if (convFilter === 'muted') {
+      list = list.filter((it) => it.muted);
+    } else if (convFilter === 'requests') {
+      list = list.filter((it) => it.request_status === 'pending_incoming');
+    }
+    if (!q) return list;
+    return list.filter((it) => {
       const name = (it.partner.display_name || it.partner.username || '').toLowerCase();
       const last = (it.last_message || '').toLowerCase();
       return name.includes(q) || last.includes(q);
     });
-  }, [items, query]);
+  }, [items, query, convFilter]);
+
+  const openFilterMenu = () => {
+    const opts: { key: ConvFilter; label: string; icon: string }[] = [
+      { key: 'all', label: t('conversations.filterAll'), icon: 'checkbox-multiple-blank-circle-outline' },
+      { key: 'unread', label: t('conversations.filterUnread'), icon: 'email-mark-as-unread' },
+      { key: 'muted', label: t('conversations.filterMuted'), icon: 'bell-off-outline' },
+      { key: 'requests', label: t('conversations.filterRequests'), icon: 'account-clock-outline' },
+    ];
+    showSheet({
+      title: t('conversations.filterTitle'),
+      actions: opts.map((o) => ({
+        label: o.label + (convFilter === o.key ? '  ✓' : ''),
+        icon: o.icon,
+        onPress: () => setConvFilter(o.key),
+      })),
+    });
+  };
 
   const renderRow = ({ item }: { item: ConversationSummary }) => {
     const name = item.partner.display_name || item.partner.username || '—';
@@ -249,12 +275,36 @@ export const ConversationsScreen: React.FC = () => {
                 </Pressable>
               ) : null}
             </View>
-            <Pressable style={[styles.filterBtn, { backgroundColor: c.background }]} hitSlop={6}>
-              <Icon name="tune-variant" size={18} color={c.textMuted} />
+            <Pressable
+              style={[
+                styles.filterBtn,
+                { backgroundColor: convFilter === 'all' ? c.background : c.primary },
+              ]}
+              hitSlop={6}
+              onPress={openFilterMenu}
+            >
+              <Icon
+                name="tune-variant"
+                size={18}
+                color={convFilter === 'all' ? c.textMuted : '#fff'}
+              />
             </Pressable>
           </View>
         }
       />
+
+      {convFilter !== 'all' ? (
+        <Pressable
+          onPress={() => setConvFilter('all')}
+          style={[styles.activeFilter, { backgroundColor: c.primary + '18', borderColor: c.primary }]}
+        >
+          <Icon name="filter-variant" size={13} color={c.primary} />
+          <Text style={[styles.activeFilterTxt, { color: c.primary }]}>
+            {t(`conversations.filter${convFilter[0]!.toUpperCase()}${convFilter.slice(1)}`)}
+          </Text>
+          <Icon name="close" size={13} color={c.primary} />
+        </Pressable>
+      ) : null}
 
       <FlatList
         data={filtered}
@@ -382,6 +432,20 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
+  activeFilter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  activeFilterTxt: { fontSize: 12, fontWeight: '700' },
 
   sectionHead: {
     flexDirection: 'row',

@@ -67,8 +67,8 @@ export const StoryComposerScreen: React.FC = () => {
 
   const toggleRecord = async () => {
     if (picker.recording) {
-      const up = await picker.stopRecording();
-      if (up) navigation.replace('MediaEditor', { media: up });
+      const res = await picker.stopRecording();
+      if (res) navigation.replace('MediaEditor', { media: res.media });
     } else {
       setMode('audio');
       await picker.startRecording();

@@ -10,7 +10,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert, showSheet } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -37,14 +37,22 @@ export const PrivacySettingsScreen: React.FC = () => {
 
   const levelLabel = (lvl: PrivacyLevel) => t(`settings.privacy_${lvl}`);
 
+  const LEVEL_ICON: Record<PrivacyLevel, string> = {
+    everyone: 'earth',
+    contacts: 'account-multiple-outline',
+    nobody: 'lock-outline',
+  };
+
   const pickLevel = (
     key: 'last_seen_privacy' | 'profile_photo_privacy' | 'about_privacy',
     current: PrivacyLevel,
     title: string,
   ) => {
-    showAlert(title, undefined, [
-      ...LEVELS.map((lvl) => ({
-        text: levelLabel(lvl) + (lvl === current ? '  ✓' : ''),
+    showSheet({
+      title,
+      actions: LEVELS.map((lvl) => ({
+        label: levelLabel(lvl) + (lvl === current ? '  ✓' : ''),
+        icon: LEVEL_ICON[lvl],
         onPress: async () => {
           if (lvl === current) return;
           setBusy(key);
@@ -58,8 +66,7 @@ export const PrivacySettingsScreen: React.FC = () => {
           }
         },
       })),
-      { text: t('common.cancel'), style: 'cancel' as const },
-    ]);
+    });
   };
 
   const toggleReadReceipts = async (next: boolean) => {

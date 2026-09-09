@@ -8,9 +8,16 @@ export {
   type AlertButton,
   type AlertOptions,
 } from './AppAlert';
+export {
+  ActionSheetHost,
+  showSheet,
+  type SheetAction,
+  type SheetOptions,
+} from './ActionSheet';
 export { Avatar } from './Avatar';
 export { BrandLogo } from './BrandLogo';
 export { Button } from './Button';
+export { CachedImage } from './CachedImage';
 export { CountryPickerModal } from './CountryPickerModal';
 // GradientHeader = alias historique -> AppHeader
 export { AppHeader as GradientHeader } from './AppHeader';

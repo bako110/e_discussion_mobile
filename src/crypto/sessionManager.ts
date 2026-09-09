@@ -138,6 +138,11 @@ interface BundleRaw {
   one_time_prekey: string | null;
 }
 
+// Cache mémoire des bundles (device_id du 1er appareil actif d'un user) —
+// évite un fetch réseau à CHAQUE envoi quand une session existe déjà. Le
+// bundle n'est vraiment nécessaire que pour le tout premier message (X3DH).
+const bundleDeviceCache = new Map<string, string>();
+
 /** Chiffre un message texte pour un destinataire — établit une session X3DH
  * si aucune n'existe encore avec son appareil actif. */
 export async function encryptMessageForUser(
@@ -145,19 +150,32 @@ export async function encryptMessageForUser(
   plaintext: string,
 ): Promise<EncryptedPayload> {
   const identity = await loadOrCreateDeviceIdentity();
-  const bundles = await apiClient.get<BundleRaw[]>(Endpoints.devices.bundles(recipientUserId));
-  if (!bundles || bundles.length === 0) {
-    throw new Error("E2EE_NO_DEVICE: le destinataire n'a aucun appareil avec chiffrement activé");
-  }
-  const bundle: PreKeyBundle = bundleFromApi(bundles[0]!);
 
-  let session = await loadSession(recipientUserId, bundle.deviceId);
-  const confirmed = await isSessionConfirmed(recipientUserId, bundle.deviceId);
+  // Session déjà connue pour cet appareil ? -> pas besoin de re-fetch le bundle.
+  const cachedDeviceId = bundleDeviceCache.get(recipientUserId);
+  let session = cachedDeviceId ? await loadSession(recipientUserId, cachedDeviceId) : null;
+  let bundle: PreKeyBundle | null = null;
+
+  if (!session) {
+    const bundles = await apiClient.get<BundleRaw[]>(Endpoints.devices.bundles(recipientUserId));
+    if (!bundles || bundles.length === 0) {
+      throw new Error("E2EE_NO_DEVICE: le destinataire n'a aucun appareil avec chiffrement activé");
+    }
+    bundle = bundleFromApi(bundles[0]!);
+    bundleDeviceCache.set(recipientUserId, bundle.deviceId);
+    session = await loadSession(recipientUserId, bundle.deviceId);
+  }
+
+  const deviceId = bundle?.deviceId ?? cachedDeviceId!;
+  const confirmed = await isSessionConfirmed(recipientUserId, deviceId);
   let x3dhInfo: X3dhInitBlob | null = null;
 
   if (!session) {
     // Premiere session avec cet appareil : on l'etablit et on MEMORISE le
     // blob X3DH utilise, pour pouvoir le rejoindre a l'identique ensuite.
+    if (!bundle) {
+      throw new Error('E2EE_NO_BUNDLE: session absente et bundle indisponible');
+    }
     const result = x3dhInitiate(identity.identityKeyPair, bundle);
     session = initSessionAsInitiator(result.sharedSecret, result.ephemeralKeyPair, bundle.signedPrekey);
     x3dhInfo = {
@@ -165,17 +183,17 @@ export async function encryptMessageForUser(
       oneTimePrekeyId: result.usedOneTimePrekeyId,
       senderIdentityPublicKey: toBase64(identity.identityKeyPair.publicKey),
     };
-    await saveX3dhInit(recipientUserId, bundle.deviceId, x3dhInfo);
+    await saveX3dhInit(recipientUserId, deviceId, x3dhInfo);
   } else if (!confirmed) {
     // Session existante mais JAMAIS confirmee (le pair ne nous a pas repondu
     // -> a peut-etre rate notre 1er message). On garde LA MEME session (une
     // seule chaine de ratchet) mais on REJOINT le meme blob X3DH : le pair
     // pourra bootstraper depuis n'importe lequel de nos messages (0..N).
-    x3dhInfo = await loadX3dhInit(recipientUserId, bundle.deviceId);
+    x3dhInfo = await loadX3dhInit(recipientUserId, deviceId);
   }
 
   const encrypted: EncryptedMessage = ratchetEncrypt(session, new TextEncoder().encode(plaintext));
-  await saveSession(recipientUserId, bundle.deviceId, session);
+  await saveSession(recipientUserId, deviceId, session);
 
   return {
     senderDeviceId: identity.deviceId,

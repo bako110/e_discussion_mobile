@@ -11,8 +11,26 @@ import { encryptMessageForUser } from '@/crypto';
 import { messageRepo, type LocalMessage } from '@/db/repositories/messageRepo';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import type { ChatMessage, MessageType, ReplyPreview } from '@/types';
-import { newClientId, outbox } from '@/sync/outbox';
+import { newClientId, notifyMutationApplied, outbox } from '@/sync/outbox';
 import { messageService as netMessageService } from './messageService.net';
+
+/** Libellé court pour l'aperçu d'une conversation quand le message n'a pas de texte. */
+function attachmentPreview(type: MessageType): string {
+  switch (type) {
+    case 'image':
+      return '📷 Photo';
+    case 'video':
+      return '🎬 Vidéo';
+    case 'voice':
+      return '🎤 Message vocal';
+    case 'file':
+      return '📎 Document';
+    case 'location':
+      return '📍 Position';
+    default:
+      return '';
+  }
+}
 
 interface SendParams {
   conversationId: string;
@@ -20,6 +38,10 @@ interface SendParams {
   senderId: string;
   type?: MessageType;
   body?: string;
+  /** URL renvoyée par l'upload média (photo/vidéo/fichier/vocal). */
+  attachmentUrl?: string | null;
+  /** Métadonnées de la pièce jointe : durée, dimensions, nom, lat/lng… */
+  attachmentMeta?: Record<string, unknown> | null;
   replyTo?: ReplyPreview | null;
 }
 
@@ -29,62 +51,76 @@ export const messageService = {
     return messageRepo.page(conversationId, limit, beforeCreatedAt);
   },
 
-  /** Envoi local-first : insère en `pending`, empile l'outbox, retourne
-   * immédiatement le message optimiste. Ne lève JAMAIS silencieusement :
-   * si l'insert local rate, on remonte l'erreur pour l'afficher. */
+  /** Envoi local-first :
+   *  1. insère la bulle optimiste TOUT DE SUITE (⏱) et la renvoie ;
+   *  2. chiffre + empile l'outbox de façon FIABLE (persistée) en arrière-plan.
+   *
+   * Le chiffrement E2E peut coûter un aller-retour réseau au 1er message d'une
+   * conversation (fetch du bundle X3DH) — ensuite le bundle est en cache. On ne
+   * fait plus attendre l'UI, MAIS l'`enqueue` est garanti : en cas d'échec du
+   * chiffrement on part en clair ; en cas d'échec de l'`enqueue` lui-même on
+   * marque la ligne `failed` (l'utilisateur peut ré-appuyer). */
   async send(p: SendParams): Promise<LocalMessage> {
     const type = p.type ?? 'text';
     const plain = (p.body ?? '').trim();
-    if (!plain && !p.replyTo) throw new Error('empty message');
+    const hasAttachment = !!p.attachmentUrl || (type === 'location' && !!p.attachmentMeta);
+    if (!plain && !p.replyTo && !hasAttachment) throw new Error('empty message');
 
     const clientId = newClientId();
     const createdAt = new Date().toISOString();
 
-    // Chiffrement E2E — best effort. Un echec (pas de cles du destinataire,
-    // erreur crypto, réseau pour le bundle) NE DOIT PAS bloquer l'envoi :
-    // on retombe en clair. `encryptMessageForUser` peut lever, d'ou le try.
-    let cipher: string | null = null;
-    let encrypted = false;
-    if (type === 'text' && plain) {
-      try {
-        const payload = await encryptMessageForUser(p.partnerId, plain);
-        cipher = JSON.stringify(payload);
-        encrypted = true;
-      } catch (e) {
-        console.warn('[send] E2E indisponible, envoi en clair:', String(e));
-      }
-    }
-
-    // 1) insertion locale du message optimiste
+    // 1) bulle optimiste immédiate (⏱)
     await messageRepo.insertOutgoing({
       clientId,
       conversationId: p.conversationId,
       senderId: p.senderId,
       type,
       body: plain,
-      bodyCipher: cipher,
-      encrypted,
+      bodyCipher: null,
+      encrypted: false,
+      attachmentUrl: p.attachmentUrl ?? null,
+      attachmentMeta: p.attachmentMeta ?? null,
       replyTo: p.replyTo,
       createdAt,
     });
-
-    // 2) MAJ de l'apercu de la conversation (best-effort — si la conv locale
-    //    n'existe pas encore, l'UPDATE ne touche rien, pas grave)
+    const preview = plain || attachmentPreview(type);
     try {
-      await conversationRepo.touchLastMessage(p.conversationId, plain, type, encrypted, createdAt);
+      await conversationRepo.touchLastMessage(p.conversationId, preview, type, false, createdAt);
     } catch (e) {
       console.warn('[send] touchLastMessage:', String(e));
     }
 
-    // 3) file d'attente vers le serveur
-    await outbox.enqueue('send_message', clientId, {
-      conversationId: p.conversationId,
-      type,
-      body: encrypted ? cipher : plain,
-      plainBody: plain,
-      encrypted,
-      replyToId: p.replyTo?.id,
-    });
+    // 2) chiffrement + enqueue FIABLE en arrière-plan
+    void (async () => {
+      let cipher: string | null = null;
+      let encrypted = false;
+      if (type === 'text' && plain) {
+        try {
+          const payload = await encryptMessageForUser(p.partnerId, plain);
+          cipher = JSON.stringify(payload);
+          encrypted = true;
+          await messageRepo.setEncrypted(clientId, cipher);
+        } catch (e) {
+          console.warn('[send] E2E indisponible, envoi en clair:', String(e));
+        }
+      }
+      try {
+        await outbox.enqueue('send_message', clientId, {
+          conversationId: p.conversationId,
+          type,
+          body: encrypted ? cipher : plain,
+          plainBody: plain,
+          encrypted,
+          attachmentUrl: p.attachmentUrl ?? undefined,
+          attachmentMeta: p.attachmentMeta ?? undefined,
+          replyToId: p.replyTo?.id,
+        });
+      } catch (e) {
+        console.warn('[send] enqueue a échoué:', String(e));
+        await messageRepo.markFailed(clientId).catch(() => undefined);
+        notifyMutationApplied({ conversationId: p.conversationId });
+      }
+    })();
 
     const local = await messageRepo.getByClientId(clientId);
     if (!local) throw new Error('message local introuvable apres insertion');
@@ -168,5 +204,41 @@ export const messageService = {
 
   listFailed(): Promise<LocalMessage[]> {
     return messageRepo.listFailed();
+  },
+
+  /** Récupère les messages `pending` restés SANS entrée d'outbox (app tuée
+   * entre l'insert optimiste et l'enqueue) et les ré-empile. À appeler au
+   * démarrage / à l'ouverture d'un chat. */
+  async recoverOrphanPending(myId: string): Promise<number> {
+    if (!myId) return 0;
+    const orphans = await messageRepo.listOrphanPending(myId);
+    for (const m of orphans) {
+      const cid = m.client_id ?? m.id;
+      let body = m.body;
+      let encrypted = false;
+      // on re-chiffre si possible (le blob local a pu ne jamais être calculé)
+      if (m.type === 'text' && m.body) {
+        try {
+          // partenaire = l'autre participant : on le déduit via la conv locale
+          const conv = await conversationRepo.get(m.conversation_id);
+          if (conv?.partner?.id) {
+            const payload = await encryptMessageForUser(conv.partner.id, m.body);
+            body = JSON.stringify(payload);
+            encrypted = true;
+            await messageRepo.setEncrypted(cid, body);
+          }
+        } catch {
+          /* on part en clair */
+        }
+      }
+      await outbox.enqueue('send_message', cid, {
+        conversationId: m.conversation_id,
+        type: m.type,
+        body: encrypted ? body : m.body,
+        plainBody: m.body,
+        encrypted,
+      });
+    }
+    return orphans.length;
   },
 };

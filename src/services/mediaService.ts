@@ -2,7 +2,7 @@ import { apiClient, Endpoints, type UploadFile } from '@/api';
 
 export interface UploadedMedia {
   url: string;
-  media_type: 'image' | 'video' | 'audio';
+  media_type: 'image' | 'video' | 'audio' | 'file';
   thumbnail_url: string | null;
   width: number | null;
   height: number | null;

@@ -20,3 +20,23 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// Windows : le chemin de build CMake de react-native-reanimated depasse la limite
+// des 260 caracteres (ninja : "mkdir ... No such file or directory" sur
+// .../CMakeFiles/worklets.dir/C_/Users/PC1/projetSah/...). On redirige le dossier
+// de staging CMake (.cxx) de reanimated vers un chemin tres court : C:\rnbuild.
+if (org.gradle.internal.os.OperatingSystem.current().isWindows()) {
+    subprojects { subproject ->
+        if (subproject.name == "react-native-reanimated") {
+            subproject.afterEvaluate {
+                subproject.android {
+                    externalNativeBuild {
+                        cmake {
+                            buildStagingDirectory = new File("C:/rnbuild/reanimated/.cxx")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

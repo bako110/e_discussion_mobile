@@ -1,12 +1,14 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { Icon } from '@/components/common';
+import { CachedImage, Icon } from '@/components/common';
 import { useChatPrefs } from '@/context/ChatPrefsContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { LocalMessage } from '@/db/repositories/messageRepo';
 import { clockTime } from '@/utils/time';
+import { mediaUrl } from '@/utils/media';
+import { VoiceNoteBubble } from './VoiceNoteBubble';
 
 interface Props {
   message: LocalMessage;
@@ -14,6 +16,32 @@ interface Props {
   grouped?: boolean; // suit un message du même expéditeur → coins/queue adaptés
   onLongPress?: () => void;
   onRetry?: () => void;
+  /** Ouvre le viewer plein écran pour une image/vidéo. */
+  onOpenMedia?: (m: LocalMessage) => void;
+  /** Ouvre un document (PDF / fichier) dans un lecteur externe. */
+  onOpenFile?: (m: LocalMessage) => void;
+  /** Ouvre la position partagée dans une app de cartes. */
+  onOpenLocation?: (lat: number, lng: number) => void;
+}
+
+function metaNum(meta: Record<string, unknown> | null, key: string): number | null {
+  const v = meta?.[key];
+  return typeof v === 'number' ? v : null;
+}
+function metaStr(meta: Record<string, unknown> | null, key: string): string | null {
+  const v = meta?.[key];
+  return typeof v === 'string' ? v : null;
+}
+function humanSize(bytes: number | null): string {
+  if (!bytes || bytes <= 0) return '';
+  const u = ['o', 'Ko', 'Mo', 'Go'];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) {
+    n /= 1024;
+    i += 1;
+  }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
 }
 
 /** Coche d'état pour mes messages : en attente / envoyé / remis / lu / échec.
@@ -31,7 +59,16 @@ const StatusTick: React.FC<{ m: LocalMessage; color: string; readColor: string }
   return <Icon name="check" size={13} color={color} />;
 };
 
-export const MessageBubble: React.FC<Props> = ({ message, mine, grouped, onLongPress, onRetry }) => {
+export const MessageBubble: React.FC<Props> = ({
+  message,
+  mine,
+  grouped,
+  onLongPress,
+  onRetry,
+  onOpenMedia,
+  onOpenFile,
+  onOpenLocation,
+}) => {
   const { t } = useTranslation();
   const { theme } = useTheme();
   const { fontScale } = useChatPrefs();
@@ -59,13 +96,126 @@ export const MessageBubble: React.FC<Props> = ({ message, mine, grouped, onLongP
     borderBottomRightRadius: 18,
   };
 
+  const meta = message.attachment_meta ?? null;
+  const url = message.attachment_url;
+  const isMediaType = message.type === 'image' || message.type === 'video';
+  const isVoice = message.type === 'voice';
+  const isFile = message.type === 'file';
+  const isLocation = message.type === 'location';
+  const hasAttachment = !!url || isLocation;
+
+  // pour une image/vidéo sans légende, la bulle colle au média (pas de fond)
+  const bareMedia = isMediaType && hasAttachment && !message.body;
+  const thumb = mediaUrl(metaStr(meta, 'thumbnail_url') ?? url ?? undefined);
+  const ratio =
+    (metaNum(meta, 'width') ?? 0) > 0 && (metaNum(meta, 'height') ?? 0) > 0
+      ? (metaNum(meta, 'width') as number) / (metaNum(meta, 'height') as number)
+      : 1;
+
+  const renderAttachment = () => {
+    if (isMediaType && hasAttachment) {
+      // vidéo pas encore uploadée : `thumb` est un file://…mp4 (pas une image)
+      // -> on n'affiche pas <Image>, juste un fond neutre + play + spinner.
+      const localVideoPending =
+        message.type === 'video' && message.pending && (thumb ?? '').startsWith('file:');
+      return (
+        <Pressable
+          onPress={() => onOpenMedia?.(message)}
+          onLongPress={onLongPress}
+          style={[styles.mediaWrap, { aspectRatio: Math.max(0.6, Math.min(1.9, ratio)) }]}
+        >
+          {localVideoPending ? (
+            <View style={[styles.mediaImg, styles.videoPlaceholder]} />
+          ) : (
+            <CachedImage uri={thumb} style={styles.mediaImg} resizeMode="cover" />
+          )}
+          {message.type === 'video' ? (
+            <View style={styles.playOverlay}>
+              <Icon name="play" size={26} color="#fff" />
+            </View>
+          ) : null}
+          {message.pending ? (
+            <View style={styles.mediaPending}>
+              <ActivityIndicator color="#fff" />
+            </View>
+          ) : null}
+        </Pressable>
+      );
+    }
+    if (isVoice) {
+      return (
+        <VoiceNoteBubble
+          url={url}
+          durationSec={metaNum(meta, 'duration_sec')}
+          mine={mine}
+          fg={fg}
+        />
+      );
+    }
+    if (isFile) {
+      const name = metaStr(meta, 'name') ?? t('chat.file');
+      const size = humanSize(metaNum(meta, 'size'));
+      return (
+        <Pressable onPress={() => onOpenFile?.(message)} style={styles.fileRow}>
+          <View style={[styles.fileIcon, { backgroundColor: mine ? 'rgba(255,255,255,0.18)' : c.primary + '18' }]}>
+            <Icon name="file-document-outline" size={22} color={fg} />
+          </View>
+          <View style={styles.flexShrink}>
+            <Text style={[styles.fileName, { color: fg }]} numberOfLines={1}>
+              {name}
+            </Text>
+            {size ? (
+              <Text style={[styles.fileMeta, { color: fg, opacity: 0.65 }]}>{size}</Text>
+            ) : null}
+          </View>
+          <View style={{ opacity: 0.7 }}>
+            <Icon name="download" size={18} color={fg} />
+          </View>
+        </Pressable>
+      );
+    }
+    if (isLocation) {
+      const lat = metaNum(meta, 'latitude') ?? metaNum(meta, 'lat');
+      const lng = metaNum(meta, 'longitude') ?? metaNum(meta, 'lng');
+      return (
+        <Pressable
+          onPress={() => (lat != null && lng != null ? onOpenLocation?.(lat, lng) : undefined)}
+          style={styles.locWrap}
+        >
+          <View style={[styles.locMap, { backgroundColor: mine ? 'rgba(255,255,255,0.14)' : c.surfaceAlt }]}>
+            <Icon name="map-marker" size={30} color={mine ? '#fff' : c.primary} />
+          </View>
+          <View style={styles.locText}>
+            <Text style={[styles.fileName, { color: fg }]}>{t('chat.locationShared')}</Text>
+            {lat != null && lng != null ? (
+              <Text style={[styles.fileMeta, { color: fg, opacity: 0.65 }]} numberOfLines={1}>
+                {lat.toFixed(5)}, {lng.toFixed(5)}
+              </Text>
+            ) : null}
+            <Text style={[styles.locOpen, { color: mine ? '#fff' : c.primary }]}>
+              {t('chat.openInMaps')}
+            </Text>
+          </View>
+        </Pressable>
+      );
+    }
+    return null;
+  };
+
   return (
     <Pressable
       onLongPress={onLongPress}
       onPress={failed ? onRetry : undefined}
       style={[styles.row, mine ? styles.rowMine : styles.rowTheirs, { marginTop: grouped ? 2 : 6 }]}
     >
-      <View style={[styles.bubble, bubbleRadius, { backgroundColor: bg }]}>
+      <View
+        style={[
+          styles.bubble,
+          bubbleRadius,
+          { backgroundColor: bg },
+          bareMedia && styles.bubbleBare,
+        ]}
+      >
         {message.reply_to ? (
           <View style={[styles.reply, { borderLeftColor: mine ? '#ffffffaa' : c.primary }]}>
             <Text style={{ color: fg, opacity: 0.85, fontSize: 13 }} numberOfLines={1}>
@@ -73,6 +223,8 @@ export const MessageBubble: React.FC<Props> = ({ message, mine, grouped, onLongP
             </Text>
           </View>
         ) : null}
+
+        {hasAttachment ? renderAttachment() : null}
 
         {message.decryptFailed && !message.body ? (
           <View style={styles.encryptedRow}>
@@ -86,27 +238,33 @@ export const MessageBubble: React.FC<Props> = ({ message, mine, grouped, onLongP
               {t('conversations.encryptedMessage')}
             </Text>
           </View>
-        ) : (
-          <Text style={[styles.body, { color: fg, fontSize: 15 * fontScale }]}>
+        ) : message.body ? (
+          <Text
+            style={[
+              styles.body,
+              { color: fg, fontSize: 15 * fontScale },
+              hasAttachment && { marginTop: 6 },
+            ]}
+          >
             {message.body}
           </Text>
-        )}
+        ) : null}
 
-        <View style={styles.meta}>
+        <View style={[styles.meta, bareMedia && styles.metaOnMedia]}>
           {message.edited_at ? (
-            <Text style={[styles.metaText, { color: fg, opacity: 0.6 }]}>
+            <Text style={[styles.metaText, { color: bareMedia ? '#fff' : fg, opacity: 0.6 }]}>
               {t('common.edit').toLowerCase()} ·{' '}
             </Text>
           ) : null}
-          <Text style={[styles.metaText, { color: fg, opacity: 0.75 }]}>
+          <Text style={[styles.metaText, { color: bareMedia ? '#fff' : fg, opacity: 0.75 }]}>
             {clockTime(message.created_at)}
           </Text>
           {mine ? (
             <View style={{ marginLeft: 4 }}>
               <StatusTick
                 m={message}
-                color={failed ? c.danger : fg}
-                readColor={mine ? '#7FD0FF' : c.primary}
+                color={failed ? c.danger : bareMedia ? '#fff' : fg}
+                readColor={bareMedia ? '#fff' : '#7FD0FF'}
               />
             </View>
           ) : null}
@@ -130,13 +288,52 @@ const styles = StyleSheet.create({
   row: { paddingHorizontal: 12, flexDirection: 'column' },
   rowMine: { alignItems: 'flex-end' },
   rowTheirs: { alignItems: 'flex-start' },
-  bubble: { maxWidth: '82%', paddingHorizontal: 12, paddingVertical: 8 },
+  bubble: { maxWidth: '82%', paddingHorizontal: 12, paddingVertical: 8, overflow: 'hidden' },
+  bubbleBare: { padding: 3 },
   deleted: { borderWidth: 1, backgroundColor: 'transparent', flexDirection: 'row', alignItems: 'center', borderRadius: 18 },
   reply: { borderLeftWidth: 3, paddingLeft: 8, marginBottom: 4, opacity: 0.9 },
   encryptedRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   body: { fontSize: 15, lineHeight: 21, flexShrink: 1 },
   meta: { flexDirection: 'row', alignSelf: 'flex-end', marginTop: 2, alignItems: 'center' },
+  metaOnMedia: {
+    position: 'absolute',
+    bottom: 8,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
   metaText: { fontSize: 11 },
+  mediaWrap: {
+    width: 230,
+    maxWidth: '100%',
+    borderRadius: 15,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  mediaImg: { width: '100%', height: '100%' },
+  videoPlaceholder: { backgroundColor: '#1E293B' },
+  playOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mediaPending: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  fileRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 200, paddingVertical: 2 },
+  fileIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  flexShrink: { flexShrink: 1, flex: 1 },
+  fileName: { fontSize: 14, fontWeight: '600' },
+  fileMeta: { fontSize: 11, marginTop: 1 },
+  locWrap: { flexDirection: 'row', gap: 10, minWidth: 210, paddingVertical: 2 },
+  locMap: { width: 54, height: 54, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  locText: { flex: 1, justifyContent: 'center' },
+  locOpen: { fontSize: 12, fontWeight: '700', marginTop: 3 },
   reaction: {
     position: 'absolute',
     bottom: -11,

@@ -8,13 +8,19 @@ import { uuidv4 } from '@/utils/random';
 
 export type OutboxKind =
   | 'send_message'
+  | 'upload_message' // média choisi hors-ligne : upload différé + envoi
   | 'react'
   | 'edit'
   | 'delete'
   | 'mark_read'
   | 'accept_request'
   | 'decline_request'
-  | 'mute';
+  | 'mute'
+  // ── groupes ──
+  | 'send_group_message'
+  | 'upload_group_message'
+  | 'group_mark_read'
+  | 'group_mute';
 
 export interface OutboxEntry {
   id: number;
@@ -44,6 +50,38 @@ export function newClientId(): string {
   return uuidv4();
 }
 
+/**
+ * Déclencheur appelé APRÈS chaque `enqueue` — branché par le syncEngine sur
+ * `pushNow()` pour que toute mutation parte immédiatement (au lieu d'attendre
+ * le prochain cycle de sync). Découplé pour éviter l'import circulaire.
+ */
+let onEnqueued: (() => void) | null = null;
+export function setOnEnqueued(fn: (() => void) | null): void {
+  onEnqueued = fn;
+}
+
+/**
+ * Déclencheur appelé quand une entrée `send_message` / `upload_message` /
+ * `send_group_message` a été confirmée par le serveur (`confirmSent`) — sert
+ * à rafraîchir l'écran ouvert (la bulle passe de ⏱ à ✓). Branché sur
+ * `emitLocal` de MessageSync.
+ */
+let onMutationApplied:
+  | ((info: { conversationId?: string; groupId?: string }) => void)
+  | null = null;
+export function setOnMutationApplied(
+  fn: ((info: { conversationId?: string; groupId?: string }) => void) | null,
+): void {
+  onMutationApplied = fn;
+}
+export function notifyMutationApplied(info: { conversationId?: string; groupId?: string }): void {
+  try {
+    onMutationApplied?.(info);
+  } catch {
+    /* un abonné ne casse rien */
+  }
+}
+
 export const outbox = {
   async enqueue(kind: OutboxKind, clientId: string, payload: Record<string, unknown>): Promise<void> {
     const now = new Date().toISOString();
@@ -52,6 +90,12 @@ export const outbox = {
        VALUES (?,?,?,0,?,?)`,
       [kind, clientId, JSON.stringify(payload), now, now],
     );
+    // pousse tout de suite (best-effort, non bloquant)
+    try {
+      onEnqueued?.();
+    } catch {
+      /* le cycle de sync rattrapera */
+    }
   },
 
   async due(): Promise<OutboxEntry[]> {

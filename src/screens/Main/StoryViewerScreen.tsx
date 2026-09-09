@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -13,13 +12,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { Avatar, Icon } from '@/components/common';
+import { Avatar, CachedImage, Icon } from '@/components/common';
 import { fontStyle, QUICK_REACTIONS } from '@/components/story/storyConfig';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainStackParamList, MainNav } from '@/navigation/types';
 import { storyService } from '@/services';
 import type { Story, StoryFeedItem } from '@/types';
-import { mediaUrl } from '@/utils/media';
 import { relativeTime } from '@/utils/time';
 
 /**
@@ -60,22 +58,27 @@ export const StoryViewerScreen: React.FC = () => {
   // ── chargement ──────────────────────────────────────────────────────────
   useEffect(() => {
     let alive = true;
+    const apply = (mine: Story[], feed: import('@/types').StoryFeedItem[]) => {
+      if (!alive) return;
+      if (mine.length && mine[0]!.author_id === authorId) {
+        setOwnStories(mine);
+      } else {
+        const g = feed.find((f) => f.author.id === authorId) ?? null;
+        setGroup(g);
+        const firstUnseen = g?.stories.findIndex((s) => !s.seen_by_me) ?? -1;
+        if (firstUnseen > 0) setIdx(firstUnseen);
+      }
+    };
+    // 1) cache local d'abord (instantané, hors-ligne OK)
+    apply(storyService.readMineCache(), storyService.readFeedCache());
+    setLoading(false);
+    // 2) rafraîchit depuis le serveur si possible
     (async () => {
       try {
-        const mine = await storyService.mine();
-        if (mine.length && mine[0]!.author_id === authorId) {
-          if (alive) setOwnStories(mine);
-        } else {
-          const feed = await storyService.feed();
-          const g = feed.find((f) => f.author.id === authorId) ?? null;
-          if (alive) {
-            setGroup(g);
-            const firstUnseen = g?.stories.findIndex((s) => !s.seen_by_me) ?? -1;
-            if (firstUnseen > 0) setIdx(firstUnseen);
-          }
-        }
-      } finally {
-        if (alive) setLoading(false);
+        const [mine, feed] = await Promise.all([storyService.mine(), storyService.feed()]);
+        apply(mine, feed);
+      } catch {
+        /* hors-ligne — le cache local reste affiché */
       }
     })();
     return () => {
@@ -317,7 +320,7 @@ export const StoryViewerScreen: React.FC = () => {
         ) : current.media_type === 'image' ? (
           <>
             {current.media_url ? (
-              <Image source={{ uri: mediaUrl(current.media_url) }} style={styles.media} resizeMode="contain" />
+              <CachedImage uri={current.media_url} style={styles.media} resizeMode="contain" />
             ) : null}
             {current.caption ? <Text style={styles.mediaCaption}>{current.caption}</Text> : null}
           </>

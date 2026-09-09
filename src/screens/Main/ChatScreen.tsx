@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Linking,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,24 +16,34 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner, confirmAlert, showAlert } from '@/components/common';
+import { AttachMenu, type AttachKind } from '@/components/chat/AttachMenu';
 import { ChatMenuSheet, type ChatMenuAction } from '@/components/chat/ChatMenuSheet';
 import { EncryptionInfoModal } from '@/components/chat/EncryptionInfoModal';
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { QuickReplies } from '@/components/chat/QuickReplies';
+import { useMediaPicker, type LocalMediaFile } from '@/hooks/useMediaPicker';
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
 import { useChatPrefs } from '@/context/ChatPrefsContext';
 import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useWs, type WsEvent } from '@/context/WebSocketContext';
+import { onLocalMessageEvent } from '@/context/MessageSync';
 import type { LocalMessage } from '@/db/repositories/messageRepo';
 import { messageRepo } from '@/db/repositories/messageRepo';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import type { MainScreenProps } from '@/navigation/types';
-import { conversationService, messageService, userService } from '@/services';
+import {
+  conversationService,
+  messageService,
+  pendingMediaService,
+  userService,
+} from '@/services';
 import { retryFailedDecryptions, syncNow } from '@/sync/syncEngine';
-import type { ChatMessage, RequestStatus } from '@/types';
-import { dayLabel } from '@/utils/time';
+import type { ChatMessage, MessageType, RequestStatus } from '@/types';
+import { dayLabel, lastSeenLabel } from '@/utils/time';
+import { mediaUrl } from '@/utils/media';
 
 type Item = { kind: 'msg'; m: LocalMessage } | { kind: 'day'; label: string; key: string };
 
@@ -68,7 +79,10 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [sendError, setSendError] = useState<string | null>(null);
   const [requestStatus, setRequestStatus] = useState<RequestStatus>('accepted');
   const [partnerOnline, setPartnerOnline] = useState(false);
+  const [partnerLastSeen, setPartnerLastSeen] = useState<string | null>(null);
   const [partnerTyping, setPartnerTyping] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const picker = useMediaPicker();
   // message en cours d'édition (null = mode envoi normal)
   const [editing, setEditing] = useState<LocalMessage | null>(null);
   const [replyTo, setReplyTo] = useState<LocalMessage | null>(null);
@@ -100,6 +114,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       const d = await conversationService.detail(conversationId);
       setRequestStatus(d.request_status);
       setPartnerOnline(d.partner.is_online);
+      setPartnerLastSeen(d.partner.last_seen_at ?? null);
       setMuted(d.muted);
     } catch {
       /* hors-ligne — on garde le cache local */
@@ -111,6 +126,10 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     void refreshDetail();
     // marque lu (local + outbox) + tente une sync delta pour cette conv
     void messageService.markRead(conversationId, myId);
+    // filet : messages "pending" restés sans entrée d'outbox (app tuée) -> ré-empile
+    void messageService.recoverOrphanPending(myId).then((n) => {
+      if (n > 0) void reload();
+    });
     // re-tente le déchiffrement des messages restés chiffrés, puis rafraîchit
     void retryFailedDecryptions().then((n) => {
       if (n > 0) void reload();
@@ -119,12 +138,22 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
+  // le message entrant est ingéré globalement par <MessageSync/> ; ici on se
+  // contente de recharger la liste quand un message de CETTE conv est arrivé.
+  useEffect(() => {
+    return onLocalMessageEvent((ev) => {
+      if (ev.type === 'message' && ev.conversationId === conversationId) {
+        void reload();
+        // markRead seulement pour un message REÇU (pas pour la confirmation
+        // d'un de nos propres envois).
+        if (ev.incoming) void messageService.markRead(conversationId, myId);
+      }
+    });
+  }, [conversationId, myId, reload]);
+
   useEffect(() => {
     const off = addListener((e: WsEvent) => {
-      if (e.type === 'message.new' && (e.message as ChatMessage)?.conversation_id === conversationId) {
-        void messageService.ingestRealtime(e.message as ChatMessage, myId).then(reload);
-        void messageService.markRead(conversationId, myId);
-      } else if (e.type === 'message.deleted' && e.conversation_id === conversationId) {
+      if (e.type === 'message.deleted' && e.conversation_id === conversationId) {
         void messageRepo.markDeleted(e.message_id as string).then(reload);
       } else if (e.type === 'message.edited') {
         const em = e.message as ChatMessage | undefined;
@@ -146,7 +175,13 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       ) {
         setPartnerTyping(e.type === 'typing.start');
       } else if (e.type === 'presence.update' && e.user_id === partnerId) {
-        setPartnerOnline(!!e.online);
+        const on = !!e.online;
+        setPartnerOnline(on);
+        if (!on) {
+          setPartnerLastSeen(
+            typeof e.last_seen_at === 'string' ? e.last_seen_at : new Date().toISOString(),
+          );
+        }
       } else if (e.type === 'conversation.accepted' && e.user_id === partnerId) {
         // le partenaire a accepte ma demande
         void conversationRepo.setRequestStatus(conversationId, 'accepted').then(() => {
@@ -219,6 +254,137 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     }
   };
 
+  /** Envoi d'un message avec pièce jointe (média déjà uploadé). */
+  const sendAttachment = useCallback(
+    async (
+      type: MessageType,
+      attachmentUrl: string | null,
+      attachmentMeta: Record<string, unknown> | null,
+      body = '',
+    ) => {
+      setSendError(null);
+      try {
+        await messageService.send({
+          conversationId,
+          partnerId,
+          senderId: myId,
+          type,
+          body,
+          attachmentUrl,
+          attachmentMeta,
+        });
+        await reload();
+        void syncNow({ force: true });
+      } catch (e) {
+        console.warn('[ChatScreen] sendAttachment failed:', e);
+        setSendError(t('errors.generic'));
+      }
+    },
+    [conversationId, partnerId, myId, reload, t],
+  );
+
+  /** Envoi offline-first d'un fichier local (upload différé par l'outbox). */
+  const sendLocalMedia = useCallback(
+    async (local: LocalMediaFile) => {
+      setSendError(null);
+      try {
+        await pendingMediaService.sendMedia({
+          conversationId,
+          partnerId,
+          senderId: myId,
+          local,
+        });
+        await reload();
+        void syncNow({ force: true }); // best-effort : part maintenant si en ligne
+      } catch (e) {
+        console.warn('[ChatScreen] sendLocalMedia failed:', e);
+        setSendError(t('errors.generic'));
+      }
+    },
+    [conversationId, partnerId, myId, reload, t],
+  );
+
+  const onAttachPick = useCallback(
+    async (kind: AttachKind) => {
+      if (kind === 'gallery' || kind === 'camera') {
+        const local = await picker.pickImageLocal({ camera: kind === 'camera' });
+        if (local) await sendLocalMedia(local);
+        return;
+      }
+      if (kind === 'video') {
+        const local = await picker.pickVideoLocal();
+        if (local) await sendLocalMedia(local);
+        return;
+      }
+      if (kind === 'file') {
+        const local = await picker.pickDocumentLocal();
+        if (local) await sendLocalMedia(local);
+        return;
+      }
+      if (kind === 'location') {
+        // pas de fichier -> déjà 100% offline via l'outbox send_message
+        const loc = await picker.pickLocation();
+        if (loc) {
+          await sendAttachment(
+            'location',
+            null,
+            { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy },
+          );
+        } else {
+          showAlert(t('chat.attachLocation'), t('chat.locationFailed'));
+        }
+      }
+    },
+    [picker, sendLocalMedia, sendAttachment, t],
+  );
+
+  const onOpenMedia = useCallback(
+    (m: LocalMessage) => {
+      const raw = mediaUrl(m.attachment_url);
+      if (!raw) return;
+      navigation.navigate('MediaViewer', {
+        url: raw,
+        type: m.type === 'video' ? 'video' : 'image',
+        thumbnailUrl: mediaUrl(
+          (m.attachment_meta?.thumbnail_url as string | undefined) ?? undefined,
+        ),
+      });
+    },
+    [navigation],
+  );
+
+  const onOpenFile = useCallback((m: LocalMessage) => {
+    const raw = mediaUrl(m.attachment_url);
+    if (raw) void Linking.openURL(raw).catch(() => showAlert(t('errors.generic')));
+  }, [t]);
+
+  const onOpenLocation = useCallback((lat: number, lng: number) => {
+    const url =
+      Platform.OS === 'ios'
+        ? `http://maps.apple.com/?ll=${lat},${lng}`
+        : `geo:${lat},${lng}?q=${lat},${lng}`;
+    void Linking.openURL(url).catch(() =>
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`),
+    );
+  }, []);
+
+  // ── Enregistrement d'une note vocale (appui maintenu sur le bouton micro) ──
+  const recStartedRef = useRef(false);
+  const onMicPressIn = useCallback(async () => {
+    recStartedRef.current = await picker.startRecording();
+  }, [picker]);
+  const onMicPressOut = useCallback(async () => {
+    if (!recStartedRef.current) return;
+    recStartedRef.current = false;
+    // enregistrement trop court -> on annule
+    if (picker.recordSeconds < 1) {
+      await picker.cancelRecording();
+      return;
+    }
+    const local = await picker.stopRecordingLocal();
+    if (local) await sendLocalMedia(local);
+  }, [picker, sendLocalMedia]);
+
   /** Appui long sur un message -> feuille d'actions. */
   const onMessageLongPress = (m: LocalMessage) => {
     if (m.deleted_at) return;
@@ -255,9 +421,59 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     if (actionMsg?.body) Clipboard.setString(actionMsg.body);
   };
 
+  /** Envoi direct d'une suggestion de réponse rapide (conversation vide). */
+  const sendQuick = useCallback(
+    async (body: string) => {
+      try {
+        await messageService.send({ conversationId, partnerId, senderId: myId, body });
+        await reload();
+        void syncNow({ force: true });
+      } catch (e) {
+        console.warn('[ChatScreen] quick send failed:', e);
+        setSendError(t('errors.generic'));
+      }
+    },
+    [conversationId, partnerId, myId, reload, t],
+  );
+
   const retry = async (m: LocalMessage) => {
     if (!m.client_id) return;
-    // re-enfile l'envoi et relance
+    // média échoué
+    if (
+      (m.type === 'image' || m.type === 'video' || m.type === 'voice' || m.type === 'file') &&
+      m.attachment_url
+    ) {
+      const meta = m.attachment_meta ?? {};
+      const alreadyUploaded = !/^(file:|content:)/.test(m.attachment_url);
+      if (alreadyUploaded) {
+        // l'upload avait réussi : il ne reste que l'envoi du message
+        await sendAttachment(m.type, m.attachment_url, meta, m.body);
+      } else {
+        await pendingMediaService.sendMedia({
+          conversationId,
+          partnerId,
+          senderId: myId,
+          body: m.body,
+          local: {
+            file: {
+              uri: m.attachment_url,
+              name: (meta.name as string) || `media_${Date.now()}`,
+              type: (meta.mime as string) || 'application/octet-stream',
+            },
+            kind: m.type,
+            size: (meta.size as number) ?? null,
+            width: (meta.width as number) ?? null,
+            height: (meta.height as number) ?? null,
+            durationSec: (meta.duration_sec as number) ?? null,
+          },
+        });
+      }
+      await messageRepo.markDeleted(m.id);
+      await reload();
+      void syncNow({ force: true });
+      return;
+    }
+    // texte : re-enfile l'envoi et relance
     await messageService.send({
       conversationId,
       partnerId,
@@ -386,9 +602,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
 
   const subtitle = partnerTyping
     ? t('common.typing')
-    : partnerOnline
-      ? t('common.online')
-      : t('common.offline');
+    : lastSeenLabel(partnerLastSeen, partnerOnline);
 
   // fond de conversation selon la préférence (couleur unie ou dégradé simple)
   const chatBg =
@@ -468,14 +682,25 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             data={items}
             inverted
             keyExtractor={(it) => (it.kind === 'msg' ? it.m.id : it.key)}
-            contentContainerStyle={{ paddingVertical: 10 }}
+            contentContainerStyle={
+              items.length === 0
+                ? styles.emptyContent
+                : { paddingVertical: 10 }
+            }
+            ListEmptyComponent={
+              requestStatus === 'accepted' ? (
+                <QuickReplies partnerName={partnerName} onSend={(txt) => void sendQuick(txt)} />
+              ) : null
+            }
             ListFooterComponent={
-              <Pressable style={styles.encBanner} onPress={() => setEncOpen(true)}>
-                <Icon name="lock" size={12} color={c.textMuted} />
-                <Text style={[styles.encBannerTxt, { color: c.textMuted }]}>
-                  {t('chat.encBanner')}
-                </Text>
-              </Pressable>
+              items.length === 0 ? null : (
+                <Pressable style={styles.encBanner} onPress={() => setEncOpen(true)}>
+                  <Icon name="lock" size={12} color={c.textMuted} />
+                  <Text style={[styles.encBannerTxt, { color: c.textMuted }]}>
+                    {t('chat.encBanner')}
+                  </Text>
+                </Pressable>
+              )
             }
             renderItem={({ item, index }) => {
               if (item.kind === 'day') {
@@ -497,6 +722,9 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                   grouped={grouped}
                   onLongPress={() => onMessageLongPress(item.m)}
                   onRetry={() => retry(item.m)}
+                  onOpenMedia={onOpenMedia}
+                  onOpenFile={onOpenFile}
+                  onOpenLocation={onOpenLocation}
                 />
               );
             }}
@@ -535,6 +763,18 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             >
               {sendError ? (
                 <Text style={[styles.sendError, { color: c.danger }]}>{sendError}</Text>
+              ) : null}
+              {picker.recording ? (
+                <View style={[styles.recBar, { backgroundColor: c.danger + '18' }]}>
+                  <View style={[styles.recDot, { backgroundColor: c.danger }]} />
+                  <Text style={[styles.recText, { color: c.danger }]}>
+                    {t('chat.recording')} {Math.floor(picker.recordSeconds / 60)}:
+                    {String(picker.recordSeconds % 60).padStart(2, '0')}
+                  </Text>
+                  <Text style={[styles.recHint, { color: c.textMuted }]}>
+                    {t('chat.voiceHint')}
+                  </Text>
+                </View>
               ) : null}
               {editing ? (
                 <View style={[styles.editBar, { borderLeftColor: c.primary }]}>
@@ -579,30 +819,54 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                 <TextInput
                   value={text}
                   onChangeText={onChangeText}
-                  placeholder={t('conversations.typeMessage')}
+                  placeholder={
+                    picker.recording ? t('chat.recording') : t('conversations.typeMessage')
+                  }
                   placeholderTextColor={c.textFaint}
+                  editable={!picker.recording}
                   multiline={!enterToSend}
                   blurOnSubmit={false}
                   returnKeyType={enterToSend ? 'send' : 'default'}
                   onSubmitEditing={enterToSend ? () => void send() : undefined}
                   style={[styles.input, { color: c.text }]}
                 />
-                <Pressable hitSlop={8}>
+                <Pressable hitSlop={8} onPress={() => setAttachOpen(true)} disabled={picker.recording}>
                   <Icon name="paperclip" size={20} color={c.textFaint} />
                 </Pressable>
               </View>
-              <Pressable
-                onPress={send}
-                disabled={!text.trim()}
-                style={[styles.sendBtn, { backgroundColor: c.primary, opacity: text.trim() ? 1 : 0.45 }]}
-              >
-                <Icon name={text.trim() ? 'send' : 'microphone'} size={19} color="#fff" />
-              </Pressable>
+              {text.trim() ? (
+                <Pressable
+                  onPress={send}
+                  style={[styles.sendBtn, { backgroundColor: c.primary }]}
+                >
+                  <Icon name="send" size={19} color="#fff" />
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPressIn={() => void onMicPressIn()}
+                  onPressOut={() => void onMicPressOut()}
+                  delayLongPress={120}
+                  style={[
+                    styles.sendBtn,
+                    {
+                      backgroundColor: picker.recording ? c.danger : c.primary,
+                      transform: [{ scale: picker.recording ? 1.15 : 1 }],
+                    },
+                  ]}
+                >
+                  <Icon name="microphone" size={19} color="#fff" />
+                </Pressable>
+              )}
             </View>
           )}
         </KeyboardAvoidingView>
       )}
 
+      <AttachMenu
+        visible={attachOpen}
+        onPick={(k) => void onAttachPick(k)}
+        onClose={() => setAttachOpen(false)}
+      />
       <ChatMenuSheet
         visible={menuOpen}
         actions={menuActions}
@@ -680,6 +944,20 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   sendError: { width: '100%', fontSize: 12, marginBottom: 4, marginLeft: 6 },
+  emptyContent: { flexGrow: 1, justifyContent: 'center' },
+  recBar: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 6,
+  },
+  recDot: { width: 9, height: 9, borderRadius: 5 },
+  recText: { fontSize: 13, fontWeight: '700' },
+  recHint: { fontSize: 11, flex: 1, textAlign: 'right' },
   inputWrap: {
     flex: 1,
     flexDirection: 'row',

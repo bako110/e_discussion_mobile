@@ -11,13 +11,14 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert, showSheet } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { groupService } from '@/services';
+import { withOnline } from '@/utils/online';
 import type { Group, GroupMember } from '@/types';
 
 /** Deep-link d'invitation encodé dans le QR / partagé par lien. */
@@ -60,7 +61,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
         if (alive) {
           setGroup(g);
           setMembers(m);
-          setDescDraft(g.description ?? '');
+          setDescDraft(g?.description ?? '');
         }
       } catch (e) {
         console.warn('[group] info failed:', e);
@@ -78,11 +79,13 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
 
   const changeAvatar = () => {
     if (!canEdit) return;
-    showAlert(t('settings.changePhoto'), undefined, [
-      { text: t('stories.fromGallery'), onPress: () => void pickAvatar(false) },
-      { text: t('stories.fromCamera'), onPress: () => void pickAvatar(true) },
-      { text: t('common.cancel'), style: 'cancel' },
-    ]);
+    showSheet({
+      title: t('settings.changePhoto'),
+      actions: [
+        { label: t('stories.fromGallery'), icon: 'image-outline', onPress: () => void pickAvatar(false) },
+        { label: t('stories.fromCamera'), icon: 'camera-outline', onPress: () => void pickAvatar(true) },
+      ],
+    });
   };
 
   const pickAvatar = async (camera: boolean) => {
@@ -138,7 +141,8 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
           style: 'destructive',
           onPress: async () => {
             try {
-              await groupService.leave(groupId);
+              const ok = await withOnline(() => groupService.leave(groupId));
+              if (ok === null) return; // hors-ligne
               await reloadGroups();
               navigation.navigate('Tabs', { screen: 'StatusTab' });
             } catch {

@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -151,5 +151,51 @@ export const MIGRATIONS: string[] = [
      AND (body LIKE '%"senderDeviceId"%' OR body LIKE '%"contentType"%');
 
   DELETE FROM meta WHERE key = 'last_sync_at';
+  `,
+
+  // ── v6 : groupes & chaînes offline-first (aligné sur le 1-to-1).
+  // `groups` = mes groupes/chaînes (cache disque de la liste). `group_messages`
+  // = historique local ; les messages en attente portent sync_state='pending'
+  // et sont rejoués via l'outbox (`send_group_message` / `upload_group_message`).
+  `
+  CREATE TABLE IF NOT EXISTS groups (
+    id                  TEXT PRIMARY KEY,
+    kind                TEXT NOT NULL DEFAULT 'group',
+    name                TEXT NOT NULL DEFAULT '',
+    description         TEXT,
+    avatar_url          TEXT,
+    owner_id            TEXT NOT NULL DEFAULT '',
+    invite_code         TEXT NOT NULL DEFAULT '',
+    is_public           INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL DEFAULT '',
+    last_message_at     TEXT,
+    last_message_preview TEXT,
+    member_count        INTEGER NOT NULL DEFAULT 0,
+    unread_count        INTEGER NOT NULL DEFAULT 0,
+    my_role             TEXT,
+    can_post            INTEGER NOT NULL DEFAULT 0,
+    muted               INTEGER NOT NULL DEFAULT 0,
+    sync_state          TEXT NOT NULL DEFAULT 'synced',
+    updated_at          TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_group_last ON groups(last_message_at DESC);
+
+  CREATE TABLE IF NOT EXISTS group_messages (
+    id                TEXT PRIMARY KEY,
+    client_id         TEXT UNIQUE,
+    group_id          TEXT NOT NULL,
+    sender_id         TEXT NOT NULL,
+    sender_json       TEXT,
+    type              TEXT NOT NULL DEFAULT 'text',
+    body              TEXT NOT NULL DEFAULT '',
+    attachment_url    TEXT,
+    attachment_meta   TEXT,
+    edited_at         TEXT,
+    deleted_at        TEXT,
+    created_at        TEXT NOT NULL,
+    sync_state        TEXT NOT NULL DEFAULT 'synced'
+  );
+  CREATE INDEX IF NOT EXISTS idx_gmsg_group ON group_messages(group_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_gmsg_sync ON group_messages(sync_state);
   `,
 ];

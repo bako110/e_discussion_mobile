@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { CallProvider } from '@/context/CallContext';
 import { GroupsProvider } from '@/context/GroupsContext';
 import { MessageNotifications } from '@/context/MessageNotifications';
+import { MessageSync } from '@/context/MessageSync';
 import { StoriesProvider } from '@/context/StoriesContext';
 import { useTheme } from '@/context/ThemeContext';
 import { WebSocketProvider } from '@/context/WebSocketContext';
@@ -79,6 +80,7 @@ export const RootNavigator: React.FC = () => {
                 <MainNavigator />
               </GroupsProvider>
             </StoriesProvider>
+            <MessageSync />
             <MessageNotifications />
             <CallOverlay />
           </CallProvider>

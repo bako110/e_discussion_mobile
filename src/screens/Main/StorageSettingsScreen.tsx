@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -14,7 +14,21 @@ import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
 import { getDb } from '@/db';
 import type { MainNav } from '@/navigation/types';
+import { mediaCache } from '@/services/mediaCache';
+import { storage } from '@/utils/storage';
 import { resetSyncCursor } from '@/sync/syncEngine';
+
+function humanSize(bytes: number): string {
+  if (bytes <= 0) return '0 o';
+  const u = ['o', 'Ko', 'Mo', 'Go'];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) {
+    n /= 1024;
+    i += 1;
+  }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
+}
 
 export const StorageSettingsScreen: React.FC = () => {
   const navigation = useNavigation<MainNav>();
@@ -22,6 +36,24 @@ export const StorageSettingsScreen: React.FC = () => {
   const { theme } = useTheme();
   const { pending, online, syncNow } = useSync();
   const c = theme.colors;
+
+  const [cacheSize, setCacheSize] = useState<number | null>(null);
+  const refreshCacheSize = () => void mediaCache.size().then(setCacheSize);
+  useEffect(refreshCacheSize, []);
+
+  const clearMediaCache = () => {
+    showAlert(t('settings.clearMediaCache'), t('settings.clearMediaCacheConfirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('common.delete'),
+        style: 'destructive',
+        onPress: async () => {
+          await mediaCache.clear();
+          refreshCacheSize();
+        },
+      },
+    ]);
+  };
 
   const clearLocal = () => {
     showAlert(t('settings.clearLocal'), t('settings.clearLocalConfirm'), [
@@ -33,9 +65,19 @@ export const StorageSettingsScreen: React.FC = () => {
           const db = getDb();
           await db.execute('DELETE FROM messages');
           await db.execute('DELETE FROM conversations');
+          await db.execute('DELETE FROM group_messages');
+          await db.execute('DELETE FROM groups');
           await db.execute('DELETE FROM outbox');
+          await mediaCache.clear();
+          try {
+            storage.delete('stories.feed.cache');
+            storage.delete('stories.mine.cache');
+          } catch {
+            /* stockage indispo */
+          }
           await resetSyncCursor();
           await syncNow();
+          refreshCacheSize();
         },
       },
     ]);
@@ -90,6 +132,12 @@ export const StorageSettingsScreen: React.FC = () => {
         </SettingsSection>
 
         <SettingsSection title={t('settings.manage')}>
+          <SettingsRow
+            icon="image-off-outline"
+            label={t('settings.clearMediaCache')}
+            value={cacheSize == null ? '…' : humanSize(cacheSize)}
+            onPress={clearMediaCache}
+          />
           <SettingsRow
             icon="delete-sweep-outline"
             label={t('settings.clearLocal')}

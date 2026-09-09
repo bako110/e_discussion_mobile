@@ -12,16 +12,28 @@
  * Tout est best-effort : hors-ligne, syncNow() ne fait rien et l'app
  * continue de fonctionner sur la base locale.
  */
-import { apiClient, ApiError, Endpoints } from '@/api';
+import { apiClient, ApiError, Endpoints, type UploadFile } from '@/api';
 import { query, run } from '@/db';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import { messageRepo } from '@/db/repositories/messageRepo';
+import { groupRepo } from '@/db/repositories/groupRepo';
 import { messageService as netMessages } from '@/services/messageService.net';
-import type { ChatMessage, ConversationSummary } from '@/types';
+import { mediaService } from '@/services/mediaService';
+import { mediaCache } from '@/services/mediaCache';
+import type { ChatMessage, ConversationSummary, Group, GroupMessage } from '@/types';
 
-import { outbox, type OutboxEntry } from './outbox';
+import { notifyMutationApplied, outbox, setOnEnqueued, type OutboxEntry } from './outbox';
 
 const LAST_SYNC_KEY = 'last_sync_at';
+
+/** Aperçu court d'une conversation quand le dernier message est une pièce jointe sans texte. */
+const ATTACH_PREVIEW: Record<string, string> = {
+  image: '📷 Photo',
+  video: '🎬 Vidéo',
+  voice: '🎤 Message vocal',
+  file: '📎 Document',
+  location: '📍 Position',
+};
 
 // id de l'utilisateur courant — pose par AuthContext, sert a distinguer NOS
 // messages (garder le texte clair local) de ceux recus (dechiffrer).
@@ -33,6 +45,11 @@ export function setSyncUser(id: string | null): void {
 let running = false;
 let lastRunAt = 0;
 const MIN_INTERVAL_MS = 4000; // coalesce les declencheurs rapproches (mount + AppState + NetInfo)
+
+// Verrou DÉDIÉ au push : indépendant du gros `pullDeltas`, pour que l'envoi
+// d'un message parte immédiatement même si un pull est en cours.
+let pushing = false;
+let pushAgain = false;
 type Progress = (state: { phase: 'push' | 'pull' | 'idle'; pending: number }) => void;
 const listeners = new Set<Progress>();
 
@@ -74,13 +91,80 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
       );
       const plain = (p.plainBody as string | undefined) ?? saved.body;
       await messageRepo.confirmSent(entry.client_id, { ...saved, body: plain });
+      const preview = plain || ATTACH_PREVIEW[saved.type] || '';
       await conversationRepo.touchLastMessage(
         p.conversationId as string,
-        plain,
+        preview,
         saved.type,
         saved.encrypted,
         saved.created_at,
       );
+      notifyMutationApplied({ conversationId: p.conversationId as string });
+      break;
+    }
+
+    // ── média choisi hors-ligne : on uploade MAINTENANT (réseau revenu) puis
+    //    on envoie le message. Idempotent : si l'upload a déjà réussi lors
+    //    d'une tentative précédente, l'URL est mémorisée dans le payload.
+    case 'upload_message': {
+      const localFile = p.localFile as UploadFile | undefined;
+      let attachmentUrl = p.attachmentUrl as string | undefined;
+      let meta: Record<string, unknown> = (p.attachmentMeta as Record<string, unknown>) ?? {};
+
+      if (!attachmentUrl) {
+        if (!localFile?.uri) {
+          // fichier introuvable -> échec définitif
+          throw new ApiError(422, 'fichier local manquant', 'local_file_missing');
+        }
+        const up = await mediaService.upload(localFile);
+        attachmentUrl = up.url;
+        meta = {
+          ...meta,
+          thumbnail_url: up.thumbnail_url ?? meta.thumbnail_url,
+          width: up.width ?? meta.width,
+          height: up.height ?? meta.height,
+          duration_sec: up.duration_sec ?? meta.duration_sec,
+          size: up.size ?? meta.size,
+        };
+        // mémorise l'URL pour ne pas ré-uploader si l'envoi échoue ensuite
+        p.attachmentUrl = attachmentUrl;
+        p.attachmentMeta = meta;
+        await run('UPDATE outbox SET payload_json=? WHERE id=?', [
+          JSON.stringify(p),
+          entry.id,
+        ]);
+        // le fichier que l'utilisateur vient d'envoyer -> on le range dans le
+        // cache disque SOUS l'URL serveur, pour que <CachedImage> l'affiche
+        // sans re-télécharger (et même hors-ligne juste après).
+        await mediaCache.adopt(attachmentUrl, localFile.uri);
+        if (meta.thumbnail_url && typeof meta.thumbnail_url === 'string') {
+          await mediaCache.adopt(meta.thumbnail_url as string, localFile.uri);
+        }
+        // met à jour la ligne locale : l'aperçu pointe désormais vers le serveur
+        await messageRepo.setAttachment(entry.client_id, attachmentUrl, meta);
+      }
+
+      const saved = await apiClient.post<ChatMessage>(
+        Endpoints.conversations.messages(p.conversationId as string),
+        {
+          type: p.type ?? 'file',
+          body: p.body ?? '',
+          encrypted: false,
+          attachment_url: attachmentUrl,
+          attachment_meta: meta,
+          reply_to_id: p.replyToId ?? undefined,
+          client_id: entry.client_id,
+        },
+      );
+      await messageRepo.confirmSent(entry.client_id, { ...saved, body: saved.body });
+      await conversationRepo.touchLastMessage(
+        p.conversationId as string,
+        ATTACH_PREVIEW[saved.type] || saved.body || '',
+        saved.type,
+        saved.encrypted,
+        saved.created_at,
+      );
+      notifyMutationApplied({ conversationId: p.conversationId as string });
       break;
     }
     case 'react':
@@ -109,6 +193,86 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
         : apiClient.delete(Endpoints.conversations.mute(p.conversationId as string)));
       await conversationRepo.markSynced(p.conversationId as string);
       break;
+
+    // ── Groupes ──────────────────────────────────────────────────────────
+    case 'send_group_message': {
+      const saved = await apiClient.post<GroupMessage>(
+        Endpoints.groups.messages(p.groupId as string),
+        {
+          type: p.type ?? 'text',
+          body: p.body ?? '',
+          client_id: entry.client_id,
+        },
+      );
+      await groupRepo.confirmSent(entry.client_id, saved);
+      await groupRepo.touchLastMessage(
+        p.groupId as string,
+        saved.body || ATTACH_PREVIEW[saved.type] || '',
+        saved.created_at,
+      );
+      notifyMutationApplied({ groupId: p.groupId as string });
+      break;
+    }
+
+    case 'upload_group_message': {
+      const localFile = p.localFile as UploadFile | undefined;
+      let attachmentUrl = p.attachmentUrl as string | undefined;
+      let meta: Record<string, unknown> = (p.attachmentMeta as Record<string, unknown>) ?? {};
+
+      if (!attachmentUrl) {
+        if (!localFile?.uri) {
+          throw new ApiError(422, 'fichier local manquant', 'local_file_missing');
+        }
+        const up = await mediaService.upload(localFile);
+        attachmentUrl = up.url;
+        meta = {
+          ...meta,
+          thumbnail_url: up.thumbnail_url ?? meta.thumbnail_url,
+          width: up.width ?? meta.width,
+          height: up.height ?? meta.height,
+          duration_sec: up.duration_sec ?? meta.duration_sec,
+          size: up.size ?? meta.size,
+        };
+        p.attachmentUrl = attachmentUrl;
+        p.attachmentMeta = meta;
+        await run('UPDATE outbox SET payload_json=? WHERE id=?', [JSON.stringify(p), entry.id]);
+        await mediaCache.adopt(attachmentUrl, localFile.uri);
+        if (meta.thumbnail_url && typeof meta.thumbnail_url === 'string') {
+          await mediaCache.adopt(meta.thumbnail_url as string, localFile.uri);
+        }
+        await groupRepo.setAttachment(entry.client_id, attachmentUrl, meta);
+      }
+
+      const saved = await apiClient.post<GroupMessage>(
+        Endpoints.groups.messages(p.groupId as string),
+        {
+          type: p.type ?? 'image',
+          body: p.body ?? '',
+          attachment_url: attachmentUrl,
+          attachment_meta: meta,
+          client_id: entry.client_id,
+        },
+      );
+      await groupRepo.confirmSent(entry.client_id, saved);
+      await groupRepo.touchLastMessage(
+        p.groupId as string,
+        ATTACH_PREVIEW[saved.type] || saved.body || '',
+        saved.created_at,
+      );
+      notifyMutationApplied({ groupId: p.groupId as string });
+      break;
+    }
+
+    case 'group_mark_read':
+      await apiClient.put(Endpoints.groups.read(p.groupId as string));
+      break;
+
+    case 'group_mute':
+      await (p.muted
+        ? apiClient.put(Endpoints.groups.mute(p.groupId as string))
+        : apiClient.put(Endpoints.groups.unmute(p.groupId as string)));
+      await groupRepo.markSynced(p.groupId as string);
+      break;
   }
 }
 
@@ -125,15 +289,22 @@ export async function pushOutbox(): Promise<void> {
       const isClient = err instanceof ApiError && err.status >= 400 && err.status < 500 && err.status !== 429;
       const status = err instanceof ApiError ? err.status : '?';
       console.warn(`[sync] push ECHEC ${entry.kind}: status=${status} ${(err as Error).message}`);
+      const isMsgKind = entry.kind === 'send_message' || entry.kind === 'upload_message';
+      const isGroupMsgKind =
+        entry.kind === 'send_group_message' || entry.kind === 'upload_group_message';
+      const markFailed = async () => {
+        if (isMsgKind) await messageRepo.markFailed(entry.client_id);
+        else if (isGroupMsgKind) await groupRepo.markFailed(entry.client_id);
+      };
       if (isClient) {
         // Erreur définitive (validation, conflit non idempotent, droit) :
         // on abandonne l'entrée et on marque la ligne locale en échec.
         await outbox.remove(entry.id);
-        if (entry.kind === 'send_message') await messageRepo.markFailed(entry.client_id);
+        await markFailed();
       } else {
         const outcome = await outbox.retryLater(entry, (err as Error).message);
-        if (outcome === 'gaveup' && entry.kind === 'send_message') {
-          await messageRepo.markFailed(entry.client_id);
+        if (outcome === 'gaveup' && (isMsgKind || isGroupMsgKind)) {
+          await markFailed();
           await outbox.remove(entry.id);
         }
         // erreur réseau/serveur : on arrête la boucle, on reprendra au prochain syncNow
@@ -190,6 +361,22 @@ export async function pullDeltas(): Promise<void> {
   // (session enfin établie, prekey récupérée...).
   await retryFailedDecryptions();
 
+  // ── Groupes & chaînes : liste + historique récent des groupes déjà ouverts
+  //    (ou avec des non-lus). On ne télécharge PAS tout l'historique de tous
+  //    les groupes à chaque sync — seulement ce qui est pertinent.
+  try {
+    const groups = await apiClient.get<Group[]>(Endpoints.groups.list);
+    await groupRepo.bulkReplace(groups);
+    const opened = await groupRepo.groupIdsWithMessages();
+    for (const g of groups) {
+      if (!opened.has(g.id) && g.unread_count === 0) continue;
+      const hist = await apiClient.get<GroupMessage[]>(Endpoints.groups.messages(g.id));
+      for (const m of hist) await groupRepo.upsertMessageFromServer(m);
+    }
+  } catch (e) {
+    console.warn('[sync] pull groupes:', (e as Error).message);
+  }
+
   await setMeta(LAST_SYNC_KEY, nowIso);
 }
 
@@ -217,13 +404,45 @@ export async function retryFailedDecryptions(): Promise<number> {
 }
 
 // ── ORCHESTRATION ─────────────────────────────────────────────────────────
+
+/**
+ * Pousse l'outbox MAINTENANT — léger, sans pull. À appeler juste après un
+ * envoi (message, réaction, lecture…) pour que ça parte sans attendre le
+ * cycle complet. Coalesce les appels rapprochés ; si un push tourne déjà,
+ * on redéclenche une passe à la fin.
+ */
+// branche l'auto-push : toute entrée d'outbox déclenche un pushNow immédiat
+setOnEnqueued(() => {
+  void pushNow();
+});
+
+export async function pushNow(): Promise<void> {
+  if (pushing) {
+    pushAgain = true;
+    return;
+  }
+  pushing = true;
+  try {
+    do {
+      pushAgain = false;
+      await pushOutbox();
+    } while (pushAgain);
+  } catch (e) {
+    console.warn('[sync] pushNow interrompu:', (e as Error).message);
+  } finally {
+    pushing = false;
+    emit('idle', await outbox.count());
+  }
+}
+
 export async function syncNow(opts?: { force?: boolean }): Promise<void> {
   if (running) return;
   if (!opts?.force && Date.now() - lastRunAt < MIN_INTERVAL_MS) return;
   running = true;
   lastRunAt = Date.now();
   try {
-    await pushOutbox();
+    // le push passe par pushNow() pour ne pas doubler avec un envoi manuel
+    if (!pushing) await pushNow();
     await pullDeltas();
   } catch (e) {
     // hors-ligne ou serveur indisponible — on réessaiera

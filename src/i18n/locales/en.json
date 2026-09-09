@@ -81,7 +81,12 @@
     "accept": "Accept",
     "decline": "Decline",
     "acceptRequestHint": "{{name}} wants to chat with you.",
-    "sectionTitle": "Chats"
+    "sectionTitle": "Chats",
+    "filterTitle": "Filter chats",
+    "filterAll": "All",
+    "filterUnread": "Unread",
+    "filterMuted": "Muted",
+    "filterRequests": "Message requests"
   },
   "stories": {
     "myStatus": "My status",
@@ -351,6 +356,8 @@
     "autoDownloadWifi": "Auto-download on Wi-Fi",
     "autoDownloadData": "Auto-download on mobile data",
     "manage": "Manage",
+    "clearMediaCache": "Clear media cache",
+    "clearMediaCacheConfirm": "Downloaded photos, videos and files will be removed from this device. They re-download when you open the chats.",
     "clearLocal": "Clear local cache",
     "clearLocalConfirm": "Cached messages and chats will be removed from this device and re-synced from the server.",
     "storageNote": "Clearing the cache does not delete any messages on the server.",
@@ -435,7 +442,9 @@
     "pendingCount": "{{count}} waiting to sync",
     "sentWhenOnline": "Will be sent once online",
     "failed": "Failed to send — tap to retry",
-    "upToDate": "Up to date"
+    "upToDate": "Up to date",
+    "onlineRequiredTitle": "Connection required",
+    "onlineRequiredBody": "This action needs an internet connection. Try again once you're online."
   },
   "errors": {
     "network": "Connection problem. Check your network.",
@@ -486,7 +495,40 @@
     "deleteForMe": "Delete for me",
     "forwardCopied": "Message copied — paste it into another chat.",
     "replyingTo": "Replying to",
-    "replySelf": "you"
+    "replySelf": "you",
+    "attachPhoto": "Photo",
+    "attachCamera": "Camera",
+    "attachVideo": "Video",
+    "attachFile": "Document",
+    "attachLocation": "Location",
+    "attachTitle": "Attach",
+    "locationShared": "Location shared",
+    "locationSharing": "Getting your location…",
+    "locationDenied": "Allow location access to share your position.",
+    "locationFailed": "Couldn't get your location.",
+    "openInMaps": "Open in Maps",
+    "voiceHint": "Hold to record, release to send",
+    "voiceCancel": "Slide to cancel",
+    "voiceNote": "Voice message",
+    "recording": "Recording…",
+    "photo": "Photo",
+    "video": "Video",
+    "file": "Document",
+    "emptyTitle": "Start the conversation",
+    "emptyBody": "Send {{name}} a first message — your chats are end-to-end encrypted.",
+    "quickHello": "Hi 👋",
+    "quickHowAreYou": "How are you?",
+    "quickAvailable": "Are you free?",
+    "quickCallLater": "Call later?",
+    "quickNiceToMeet": "Nice to connect 🙂",
+    "quickWhatsUp": "What's up?"
+  },
+  "presence": {
+    "seenMinutes": "last seen {{count}} min ago",
+    "seenAt": "last seen at {{time}}",
+    "seenYesterday": "last seen yesterday at {{time}}",
+    "seenWeekday": "last seen {{day}} at {{time}}",
+    "seenDate": "last seen {{date}}"
   },
   "contacts": {
     "syncTitle": "Sync my contacts",

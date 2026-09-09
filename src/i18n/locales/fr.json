@@ -81,7 +81,12 @@
     "accept": "Accepter",
     "decline": "Refuser",
     "acceptRequestHint": "{{name}} souhaite discuter avec vous.",
-    "sectionTitle": "Discussions"
+    "sectionTitle": "Discussions",
+    "filterTitle": "Filtrer les discussions",
+    "filterAll": "Toutes",
+    "filterUnread": "Non lues",
+    "filterMuted": "En sourdine",
+    "filterRequests": "Demandes reçues"
   },
   "stories": {
     "myStatus": "Mon statut",
@@ -351,6 +356,8 @@
     "autoDownloadWifi": "Téléchargement auto en Wi-Fi",
     "autoDownloadData": "Téléchargement auto en données mobiles",
     "manage": "Gérer",
+    "clearMediaCache": "Vider le cache des médias",
+    "clearMediaCacheConfirm": "Les photos, vidéos et fichiers téléchargés seront supprimés de cet appareil. Ils se re-téléchargeront à l'ouverture des discussions.",
     "clearLocal": "Vider le cache local",
     "clearLocalConfirm": "Les messages et discussions en cache seront supprimés de cet appareil puis re-synchronisés depuis le serveur.",
     "storageNote": "Vider le cache ne supprime aucun message côté serveur.",
@@ -435,7 +442,9 @@
     "pendingCount": "{{count}} en attente de synchronisation",
     "sentWhenOnline": "Sera envoyé une fois en ligne",
     "failed": "Échec de l'envoi — appuyez pour réessayer",
-    "upToDate": "À jour"
+    "upToDate": "À jour",
+    "onlineRequiredTitle": "Connexion requise",
+    "onlineRequiredBody": "Cette action a besoin d'une connexion Internet. Réessayez une fois en ligne."
   },
   "errors": {
     "network": "Problème de connexion. Vérifiez votre réseau.",
@@ -486,7 +495,40 @@
     "deleteForMe": "Supprimer pour moi",
     "forwardCopied": "Message copié — collez-le dans une autre discussion.",
     "replyingTo": "Réponse à",
-    "replySelf": "vous"
+    "replySelf": "vous",
+    "attachPhoto": "Photo",
+    "attachCamera": "Caméra",
+    "attachVideo": "Vidéo",
+    "attachFile": "Document",
+    "attachLocation": "Localisation",
+    "attachTitle": "Joindre",
+    "locationShared": "Position partagée",
+    "locationSharing": "Récupération de la position…",
+    "locationDenied": "Autorisez la localisation pour partager votre position.",
+    "locationFailed": "Impossible d'obtenir votre position.",
+    "openInMaps": "Ouvrir dans Maps",
+    "voiceHint": "Maintenez pour enregistrer, relâchez pour envoyer",
+    "voiceCancel": "Glissez pour annuler",
+    "voiceNote": "Message vocal",
+    "recording": "Enregistrement…",
+    "photo": "Photo",
+    "video": "Vidéo",
+    "file": "Document",
+    "emptyTitle": "Démarrez la conversation",
+    "emptyBody": "Envoyez un premier message à {{name}} — vos échanges sont chiffrés de bout en bout.",
+    "quickHello": "Salut 👋",
+    "quickHowAreYou": "Comment ça va ?",
+    "quickAvailable": "Tu es dispo ?",
+    "quickCallLater": "On s'appelle plus tard ?",
+    "quickNiceToMeet": "Ravi d'échanger avec toi 🙂",
+    "quickWhatsUp": "Quoi de neuf ?"
+  },
+  "presence": {
+    "seenMinutes": "vu il y a {{count}} min",
+    "seenAt": "vu à {{time}}",
+    "seenYesterday": "vu hier à {{time}}",
+    "seenWeekday": "vu {{day}} à {{time}}",
+    "seenDate": "vu le {{date}}"
   },
   "contacts": {
     "syncTitle": "Synchroniser mes contacts",

@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Image,
   Linking,
   Pressable,
   StyleSheet,
@@ -10,7 +9,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
-import { Icon } from '@/components/common';
+import { CachedImage, Icon } from '@/components/common';
 import type { MainScreenProps } from '@/navigation/types';
 import { mediaUrl } from '@/utils/media';
 
@@ -40,11 +39,11 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
       </Pressable>
 
       {type === 'image' ? (
-        <Image source={{ uri: mediaUrl(url) }} style={styles.image} resizeMode="contain" />
+        <CachedImage uri={url} style={styles.image} resizeMode="contain" />
       ) : (
         <View style={styles.videoWrap}>
           {thumbnailUrl ? (
-            <Image source={{ uri: mediaUrl(thumbnailUrl) }} style={styles.image} resizeMode="contain" />
+            <CachedImage uri={thumbnailUrl} style={styles.image} resizeMode="contain" />
           ) : null}
           <Pressable style={styles.playBtn} onPress={() => Linking.openURL(mediaUrl(url) ?? url)}>
             <Icon name="play" size={34} color="#fff" />

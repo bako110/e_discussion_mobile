@@ -12,6 +12,9 @@
         android:maxSdkVersion="32" />
     <!-- Synchro du carnet d'adresses : retrouver les contacts qui utilisent l'app -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Partage de position dans une conversation -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- Appels WebRTC (LiveKit self-hosted) : audio full-duplex + réseau + service au premier plan -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

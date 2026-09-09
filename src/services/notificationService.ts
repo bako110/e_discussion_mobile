@@ -10,7 +10,7 @@
  *
  * L'écran d'appel lui-même reste 100 % React Native (voir CallOverlay).
  */
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import notifee, {
   AndroidCategory,
   AndroidImportance,
@@ -19,8 +19,23 @@ import notifee, {
   EventType,
 } from '@notifee/react-native';
 
+import { getNotifPrefs } from './notificationPrefs';
+
 const CH_CALLS = 'calls_v1';
 const CH_MESSAGES = 'messages_v1';
+
+/**
+ * Le son et la vibration sont fixés AU NIVEAU DU CANAL sur Android (immuables
+ * après création). On prépare donc 4 canaux « messages » — un par combinaison
+ * (son, vibreur) — et `displayMessageNotification` choisit celui qui
+ * correspond aux préférences de l'utilisateur.
+ */
+function messageChannelId(sound: boolean, vibrate: boolean): string {
+  if (sound && vibrate) return CH_MESSAGES;
+  if (sound && !vibrate) return 'messages_novib';
+  if (!sound && vibrate) return 'messages_silent';
+  return 'messages_quiet';
+}
 
 /** id fixe pour la notif de sonnerie : permet de l'annuler à la réponse. */
 export const INCOMING_CALL_NOTIF_ID = 'incoming-call';
@@ -56,6 +71,28 @@ export async function ensureNotificationSetup(): Promise<void> {
     vibration: true,
     visibility: AndroidVisibility.PRIVATE,
   });
+  await notifee.createChannel({
+    id: 'messages_novib',
+    name: 'Messages (sans vibreur)',
+    importance: AndroidImportance.HIGH,
+    sound: 'default',
+    vibration: false,
+    visibility: AndroidVisibility.PRIVATE,
+  });
+  await notifee.createChannel({
+    id: 'messages_silent',
+    name: 'Messages (silencieux)',
+    importance: AndroidImportance.HIGH,
+    vibration: true,
+    visibility: AndroidVisibility.PRIVATE,
+  });
+  await notifee.createChannel({
+    id: 'messages_quiet',
+    name: 'Messages (discret)',
+    importance: AndroidImportance.DEFAULT,
+    vibration: false,
+    visibility: AndroidVisibility.PRIVATE,
+  });
   _channelsReady = true;
 }
 
@@ -69,6 +106,12 @@ export interface IncomingCallNotifData {
 
 /** Affiche la sonnerie native plein écran. À appeler sur l'event WS `call.incoming`. */
 export async function displayIncomingCall(data: IncomingCallNotifData): Promise<void> {
+  // Notifs d'appel désactivées : au premier plan, l'écran d'appel in-app
+  // (IncomingCallScreen + sonnerie CallPrefs) suffit — on n'ajoute pas la
+  // notif OS. En arrière-plan/app tuée on la garde SINON l'appel est manqué
+  // en silence.
+  if (!getNotifPrefs().calls && AppState.currentState === 'active') return;
+
   await ensureNotificationSetup();
   const isVideo = data.callType === 'video';
   await notifee.displayNotification({
@@ -126,23 +169,34 @@ export interface MessageNotifData {
 }
 
 export async function displayMessageNotification(d: MessageNotifData): Promise<void> {
+  const prefs = getNotifPrefs();
+  // notifications de messages désactivées -> rien
+  if (!prefs.messages) return;
+
   await ensureNotificationSetup();
+  const body = prefs.preview ? d.preview || 'Nouveau message' : 'Nouveau message';
   await notifee.displayNotification({
     // une notif par conversation : le nouveau message remplace le précédent
     id: `msg-${d.conversationId}`,
     title: d.senderName,
-    body: d.preview || 'Nouveau message',
+    body,
     data: { kind: 'message', conversationId: d.conversationId },
     android: {
-      channelId: CH_MESSAGES,
+      channelId: messageChannelId(prefs.sound, prefs.vibrate),
       category: AndroidCategory.MESSAGE,
-      importance: AndroidImportance.HIGH,
+      importance: prefs.sound || prefs.vibrate
+        ? AndroidImportance.HIGH
+        : AndroidImportance.DEFAULT,
       pressAction: { id: 'open-chat', launchActivity: 'default' },
       groupId: 'messages',
       timestamp: Date.now(),
       showTimestamp: true,
+      onlyAlertOnce: false,
     },
-    ios: { threadId: d.conversationId, sound: 'default' },
+    ios: {
+      threadId: d.conversationId,
+      sound: prefs.sound ? 'default' : undefined,
+    },
   });
 }
 

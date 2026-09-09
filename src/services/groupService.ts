@@ -1,4 +1,18 @@
+/**
+ * Groupes & chaînes — LOCAL-FIRST (comme le 1-to-1).
+ *
+ *  - `list()` / `messages()` / `get()` : lisent SQLite (`groupRepo`).
+ *    Instantané, hors-ligne OK. Le rafraîchissement serveur se fait via
+ *    `refreshList()` / `refreshMessages()` (best-effort, silencieux si offline).
+ *  - `send()` : insère un message optimiste + empile l'outbox
+ *    (`send_group_message`). `sendMedia()` : idem mais upload différé
+ *    (`upload_group_message`).
+ *  - Opérations qui EXIGENT le serveur (création, rejoindre, aperçu, membres,
+ *    quitter, éditer les infos) : lèvent si hors-ligne — l'appelant affiche
+ *    « connexion requise ».
+ */
 import { apiClient, Endpoints } from '@/api';
+import { groupRepo, type LocalGroup, type LocalGroupMessage } from '@/db/repositories/groupRepo';
 import type {
   CreateGroupInput,
   Group,
@@ -7,22 +21,133 @@ import type {
   GroupMessage,
   GroupPreview,
 } from '@/types';
+import { newClientId, outbox } from '@/sync/outbox';
 
-/**
- * Groupes & chaînes — conversations multi-membres. En ligne uniquement
- * (pas d'offline-first pour l'instant : à aligner sur le 1-to-1 plus tard).
- */
+const PREVIEW: Record<string, string> = {
+  image: '📷 Photo',
+  video: '🎬 Vidéo',
+  voice: '🎤 Message vocal',
+  file: '📎 Document',
+};
+
 export const groupService = {
-  /** Mes groupes + chaînes, ou filtrés par type. */
-  list(kind?: GroupKind): Promise<Group[]> {
-    return apiClient.get<Group[]>(
-      kind ? Endpoints.groups.listByKind(kind) : Endpoints.groups.list,
+  // ── Lecture locale ─────────────────────────────────────────────────────
+  list(kind?: GroupKind): Promise<LocalGroup[]> {
+    return groupRepo.list().then((all) => (kind ? all.filter((g) => g.kind === kind) : all));
+  },
+
+  get(id: string): Promise<LocalGroup | null> {
+    return groupRepo.get(id);
+  },
+
+  messages(id: string, beforeCreatedAt?: string): Promise<LocalGroupMessage[]> {
+    return groupRepo.page(id, 40, beforeCreatedAt);
+  },
+
+  // ── Rafraîchissement serveur (best-effort) ─────────────────────────────
+  /** Récupère mes groupes/chaînes et les fusionne en local. */
+  async refreshList(): Promise<void> {
+    const remote = await apiClient.get<Group[]>(Endpoints.groups.list);
+    await groupRepo.bulkReplace(remote);
+  },
+
+  /** Recharge l'entête + l'historique récent d'un groupe. */
+  async refreshMessages(id: string): Promise<void> {
+    const [g, hist] = await Promise.all([
+      apiClient.get<Group>(Endpoints.groups.byId(id)),
+      apiClient.get<GroupMessage[]>(Endpoints.groups.messages(id)),
+    ]);
+    await groupRepo.upsertFromServer(g);
+    for (const m of hist) await groupRepo.upsertMessageFromServer(m);
+  },
+
+  /** Applique un message reçu en temps réel (WS `group.message`). */
+  async ingestRealtime(m: GroupMessage): Promise<void> {
+    await groupRepo.upsertMessageFromServer(m);
+    await groupRepo.touchLastMessage(
+      m.group_id,
+      m.body || PREVIEW[m.type] || '',
+      m.created_at,
     );
   },
 
-  /** Crée un groupe ou une chaîne. */
-  create(input: CreateGroupInput): Promise<Group> {
-    return apiClient.post<Group>(Endpoints.groups.create, {
+  // ── Envoi local-first ──────────────────────────────────────────────────
+  async send(
+    id: string,
+    body: string,
+    opts?: { senderId?: string },
+  ): Promise<LocalGroupMessage | null> {
+    const plain = body.trim();
+    if (!plain) return null;
+    const clientId = newClientId();
+    const createdAt = new Date().toISOString();
+
+    await groupRepo.insertOutgoing({
+      clientId,
+      groupId: id,
+      senderId: opts?.senderId ?? '',
+      type: 'text',
+      body: plain,
+      createdAt,
+    });
+    await groupRepo.touchLastMessage(id, plain, createdAt);
+    await outbox.enqueue('send_group_message', clientId, {
+      groupId: id,
+      type: 'text',
+      body: plain,
+    });
+    return groupRepo.getByClientId(clientId);
+  },
+
+  /** Média offline-first : message optimiste + upload différé. */
+  async sendMedia(p: {
+    groupId: string;
+    senderId: string;
+    localFile: { uri: string; name: string; type: string };
+    kind: 'image' | 'video' | 'file' | 'voice';
+    meta?: Record<string, unknown>;
+  }): Promise<void> {
+    const clientId = newClientId();
+    const createdAt = new Date().toISOString();
+    const meta: Record<string, unknown> = {
+      ...(p.meta ?? {}),
+      name: p.localFile.name,
+      mime: p.localFile.type,
+      thumbnail_url:
+        p.kind === 'image' || p.kind === 'video' ? p.localFile.uri : undefined,
+    };
+    await groupRepo.insertOutgoing({
+      clientId,
+      groupId: p.groupId,
+      senderId: p.senderId,
+      type: p.kind,
+      body: '',
+      attachmentUrl: p.localFile.uri,
+      attachmentMeta: meta,
+      createdAt,
+    });
+    await groupRepo.touchLastMessage(p.groupId, PREVIEW[p.kind] || '', createdAt);
+    await outbox.enqueue('upload_group_message', clientId, {
+      groupId: p.groupId,
+      type: p.kind,
+      localFile: p.localFile,
+      attachmentMeta: meta,
+    });
+  },
+
+  async markRead(id: string): Promise<void> {
+    await groupRepo.setUnread(id, 0);
+    await outbox.enqueue('group_mark_read', newClientId(), { groupId: id });
+  },
+
+  async setMuted(id: string, muted: boolean): Promise<void> {
+    await groupRepo.setMuted(id, muted);
+    await outbox.enqueue('group_mute', newClientId(), { groupId: id, muted });
+  },
+
+  // ── Opérations EN LIGNE OBLIGATOIRE ────────────────────────────────────
+  async create(input: CreateGroupInput): Promise<Group> {
+    const g = await apiClient.post<Group>(Endpoints.groups.create, {
       kind: input.kind,
       name: input.name,
       description: input.description ?? undefined,
@@ -30,68 +155,38 @@ export const groupService = {
       is_public: input.is_public ?? true,
       member_ids: input.member_ids ?? [],
     });
-  },
-
-  get(id: string): Promise<Group> {
-    return apiClient.get<Group>(Endpoints.groups.byId(id));
+    await groupRepo.upsertFromServer(g);
+    return g;
   },
 
   update(
     id: string,
     patch: Partial<Pick<Group, 'name' | 'description' | 'avatar_url' | 'is_public'>>,
   ): Promise<Group> {
-    return apiClient.patch<Group>(Endpoints.groups.byId(id), patch);
+    return apiClient
+      .patch<Group>(Endpoints.groups.byId(id), patch)
+      .then(async (g) => {
+        await groupRepo.upsertFromServer(g);
+        return g;
+      });
   },
 
   members(id: string): Promise<GroupMember[]> {
     return apiClient.get<GroupMember[]>(Endpoints.groups.members(id));
   },
 
-  /** Aperçu depuis un code d'invitation (avant de rejoindre — scan QR / lien). */
   preview(code: string): Promise<GroupPreview> {
     return apiClient.get<GroupPreview>(Endpoints.groups.preview(code));
   },
 
-  /** Rejoint via code d'invitation. */
-  join(inviteCode: string): Promise<Group> {
-    return apiClient.post<Group>(Endpoints.groups.join, { invite_code: inviteCode });
+  async join(inviteCode: string): Promise<Group> {
+    const g = await apiClient.post<Group>(Endpoints.groups.join, { invite_code: inviteCode });
+    await groupRepo.upsertFromServer(g);
+    return g;
   },
 
-  leave(id: string): Promise<void> {
-    return apiClient.post(Endpoints.groups.leave(id)).then(() => undefined);
-  },
-
-  setMuted(id: string, muted: boolean): Promise<void> {
-    const url = muted ? Endpoints.groups.mute(id) : Endpoints.groups.unmute(id);
-    return apiClient.put(url).then(() => undefined);
-  },
-
-  /** Historique des messages (plus ancien → plus récent). `before` = ISO. */
-  messages(id: string, before?: string): Promise<GroupMessage[]> {
-    const q = before ? `?before=${encodeURIComponent(before)}` : '';
-    return apiClient.get<GroupMessage[]>(Endpoints.groups.messages(id) + q);
-  },
-
-  send(
-    id: string,
-    body: string,
-    opts?: {
-      type?: 'text' | 'image' | 'video';
-      attachmentUrl?: string;
-      attachmentMeta?: Record<string, unknown>;
-      clientId?: string;
-    },
-  ): Promise<GroupMessage> {
-    return apiClient.post<GroupMessage>(Endpoints.groups.messages(id), {
-      type: opts?.type ?? 'text',
-      body,
-      attachment_url: opts?.attachmentUrl ?? undefined,
-      attachment_meta: opts?.attachmentMeta ?? undefined,
-      client_id: opts?.clientId ?? undefined,
-    });
-  },
-
-  markRead(id: string): Promise<void> {
-    return apiClient.put(Endpoints.groups.read(id)).then(() => undefined);
+  async leave(id: string): Promise<void> {
+    await apiClient.post(Endpoints.groups.leave(id));
+    await groupRepo.removeGroup(id);
   },
 };

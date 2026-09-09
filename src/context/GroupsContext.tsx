@@ -17,11 +17,11 @@ import React, {
 
 import { useWs } from '@/context/WebSocketContext';
 import { groupService } from '@/services';
-import type { Group } from '@/types';
+import { groupRepo, type LocalGroup } from '@/db/repositories/groupRepo';
 
 interface GroupsContextValue {
-  groups: Group[];
-  channels: Group[];
+  groups: LocalGroup[];
+  channels: LocalGroup[];
   loading: boolean;
   groupsUnread: number;
   channelsUnread: number;
@@ -32,26 +32,35 @@ const GroupsContext = createContext<GroupsContextValue | null>(null);
 
 export const GroupsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { addListener } = useWs();
-  const [all, setAll] = useState<Group[]>([]);
+  const [all, setAll] = useState<LocalGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const inFlight = useRef(false);
 
+  /** Lecture LOCALE (instantanée, hors-ligne OK). */
+  const readLocal = useCallback(async () => {
+    setAll(await groupRepo.list());
+    setLoading(false);
+  }, []);
+
+  /** Rafraîchit depuis le serveur puis relit le local. Silencieux si offline. */
   const reload = useCallback(async () => {
+    await readLocal();
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      setAll(await groupService.list());
+      await groupService.refreshList();
+      await readLocal();
     } catch {
-      /* hors ligne — cache mémoire conservé */
+      /* hors ligne — le local reste affiché */
     } finally {
       inFlight.current = false;
-      setLoading(false);
     }
-  }, []);
+  }, [readLocal]);
 
   useEffect(() => {
+    void readLocal();
     void reload();
-  }, [reload]);
+  }, [readLocal, reload]);
 
   useEffect(
     () => addListener((e) => {

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, Avatar, CachedImage, Icon, Screen, showAlert, showSheet } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
@@ -23,19 +22,22 @@ import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { groupService } from '@/services';
-import type { UploadedMedia } from '@/services';
-import type { Group, GroupMessage } from '@/types';
+import type { LocalGroup, LocalGroupMessage } from '@/db/repositories/groupRepo';
+import { onLocalMessageEvent } from '@/context/MessageSync';
+import { groupRepo } from '@/db/repositories/groupRepo';
+import { useSync } from '@/context/SyncContext';
+import { syncNow } from '@/sync/syncEngine';
 import { mediaUrl } from '@/utils/media';
 import { clockTime, dayLabel } from '@/utils/time';
 
-const rid = () => `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
 /**
- * Chat de groupe / chaîne (en ligne, sans offline-first pour l'instant).
+ * Chat de groupe / chaîne — LOCAL-FIRST (comme le 1-to-1).
  *
- * - Groupe : tout membre écrit.
- * - Chaîne : seuls owner/admin publient (`group.can_post` du backend) — les
- *   autres voient un bandeau « lecture seule ».
+ * - Lecture : `groupRepo` (SQLite). Hors-ligne, tout l'historique déjà
+ *   téléchargé reste visible. Rafraîchissement serveur best-effort.
+ * - Envoi : optimiste + outbox (`send_group_message` / `upload_group_message`),
+ *   rejoué au retour du réseau.
+ * - Groupe : tout membre écrit. Chaîne : seuls owner/admin publient.
  */
 export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   route,
@@ -48,36 +50,35 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   const { me } = useAuth();
   const { addListener } = useWs();
   const { reload: reloadGroups } = useGroups();
+  const { online } = useSync();
   const picker = useMediaPicker();
   const c = theme.colors;
   const myId = me?.id ?? '';
 
-  const [group, setGroup] = useState<Group | null>(null);
-  const [messages, setMessages] = useState<GroupMessage[]>([]);
+  const [group, setGroup] = useState<LocalGroup | null>(null);
+  const [messages, setMessages] = useState<LocalGroupMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const [g, hist] = await Promise.all([
-        groupService.get(groupId),
-        groupService.messages(groupId),
-      ]);
-      setGroup(g);
-      setMessages(hist);
-    } catch (e) {
-      console.warn('[group] load failed:', e);
-    } finally {
-      setLoading(false);
-    }
+  /** Lecture locale (instantanée, hors-ligne OK). */
+  const reload = useCallback(async () => {
+    const [g, hist] = await Promise.all([
+      groupRepo.get(groupId),
+      groupRepo.page(groupId, 60),
+    ]);
+    setGroup(g);
+    setMessages(hist);
+    setLoading(false);
   }, [groupId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void reload();
+    // rafraîchissement serveur best-effort (silencieux si hors-ligne)
+    void groupService.refreshMessages(groupId).then(reload).catch(() => undefined);
+  }, [groupId, reload]);
 
-  // marque lu à l'entrée / sortie
+  // marque lu à l'entrée / sortie (local + outbox)
   useFocusEffect(
     useCallback(() => {
       void groupService.markRead(groupId).then(reloadGroups).catch(() => undefined);
@@ -87,100 +88,80 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     }, [groupId, reloadGroups]),
   );
 
-  // temps réel
+  // temps réel : l'ingestion est faite globalement par <MessageSync/> ; ici on
+  // recharge la liste locale + on marque lu.
   useEffect(
-    () => addListener((e) => {
-      if (e.type === 'group.message' && e.group_id === groupId && e.message) {
-        const m = e.message as GroupMessage;
-        setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-        void groupService.markRead(groupId).catch(() => undefined);
-      } else if (
-        (e.type === 'group.member' || e.type === 'group.updated') &&
-        e.group_id === groupId
-      ) {
-        void load();
-      }
-    }),
-    [addListener, groupId, load],
+    () =>
+      onLocalMessageEvent((ev) => {
+        if (ev.type === 'group' && ev.groupId === groupId) {
+          void reload();
+          void groupService.markRead(groupId).catch(() => undefined);
+        }
+      }),
+    [groupId, reload],
+  );
+
+  // maj de l'entête (membres, infos) — pas géré par MessageSync
+  useEffect(
+    () =>
+      addListener((e) => {
+        if (
+          (e.type === 'group.member' || e.type === 'group.updated') &&
+          e.group_id === groupId
+        ) {
+          void groupService.refreshMessages(groupId).then(reload).catch(() => undefined);
+        }
+      }),
+    [addListener, groupId, reload],
   );
 
   const send = async () => {
     const body = text.trim();
     if (!body || sending || !group?.can_post) return;
-    const clientId = rid();
-    const optimistic: GroupMessage = {
-      id: clientId,
-      group_id: groupId,
-      sender_id: myId,
-      sender: null,
-      client_id: clientId,
-      type: 'text',
-      body,
-      attachment_url: null,
-      attachment_meta: null,
-      edited_at: null,
-      deleted_at: null,
-      created_at: new Date().toISOString(),
-      pending: true,
-    };
-    setMessages((prev) => [...prev, optimistic]);
     setText('');
     setSending(true);
     try {
-      const saved = await groupService.send(groupId, body, { clientId });
-      setMessages((prev) => prev.map((m) => (m.id === clientId ? saved : m)));
+      await groupService.send(groupId, body, { senderId: myId });
+      await reload();
+      void syncNow({ force: true });
       void reloadGroups();
     } catch (e) {
       console.warn('[group] send failed:', e);
-      setMessages((prev) =>
-        prev.map((m) => (m.id === clientId ? { ...m, pending: false, body: `⚠ ${m.body}` } : m)),
-      );
+      setText(body);
+      showAlert(t('errors.generic'));
     } finally {
       setSending(false);
     }
   };
 
-  const sendMedia = async (kind: 'photo' | 'video') => {
+  const sendMedia = async (kind: 'photo' | 'video' | 'file') => {
     if (!group?.can_post) return;
-    const up: UploadedMedia | null =
-      kind === 'photo' ? await picker.pickImage() : await picker.pickVideo();
-    if (!up) return;
-    const clientId = rid();
-    const type = up.media_type === 'video' ? 'video' : 'image';
-    const optimistic: GroupMessage = {
-      id: clientId,
-      group_id: groupId,
-      sender_id: myId,
-      sender: null,
-      client_id: clientId,
-      type,
-      body: '',
-      attachment_url: up.url,
-      attachment_meta: { thumbnail_url: up.thumbnail_url, width: up.width, height: up.height },
-      edited_at: null,
-      deleted_at: null,
-      created_at: new Date().toISOString(),
-      pending: true,
-    };
-    setMessages((prev) => [...prev, optimistic]);
+    const local =
+      kind === 'photo'
+        ? await picker.pickImageLocal()
+        : kind === 'video'
+          ? await picker.pickVideoLocal()
+          : await picker.pickDocumentLocal();
+    if (!local) return;
     setSending(true);
     try {
-      const saved = await groupService.send(groupId, '', {
-        type,
-        attachmentUrl: up.url,
-        attachmentMeta: {
-          thumbnail_url: up.thumbnail_url,
-          width: up.width,
-          height: up.height,
-          duration_sec: up.duration_sec,
+      await groupService.sendMedia({
+        groupId,
+        senderId: myId,
+        localFile: local.file,
+        kind: local.kind,
+        meta: {
+          width: local.width ?? undefined,
+          height: local.height ?? undefined,
+          duration_sec: local.durationSec ?? undefined,
+          size: local.size ?? undefined,
         },
-        clientId,
       });
-      setMessages((prev) => prev.map((m) => (m.id === clientId ? saved : m)));
+      await reload();
+      void syncNow({ force: true });
       void reloadGroups();
     } catch (e) {
       console.warn('[group] media send failed:', e);
-      setMessages((prev) => prev.filter((m) => m.id !== clientId));
       showAlert(t('errors.generic'));
     } finally {
       setSending(false);
@@ -188,17 +169,20 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   };
 
   const pickAttachment = () => {
-    showAlert(t('groups.attach'), undefined, [
-      { text: t('groups.attachPhoto'), onPress: () => void sendMedia('photo') },
-      { text: t('groups.attachVideo'), onPress: () => void sendMedia('video') },
-      { text: t('common.cancel'), style: 'cancel' },
-    ]);
+    showSheet({
+      title: t('groups.attach'),
+      actions: [
+        { label: t('groups.attachPhoto'), icon: 'image-multiple', onPress: () => void sendMedia('photo') },
+        { label: t('groups.attachVideo'), icon: 'video', onPress: () => void sendMedia('video') },
+        { label: t('chat.attachFile'), icon: 'file-document', onPress: () => void sendMedia('file') },
+      ],
+    });
   };
 
   // liste inversée + séparateurs de jour
   const data = [...messages].reverse();
 
-  const renderItem = ({ item, index }: { item: GroupMessage; index: number }) => {
+  const renderItem = ({ item, index }: { item: LocalGroupMessage; index: number }) => {
     if (item.type === 'system') {
       return (
         <View style={styles.sysWrap}>
@@ -251,14 +235,12 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
                 }
                 style={styles.attachWrap}
               >
-                <Image
-                  source={{
-                    uri: mediaUrl(
-                      (item.attachment_meta?.thumbnail_url as string | undefined) ??
-                        item.attachment_url ??
-                        undefined,
-                    ),
-                  }}
+                <CachedImage
+                  uri={
+                    (item.attachment_meta?.thumbnail_url as string | undefined) ??
+                    item.attachment_url ??
+                    undefined
+                  }
                   style={styles.attachImg}
                   resizeMode="cover"
                 />
@@ -339,6 +321,13 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
           </View>
         }
       />
+
+      {!online ? (
+        <View style={[styles.offlineStrip, { backgroundColor: c.surfaceAlt }]}>
+          <Icon name="cloud-off-outline" size={14} color={c.textMuted} />
+          <Text style={[styles.offlineText, { color: c.textMuted }]}>{t('sync.offline')}</Text>
+        </View>
+      ) : null}
 
       {loading ? (
         <View style={styles.center}>
@@ -426,6 +415,14 @@ const styles = StyleSheet.create({
   hdrTitle: { fontSize: 16, fontWeight: '800' },
   hdrSub: { fontSize: 12, marginTop: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  offlineStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 5,
+  },
+  offlineText: { fontSize: 12, fontWeight: '600' },
   list: { padding: 12, gap: 3, flexGrow: 1 },
   bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginVertical: 2 },
   rowMine: { justifyContent: 'flex-end' },

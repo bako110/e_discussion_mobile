@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert, showSheet } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
 import { useSync } from '@/context/SyncContext';
@@ -157,23 +157,27 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
         return;
       }
       if (callPhase !== 'idle') return;
-      showAlert(user.display_name || user.username || '—', undefined, [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('calls.voice'),
-          onPress: () => {
-            navigation.goBack();
-            placeCall(user, 'voice').catch(() => undefined);
+      showSheet({
+        title: user.display_name || user.username || '—',
+        actions: [
+          {
+            label: t('calls.voice'),
+            icon: 'phone',
+            onPress: () => {
+              navigation.goBack();
+              placeCall(user, 'voice').catch(() => undefined);
+            },
           },
-        },
-        {
-          text: t('calls.video'),
-          onPress: () => {
-            navigation.goBack();
-            placeCall(user, 'video').catch(() => undefined);
+          {
+            label: t('calls.video'),
+            icon: 'video',
+            onPress: () => {
+              navigation.goBack();
+              placeCall(user, 'video').catch(() => undefined);
+            },
           },
-        },
-      ]);
+        ],
+      });
     },
     [callsAvailable, callPhase, placeCall, navigation, t],
   );

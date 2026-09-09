@@ -7,7 +7,7 @@ import { Button, Icon, Screen } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import type { AuthScreenProps } from '@/navigation/types';
 
-const MARK = require('@/assets/logo_mark.png');
+const MARK = require('@/assets/logo_mark_transparent.png');
 
 const Feature: React.FC<{ icon: string; text: string }> = ({ icon, text }) => {
   const { theme } = useTheme();
@@ -56,7 +56,7 @@ export const WelcomeScreen: React.FC<AuthScreenProps<'Welcome'>> = ({ navigation
       </Svg>
 
       <Animated.View style={[styles.hero, { opacity: fade }]}>
-        <Animated.View style={{ transform: [{ translateY }] }}>
+        <Animated.View style={[styles.markWrap, { transform: [{ translateY }] }]}>
           <Image source={MARK} style={styles.mark} resizeMode="contain" />
         </Animated.View>
         <Text style={[styles.wordmark, { color: c.text }]}>
@@ -79,7 +79,8 @@ export const WelcomeScreen: React.FC<AuthScreenProps<'Welcome'>> = ({ navigation
 
 const styles = StyleSheet.create({
   hero: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  mark: { width: 124, height: 124 },
+  markWrap: { alignItems: 'center', justifyContent: 'center' },
+  mark: { width: 150, height: 118 },
   wordmark: { fontSize: 30, fontWeight: '800', letterSpacing: -0.6, marginTop: 6 },
   subtitle: { fontSize: 15, textAlign: 'center', paddingHorizontal: 28, lineHeight: 21, marginTop: 4 },
   features: { gap: 12, paddingVertical: 8, alignItems: 'center' },

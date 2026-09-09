@@ -15,5 +15,6 @@ export { groupService } from './groupService';
 export { mediaService } from './mediaService';
 export type { UploadedMedia } from './mediaService';
 export { messageService } from './messageService';
+export { pendingMediaService } from './pendingMediaService';
 export { storyService } from './storyService';
 export { userService } from './userService';

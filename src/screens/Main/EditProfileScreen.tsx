@@ -11,7 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@/api';
-import { AppHeader, Avatar, Button, Icon, Screen, TextField, showAlert } from '@/components/common';
+import { AppHeader, Avatar, Button, Icon, Screen, TextField, showSheet } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
 import { useSync } from '@/context/SyncContext';
@@ -36,11 +36,13 @@ export const EditProfileScreen: React.FC<MainScreenProps<'EditProfile'>> = ({ na
   const [saved, setSaved] = useState(false);
 
   const changeAvatar = () => {
-    showAlert(t('settings.changePhoto'), undefined, [
-      { text: t('stories.fromGallery'), onPress: () => void pickAvatar(false) },
-      { text: t('stories.fromCamera'), onPress: () => void pickAvatar(true) },
-      { text: t('common.cancel'), style: 'cancel' },
-    ]);
+    showSheet({
+      title: t('settings.changePhoto'),
+      actions: [
+        { label: t('stories.fromGallery'), icon: 'image-outline', onPress: () => void pickAvatar(false) },
+        { label: t('stories.fromCamera'), icon: 'camera-outline', onPress: () => void pickAvatar(true) },
+      ],
+    });
   };
 
   const pickAvatar = async (camera: boolean) => {

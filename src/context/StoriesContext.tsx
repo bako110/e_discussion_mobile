@@ -41,7 +41,15 @@ export const StoriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [loading, setLoading] = useState(true);
   const inFlight = useRef(false);
 
+  /** Lecture LOCALE (cache MMKV, stories expirées filtrées). Instantané, offline OK. */
+  const readLocal = useCallback(() => {
+    setFeed(storyService.readFeedCache());
+    setMine(storyService.readMineCache());
+    setLoading(false);
+  }, []);
+
   const reload = useCallback(async () => {
+    readLocal();
     if (inFlight.current) return;
     inFlight.current = true;
     try {
@@ -49,16 +57,20 @@ export const StoriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setFeed(f);
       setMine(m);
     } catch {
-      /* hors ligne — on garde le cache mémoire */
+      /* hors ligne — le cache local reste affiché */
     } finally {
       inFlight.current = false;
       setLoading(false);
     }
-  }, []);
+  }, [readLocal]);
 
   useEffect(() => {
+    readLocal();
     void reload();
-  }, [reload]);
+    // purge périodique : les stories de +24h disparaissent même sans reload
+    const iv = setInterval(readLocal, 60_000);
+    return () => clearInterval(iv);
+  }, [readLocal, reload]);
 
   useEffect(
     () => addListener((e) => {

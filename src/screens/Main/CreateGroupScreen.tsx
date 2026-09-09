@@ -18,6 +18,7 @@ import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { groupService, userService } from '@/services';
 import type { GroupKind, UserPublic } from '@/types';
+import { withOnline } from '@/utils/online';
 
 /**
  * Création d'un groupe ou d'une chaîne.
@@ -94,13 +95,19 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
     setBusy(true);
     setError(null);
     try {
-      const group = await groupService.create({
-        kind,
-        name: n,
-        description: description.trim() || undefined,
-        avatar_url: avatarUrl ?? undefined,
-        member_ids: Object.keys(selected),
-      });
+      const group = await withOnline(() =>
+        groupService.create({
+          kind,
+          name: n,
+          description: description.trim() || undefined,
+          avatar_url: avatarUrl ?? undefined,
+          member_ids: Object.keys(selected),
+        }),
+      );
+      if (!group) {
+        setBusy(false);
+        return; // hors-ligne : "connexion requise" déjà affiché
+      }
       await reload();
       navigation.replace('GroupChat', { groupId: group.id, name: group.name });
     } catch (e) {

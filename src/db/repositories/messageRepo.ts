@@ -110,6 +110,8 @@ export const messageRepo = {
     body: string;
     bodyCipher?: string | null;
     encrypted: boolean;
+    attachmentUrl?: string | null;
+    attachmentMeta?: Record<string, unknown> | null;
     replyTo?: ReplyPreview | null;
     createdAt: string;
   }): Promise<void> {
@@ -117,8 +119,8 @@ export const messageRepo = {
       await run(
         `INSERT INTO messages
           (id, client_id, conversation_id, sender_id, type, body, body_cipher, encrypted,
-           reply_to_json, created_at, sync_state)
-         VALUES (?,?,?,?,?,?,?,?,?,?, 'pending')`,
+           attachment_url, attachment_meta, reply_to_json, created_at, sync_state)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pending')`,
         [
           m.clientId,
           m.clientId,
@@ -128,6 +130,8 @@ export const messageRepo = {
           m.body,
           m.bodyCipher ?? null,
           m.encrypted ? 1 : 0,
+          m.attachmentUrl ?? null,
+          m.attachmentMeta ? JSON.stringify(m.attachmentMeta) : null,
           m.replyTo ? JSON.stringify(m.replyTo) : null,
           m.createdAt,
         ],
@@ -140,11 +144,19 @@ export const messageRepo = {
   },
 
   /** Le serveur a confirmé : on remplace l'id local par l'id serveur et on
-   * garde le texte CLAIR (server.body doit deja etre le plaintext). */
+   * garde le texte CLAIR (server.body doit deja etre le plaintext). Pour un
+   * média différé, on adopte l'URL/meta du serveur (source de vérité) si
+   * elle est fournie — sinon on garde la valeur locale (URL déjà posée par
+   * `setAttachment`). */
   async confirmSent(clientId: string, server: ChatMessage): Promise<void> {
+    // `delivered`/`read` : on ne REDESCEND jamais (un `receipt.delivered` a pu
+    // arriver AVANT la confirmation du POST -> MAX pour garder ✓✓).
     await run(
       `UPDATE messages
-         SET id=?, body=?, encrypted=?, created_at=?, delivered=?, read=?,
+         SET id=?, body=?, encrypted=?, created_at=?,
+             delivered=MAX(delivered, ?), read=MAX(read, ?),
+             attachment_url=COALESCE(?, attachment_url),
+             attachment_meta=COALESCE(?, attachment_meta),
              decrypt_failed=0, sync_state='synced'
        WHERE client_id=?`,
       [
@@ -154,6 +166,8 @@ export const messageRepo = {
         server.created_at,
         server.delivered ? 1 : 0,
         server.read ? 1 : 0,
+        server.attachment_url ?? null,
+        server.attachment_meta ? JSON.stringify(server.attachment_meta) : null,
         clientId,
       ],
     );
@@ -161,6 +175,25 @@ export const messageRepo = {
 
   async markFailed(clientId: string): Promise<void> {
     await run("UPDATE messages SET sync_state='failed' WHERE client_id=?", [clientId]);
+  },
+
+  /** Le chiffrement E2E (asynchrone) a abouti : on stocke le blob à transmettre
+   * et on marque la ligne comme chiffrée (le texte clair `body` reste local). */
+  async setEncrypted(clientId: string, cipher: string): Promise<void> {
+    await run('UPDATE messages SET body_cipher=?, encrypted=1 WHERE client_id=?', [cipher, clientId]);
+  },
+
+  /** Média différé enfin uploadé : on remplace l'URI locale par l'URL serveur
+   * (la ligne reste `pending` tant que le message n'est pas confirmé). */
+  async setAttachment(
+    clientId: string,
+    url: string,
+    meta: Record<string, unknown> | null,
+  ): Promise<void> {
+    await run(
+      'UPDATE messages SET attachment_url=?, attachment_meta=? WHERE client_id=?',
+      [url, meta ? JSON.stringify(meta) : null, clientId],
+    );
   },
 
   /**
@@ -237,6 +270,12 @@ export const messageRepo = {
            WHEN excluded.body_cipher IS NOT NULL THEN excluded.body_cipher
            ELSE messages.body_cipher END,
          encrypted=excluded.encrypted, reaction=excluded.reaction,
+         -- pièce jointe : ne JAMAIS écraser une URL/meta locale par un NULL
+         -- serveur (l'aperçu local file://… reste tant que l'upload différé
+         -- n'a pas renvoyé l'URL). On adopte la valeur serveur seulement si
+         -- elle est renseignée.
+         attachment_url=COALESCE(excluded.attachment_url, messages.attachment_url),
+         attachment_meta=COALESCE(excluded.attachment_meta, messages.attachment_meta),
          delivered=MAX(messages.delivered, excluded.delivered),
          read=MAX(messages.read, excluded.read),
          edited_at=excluded.edited_at, deleted_at=excluded.deleted_at,
@@ -311,6 +350,19 @@ export const messageRepo = {
 
   async listFailed(): Promise<LocalMessage[]> {
     const rows = await query<Row>('SELECT * FROM messages WHERE sync_state=\'failed\'');
+    return rows.map(toMsg);
+  },
+
+  /** Messages `pending` de MOI qui n'ont PAS d'entrée d'outbox correspondante
+   * (app fermée entre l'insert optimiste et l'enqueue) — à ré-empiler. */
+  async listOrphanPending(myId: string, olderThanMs = 8000): Promise<LocalMessage[]> {
+    const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+    const rows = await query<Row>(
+      `SELECT m.* FROM messages m
+        WHERE m.sync_state='pending' AND m.sender_id=? AND m.created_at < ?
+          AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.client_id = m.client_id)`,
+      [myId, cutoff],
+    );
     return rows.map(toMsg);
   },
 

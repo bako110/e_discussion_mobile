@@ -8,6 +8,7 @@ import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { groupService } from '@/services';
+import { withOnline } from '@/utils/online';
 import type { GroupPreview } from '@/types';
 
 /**
@@ -53,7 +54,11 @@ export const JoinPreviewScreen: React.FC<MainScreenProps<'JoinPreview'>> = ({
     setJoining(true);
     setError(null);
     try {
-      const g = await groupService.join(code);
+      const g = await withOnline(() => groupService.join(code));
+      if (!g) {
+        setJoining(false);
+        return;
+      }
       await reloadGroups();
       navigation.replace('GroupChat', { groupId: g.id, name: g.name });
     } catch (e) {
