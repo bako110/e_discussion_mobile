@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "start": "react-native start",
-    "android": "node scripts/run-android.mjs",
-    "android:only": "react-native run-android",
+    "android": "react-native run-android",
+    "android:clean": "node scripts/clean-android.mjs && react-native run-android",
+    "android:multi": "node scripts/run-android.mjs",
     "android:release": "cd android && gradlew.bat assembleRelease",
     "apk:debug": "cd android && gradlew.bat assembleDebug",
     "apk:install": "adb install -r android/app/build/outputs/apk/debug/app-debug.apk",
@@ -13,7 +14,8 @@
     "icons": "node scripts/gen-icons.mjs",
     "lint": "eslint .",
     "test": "jest",
-    "tsc": "tsc --noEmit"
+    "tsc": "tsc --noEmit",
+    "postinstall": "node scripts/native-deps-guard.mjs"
   },
   "dependencies": {
     "@livekit/react-native": "2.8.0",

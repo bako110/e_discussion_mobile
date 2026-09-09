@@ -77,6 +77,21 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
+    // ── Windows MAX_PATH ──────────────────────────────────────────────────
+    // Le codegen RN génère des fichiers-objets .cpp.o sous des chemins
+    // profonds ; combinés à l'emplacement du projet ils dépassent la limite
+    // Windows (~250 car.) -> "The build may not work correctly" puis des
+    // échecs CMake/ninja aléatoires. On sort UNIQUEMENT le staging natif
+    // (.cxx) sous une racine courte ; les sorties Gradle/APK restent en
+    // place (react-native run-android les trouve). Sans effet hors Windows.
+    if (org.gradle.internal.os.OperatingSystem.current().isWindows()) {
+        externalNativeBuild {
+            cmake {
+                buildStagingDirectory = new File("C:/rnb/ediscussion-cxx")
+            }
+        }
+    }
+
     namespace "com.ediscussion"
     defaultConfig {
         applicationId "com.ediscussion"

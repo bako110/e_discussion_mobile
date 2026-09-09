@@ -1,6 +1,8 @@
 module.exports = {
   root: true,
   extends: '@react-native',
+  // scripts/ = outils de build Node (ESM récent), pas du code app RN
+  ignorePatterns: ['scripts/**', 'node_modules/**', 'android/**', 'ios/**'],
   rules: {
     'react-native/no-inline-styles': 'off',
     curly: ['warn', 'multi-line'],

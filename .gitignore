@@ -37,3 +37,4 @@ DerivedData/
 .env
 *.orig.*
 web-build/
+android/.native-deps.json
