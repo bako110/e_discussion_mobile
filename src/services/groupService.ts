@@ -159,16 +159,17 @@ export const groupService = {
     return g;
   },
 
-  update(
+  /**
+   * Édite nom / description / avatar / is_public — LOCAL-FIRST : la ligne
+   * locale est mise à jour tout de suite, la requête part par l'outbox et
+   * se rejoue au retour du réseau.
+   */
+  async update(
     id: string,
     patch: Partial<Pick<Group, 'name' | 'description' | 'avatar_url' | 'is_public'>>,
-  ): Promise<Group> {
-    return apiClient
-      .patch<Group>(Endpoints.groups.byId(id), patch)
-      .then(async (g) => {
-        await groupRepo.upsertFromServer(g);
-        return g;
-      });
+  ): Promise<void> {
+    await groupRepo.patchLocal(id, patch);
+    await outbox.enqueue('group_update', newClientId(), { groupId: id, patch });
   },
 
   members(id: string): Promise<GroupMember[]> {
@@ -185,8 +186,41 @@ export const groupService = {
     return g;
   },
 
+  /** Quitter — retire le groupe en local tout de suite, la requête part par l'outbox. */
   async leave(id: string): Promise<void> {
-    await apiClient.post(Endpoints.groups.leave(id));
     await groupRepo.removeGroup(id);
+    await outbox.enqueue('group_leave', newClientId(), { groupId: id });
+  },
+
+  /** Supprimer (owner) — idem, purge locale + outbox. */
+  async remove(id: string): Promise<void> {
+    await groupRepo.removeGroup(id);
+    await outbox.enqueue('group_delete', newClientId(), { groupId: id });
+  },
+
+  /** Change le rôle d'un membre (admin ↔ membre/abonné). En ligne + retry outbox. */
+  async setMemberRole(
+    id: string,
+    userId: string,
+    role: 'owner' | 'admin' | 'member' | 'subscriber',
+  ): Promise<void> {
+    await outbox.enqueue('group_member_role', newClientId(), { groupId: id, userId, role });
+  },
+
+  /** Retire un membre. En ligne + retry outbox. */
+  async removeMember(id: string, userId: string): Promise<void> {
+    await outbox.enqueue('group_member_remove', newClientId(), { groupId: id, userId });
+  },
+
+  /** Ajoute des membres (EN LIGNE — a besoin de résoudre les users côté serveur). */
+  async addMembers(id: string, userIds: string[]): Promise<GroupMember[]> {
+    return apiClient.post<GroupMember[]>(Endpoints.groups.members(id), { user_ids: userIds });
+  },
+
+  /** Régénère le lien d'invitation (EN LIGNE). */
+  async resetInvite(id: string): Promise<Group> {
+    const g = await apiClient.post<Group>(Endpoints.groups.inviteReset(id));
+    await groupRepo.upsertFromServer(g);
+    return g;
   },
 };

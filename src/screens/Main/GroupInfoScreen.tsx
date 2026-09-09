@@ -11,15 +11,25 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, showAlert, showSheet } from '@/components/common';
+import {
+  AppHeader,
+  Avatar,
+  Icon,
+  Screen,
+  confirmAlert,
+  showAlert,
+  showSheet,
+} from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
 import { useTheme } from '@/context/ThemeContext';
+import { groupRepo, type LocalGroup } from '@/db/repositories/groupRepo';
 import type { MainScreenProps } from '@/navigation/types';
 import { groupService } from '@/services';
 import { withOnline } from '@/utils/online';
-import type { Group, GroupMember } from '@/types';
+import { syncNow } from '@/sync/syncEngine';
+import type { GroupMember } from '@/types';
 
 /** Deep-link d'invitation encodé dans le QR / partagé par lien. */
 export const inviteLink = (code: string) => `gofolyx://join/${code}`;
@@ -43,38 +53,46 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
   const picker = useMediaPicker();
   const c = theme.colors;
 
-  const [group, setGroup] = useState<Group | null>(null);
+  const [group, setGroup] = useState<LocalGroup | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState('');
   const [savingDesc, setSavingDesc] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const [g, m] = await Promise.all([
-          groupService.get(groupId),
-          groupService.members(groupId),
-        ]);
-        if (alive) {
-          setGroup(g);
-          setMembers(m);
-          setDescDraft(g?.description ?? '');
-        }
-      } catch (e) {
-        console.warn('[group] info failed:', e);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
+  /** Recharge l'entête depuis SQLite (local-first) + membres depuis le serveur. */
+  const reload = React.useCallback(async () => {
+    const g = await groupRepo.get(groupId);
+    if (g) {
+      setGroup(g);
+      setDescDraft(g.description ?? '');
+      setNameDraft(g.name);
+    }
+    setLoading(false);
+    // best-effort serveur
+    try {
+      const m = await groupService.members(groupId);
+      setMembers(m);
+    } catch {
+      /* hors-ligne */
+    }
+    try {
+      await groupService.refreshMessages(groupId); // rafraîchit aussi l'entête
+      const g2 = await groupRepo.get(groupId);
+      if (g2) setGroup(g2);
+    } catch {
+      /* hors-ligne */
+    }
   }, [groupId]);
 
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
   const isChannel = group?.kind === 'channel';
+  const isOwner = group?.my_role === 'owner';
   const canEdit = group?.my_role === 'owner' || group?.my_role === 'admin';
 
   const changeAvatar = () => {
@@ -91,29 +109,126 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
   const pickAvatar = async (camera: boolean) => {
     const up = await picker.pickImage({ camera });
     if (!up) return;
-    try {
-      const g = await groupService.update(groupId, { avatar_url: up.url });
-      setGroup(g);
-      await reloadGroups();
-    } catch {
-      showAlert(t('errors.generic'));
+    await groupService.update(groupId, { avatar_url: up.url });
+    await reload();
+    await reloadGroups();
+    void syncNow({ force: true });
+  };
+
+  const saveName = async () => {
+    const v = nameDraft.trim();
+    if (!v || v === group?.name) {
+      setEditingName(false);
+      return;
     }
+    await groupService.update(groupId, { name: v });
+    setEditingName(false);
+    await reload();
+    await reloadGroups();
+    void syncNow({ force: true });
   };
 
   const saveDesc = async () => {
     setSavingDesc(true);
     try {
-      const g = await groupService.update(groupId, {
-        description: descDraft.trim() || null,
-      });
-      setGroup(g);
+      await groupService.update(groupId, { description: descDraft.trim() || null });
       setEditingDesc(false);
+      await reload();
       await reloadGroups();
-    } catch {
-      showAlert(t('errors.generic'));
+      void syncNow({ force: true });
     } finally {
       setSavingDesc(false);
     }
+  };
+
+  const togglePublic = async () => {
+    if (!group) return;
+    await groupService.update(groupId, { is_public: !group.is_public });
+    await reload();
+    void syncNow({ force: true });
+  };
+
+  const toggleMute = async () => {
+    if (!group) return;
+    await groupService.setMuted(groupId, !group.muted);
+    await reload();
+    await reloadGroups();
+    void syncNow({ force: true });
+  };
+
+  const resetInvite = () =>
+    confirmAlert(
+      t('groups.resetInviteTitle'),
+      t('groups.resetInviteBody'),
+      async () => {
+        const ok = await withOnline(() => groupService.resetInvite(groupId));
+        if (ok) {
+          await reload();
+          showAlert(t('groups.inviteReset'));
+        }
+      },
+      { confirmText: t('groups.regenerate') },
+    );
+
+  const confirmDelete = () =>
+    confirmAlert(
+      t('groups.deleteTitle'),
+      t('groups.deleteBody'),
+      async () => {
+        await groupService.remove(groupId);
+        await reloadGroups();
+        void syncNow({ force: true });
+        navigation.navigate('Tabs', { screen: 'StatusTab' });
+      },
+      { destructive: true, confirmText: t('common.delete') },
+    );
+
+  /** Actions sur un membre (appui long) — réservé owner/admin. */
+  const onMemberPress = (m: GroupMember) => {
+    if (!canEdit || m.user.id === me?.id || m.role === 'owner') return;
+    const actions: { label: string; icon: string; destructive?: boolean; onPress: () => void }[] =
+      [];
+    if (isOwner) {
+      if (m.role === 'admin') {
+        actions.push({
+          label: t('groups.demoteAdmin'),
+          icon: 'shield-off-outline',
+          onPress: () =>
+            void groupService
+              .setMemberRole(groupId, m.user.id, isChannel ? 'subscriber' : 'member')
+              .then(() => syncNow({ force: true }))
+              .then(reload),
+        });
+      } else {
+        actions.push({
+          label: t('groups.promoteAdmin'),
+          icon: 'shield-account-outline',
+          onPress: () =>
+            void groupService
+              .setMemberRole(groupId, m.user.id, 'admin')
+              .then(() => syncNow({ force: true }))
+              .then(reload),
+        });
+      }
+    }
+    actions.push({
+      label: isChannel ? t('groups.removeSubscriber') : t('groups.removeMember'),
+      icon: 'account-remove-outline',
+      destructive: true,
+      onPress: () =>
+        void groupService
+          .removeMember(groupId, m.user.id)
+          .then(() => syncNow({ force: true }))
+          .then(reload),
+    });
+    showSheet({
+      title: m.user.display_name || m.user.username || '—',
+      actions,
+    });
+  };
+
+  const addMembers = () => {
+    navigation.navigate('AddGroupMembers', { groupId });
   };
 
   const shareInvite = async () => {
@@ -200,7 +315,36 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
               </View>
             ) : null}
           </Pressable>
-          <Text style={[styles.name, { color: c.text }]}>{group?.name}</Text>
+          {editingName ? (
+            <View style={styles.nameEdit}>
+              <TextInput
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                autoFocus
+                maxLength={120}
+                style={[styles.nameInput, { color: c.text, borderColor: c.border }]}
+              />
+              <View style={styles.descBtns}>
+                <Pressable onPress={() => { setEditingName(false); setNameDraft(group?.name ?? ''); }}>
+                  <Text style={[styles.descBtn, { color: c.textMuted }]}>{t('common.cancel')}</Text>
+                </Pressable>
+                <Pressable onPress={saveName}>
+                  <Text style={[styles.descBtn, { color: c.primary, fontWeight: '800' }]}>
+                    {t('common.save')}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => canEdit && setEditingName(true)}
+              disabled={!canEdit}
+              style={styles.nameRow}
+            >
+              <Text style={[styles.name, { color: c.text }]}>{group?.name}</Text>
+              {canEdit ? <Icon name="pencil-outline" size={15} color={c.textFaint} /> : null}
+            </Pressable>
+          )}
           <View style={styles.kindTag}>
             <Icon
               name={isChannel ? 'bullhorn' : 'account-multiple'}
@@ -252,6 +396,52 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
           )}
         </View>
 
+        {/* réglages rapides */}
+        <View style={[styles.toggleCard, { backgroundColor: c.surfaceAlt }]}>
+          <Pressable style={styles.toggleRow} onPress={toggleMute}>
+            <Icon
+              name={group?.muted ? 'bell-off-outline' : 'bell-outline'}
+              size={20}
+              color={c.textMuted}
+            />
+            <Text style={[styles.toggleLabel, { color: c.text }]}>
+              {t('chat.mute')}
+            </Text>
+            <View
+              style={[
+                styles.switch,
+                { backgroundColor: group?.muted ? c.primary : c.border },
+              ]}
+            >
+              <View style={[styles.knob, group?.muted && styles.knobOn]} />
+            </View>
+          </Pressable>
+          {isChannel && canEdit ? (
+            <Pressable
+              style={[styles.toggleRow, { borderTopColor: c.divider, borderTopWidth: StyleSheet.hairlineWidth }]}
+              onPress={togglePublic}
+            >
+              <Icon name="earth" size={20} color={c.textMuted} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.toggleLabel, { color: c.text }]}>
+                  {t('groups.publicChannel')}
+                </Text>
+                <Text style={[styles.toggleSub, { color: c.textMuted }]}>
+                  {t('groups.publicChannelHint')}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.switch,
+                  { backgroundColor: group?.is_public ? c.primary : c.border },
+                ]}
+              >
+                <View style={[styles.knob, group?.is_public && styles.knobOn]} />
+              </View>
+            </Pressable>
+          ) : null}
+        </View>
+
         {/* invitation : QR à scanner */}
         <Pressable
           onPress={() => navigation.navigate('GroupQr', { groupId })}
@@ -293,13 +483,28 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
         </Pressable>
 
         {/* membres */}
-        <Text style={[styles.section, { color: c.textMuted }]}>
-          {isChannel ? t('groups.subscribers') : t('groups.members')}
-        </Text>
+        <View style={styles.sectionRow}>
+          <Text style={[styles.section, { color: c.textMuted }]}>
+            {isChannel ? t('groups.subscribers') : t('groups.members')}
+          </Text>
+          {canEdit ? (
+            <Pressable onPress={addMembers} hitSlop={8} style={styles.addBtn}>
+              <Icon name="account-plus-outline" size={18} color={c.primary} />
+              <Text style={[styles.addBtnTxt, { color: c.primary }]}>{t('groups.add')}</Text>
+            </Pressable>
+          ) : null}
+        </View>
         {members.map((m) => {
           const nm = m.user.display_name || m.user.username || '—';
+          const actionable = canEdit && m.user.id !== me?.id && m.role !== 'owner';
           return (
-            <View key={m.user.id} style={styles.memberRow}>
+            <Pressable
+              key={m.user.id}
+              style={styles.memberRow}
+              onPress={() => actionable && onMemberPress(m)}
+              onLongPress={() => actionable && onMemberPress(m)}
+              android_ripple={actionable ? { color: c.surfaceAlt } : undefined}
+            >
               <Avatar uri={m.user.avatar_url} name={nm} size={42} online={m.user.is_online} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.memberName, { color: c.text }]} numberOfLines={1}>
@@ -312,9 +517,21 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
                   </Text>
                 ) : null}
               </View>
-            </View>
+              {actionable ? (
+                <Icon name="dots-vertical" size={18} color={c.textFaint} />
+              ) : null}
+            </Pressable>
           );
         })}
+
+        {canEdit ? (
+          <Pressable onPress={resetInvite} style={styles.linkRow}>
+            <Icon name="refresh" size={17} color={c.textMuted} />
+            <Text style={[styles.linkTxt, { color: c.textMuted }]}>
+              {t('groups.resetInvite')}
+            </Text>
+          </Pressable>
+        ) : null}
 
         {/* quitter */}
         <Pressable
@@ -327,6 +544,19 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
             {isChannel ? t('groups.leaveChannel') : t('groups.leaveGroup')}
           </Text>
         </Pressable>
+
+        {isOwner ? (
+          <Pressable
+            onPress={confirmDelete}
+            style={[styles.leaveBtn, { borderColor: c.danger, marginTop: 10 }]}
+            android_ripple={{ color: c.surfaceAlt }}
+          >
+            <Icon name="trash-can-outline" size={18} color={c.danger} />
+            <Text style={[styles.leaveText, { color: c.danger }]}>
+              {isChannel ? t('groups.deleteChannel') : t('groups.deleteGroup')}
+            </Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
     </Screen>
   );
@@ -348,7 +578,46 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   name: { fontSize: 21, fontWeight: '800', textAlign: 'center' },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  nameEdit: { alignSelf: 'stretch', gap: 6 },
+  nameInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   kindTag: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  toggleCard: { marginHorizontal: 16, marginTop: 14, borderRadius: 14, overflow: 'hidden' },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  toggleLabel: { flex: 1, fontSize: 14.5, fontWeight: '600' },
+  toggleSub: { fontSize: 12, marginTop: 1 },
+  switch: { width: 44, height: 26, borderRadius: 13, padding: 3, justifyContent: 'center' },
+  knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' },
+  knobOn: { alignSelf: 'flex-end' },
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginRight: 16,
+  },
+  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  addBtnTxt: { fontSize: 13, fontWeight: '700' },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    marginTop: 18,
+  },
+  linkTxt: { fontSize: 13, fontWeight: '600' },
   kindText: { fontSize: 13, fontWeight: '600' },
   desc: { fontSize: 14, textAlign: 'center', marginTop: 6, lineHeight: 20 },
   descRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },

@@ -15,6 +15,7 @@ import { DevicesScreen } from '@/screens/Main/DevicesScreen';
 import { EditProfileScreen } from '@/screens/Main/EditProfileScreen';
 import { GroupChatScreen } from '@/screens/Main/GroupChatScreen';
 import { GroupInfoScreen } from '@/screens/Main/GroupInfoScreen';
+import { AddGroupMembersScreen } from '@/screens/Main/AddGroupMembersScreen';
 import { GroupQrScreen } from '@/screens/Main/GroupQrScreen';
 import { GroupsListScreen } from '@/screens/Main/GroupsListScreen';
 import { HelpSettingsScreen } from '@/screens/Main/HelpSettingsScreen';
@@ -88,6 +89,7 @@ export const MainNavigator: React.FC = () => (
     />
     <Stack.Screen name="GroupChat" component={GroupChatScreen} />
     <Stack.Screen name="GroupInfo" component={GroupInfoScreen} />
+    <Stack.Screen name="AddGroupMembers" component={AddGroupMembersScreen} />
     <Stack.Screen name="GroupQr" component={GroupQrScreen} />
     <Stack.Screen
       name="Scanner"

@@ -20,7 +20,12 @@ export type OutboxKind =
   | 'send_group_message'
   | 'upload_group_message'
   | 'group_mark_read'
-  | 'group_mute';
+  | 'group_mute'
+  | 'group_update' // nom / description / avatar / is_public
+  | 'group_member_role'
+  | 'group_member_remove'
+  | 'group_leave'
+  | 'group_delete';
 
 export interface OutboxEntry {
   id: number;

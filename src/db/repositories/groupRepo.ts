@@ -167,6 +167,40 @@ export const groupRepo = {
     await run('UPDATE groups SET unread_count=? WHERE id=?', [count, id]);
   },
 
+  /** Édition optimiste locale du nom / description / avatar / is_public. */
+  async patchLocal(
+    id: string,
+    patch: Partial<{
+      name: string | null;
+      description: string | null;
+      avatar_url: string | null;
+      is_public: boolean;
+    }>,
+  ): Promise<void> {
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    if (patch.name !== undefined) {
+      sets.push('name=?');
+      args.push(patch.name ?? '');
+    }
+    if (patch.description !== undefined) {
+      sets.push('description=?');
+      args.push(patch.description);
+    }
+    if (patch.avatar_url !== undefined) {
+      sets.push('avatar_url=?');
+      args.push(patch.avatar_url);
+    }
+    if (patch.is_public !== undefined) {
+      sets.push('is_public=?');
+      args.push(patch.is_public ? 1 : 0);
+    }
+    if (sets.length === 0) return;
+    sets.push("sync_state='pending'");
+    args.push(id);
+    await run(`UPDATE groups SET ${sets.join(', ')} WHERE id=?`, args);
+  },
+
   async setMuted(id: string, muted: boolean): Promise<void> {
     await run("UPDATE groups SET muted=?, sync_state='pending' WHERE id=?", [muted ? 1 : 0, id]);
   },

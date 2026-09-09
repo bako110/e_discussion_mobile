@@ -273,6 +273,39 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
         : apiClient.put(Endpoints.groups.unmute(p.groupId as string)));
       await groupRepo.markSynced(p.groupId as string);
       break;
+
+    case 'group_update': {
+      const saved = await apiClient.patch<Group>(
+        Endpoints.groups.byId(p.groupId as string),
+        (p.patch as Record<string, unknown>) ?? {},
+      );
+      await groupRepo.upsertFromServer(saved);
+      notifyMutationApplied({ groupId: p.groupId as string });
+      break;
+    }
+
+    case 'group_member_role':
+      await apiClient.put(
+        Endpoints.groups.memberRole(p.groupId as string, p.userId as string),
+        { role: p.role },
+      );
+      notifyMutationApplied({ groupId: p.groupId as string });
+      break;
+
+    case 'group_member_remove':
+      await apiClient.delete(
+        Endpoints.groups.removeMember(p.groupId as string, p.userId as string),
+      );
+      notifyMutationApplied({ groupId: p.groupId as string });
+      break;
+
+    case 'group_leave':
+      await apiClient.post(Endpoints.groups.leave(p.groupId as string));
+      break;
+
+    case 'group_delete':
+      await apiClient.delete(Endpoints.groups.byId(p.groupId as string));
+      break;
   }
 }
 

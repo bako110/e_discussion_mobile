@@ -75,6 +75,7 @@ export type MainStackParamList = {
   GroupChat: { groupId: string; name: string };
   /** Détail : membres, invitation, quitter. */
   GroupInfo: { groupId: string };
+  AddGroupMembers: { groupId: string };
   /** QR code d'invitation d'un groupe / chaîne (à faire scanner). */
   GroupQr: { groupId: string };
   /** Scanner QR d'invitation (ou saisie manuelle du code). */
