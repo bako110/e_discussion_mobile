@@ -12,6 +12,8 @@ export interface UserPublic {
 
 export type PrivacyLevel = 'everyone' | 'contacts' | 'nobody';
 
+export type Ringtone = 'default' | 'classic' | 'soft';
+
 export interface UserMe extends UserPublic {
   email: string | null;
   phone: string | null;
@@ -22,6 +24,12 @@ export interface UserMe extends UserPublic {
   profile_photo_privacy: PrivacyLevel;
   about_privacy: PrivacyLevel;
   read_receipts: boolean;
+  // préférences d'appel (synchronisées serveur)
+  call_ringtone: Ringtone;
+  call_vibrate: boolean;
+  call_answer_on_speaker: boolean;
+  call_low_data: boolean;
+  call_block_unknown: boolean;
 }
 
 export interface AuthResult {

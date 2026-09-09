@@ -419,9 +419,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         await teardown();
         setCall(null);
-        // 'busy' -> on montre brièvement « Occupé » plutôt que rien
         if (status === 409 && code === 'callee_busy') {
-          resetToIdle('busy');
+          resetToIdle('busy'); // « Occupé »
+        } else if (status === 403 && code === 'call_blocked') {
+          resetToIdle('declined'); // le destinataire refuse mes appels
         } else {
           setPhase('idle');
         }

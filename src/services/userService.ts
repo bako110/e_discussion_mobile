@@ -45,6 +45,11 @@ export const userService = {
         | 'profile_photo_privacy'
         | 'about_privacy'
         | 'read_receipts'
+        | 'call_ringtone'
+        | 'call_vibrate'
+        | 'call_answer_on_speaker'
+        | 'call_low_data'
+        | 'call_block_unknown'
       >
     >,
   ): Promise<UserMe> {
