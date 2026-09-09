@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
@@ -29,7 +29,6 @@ export const ChatsSettingsScreen: React.FC = () => {
     setWallpaperKey,
     setEnterToSend,
   } = useChatPrefs();
-  const soon = (title: string) => Alert.alert(title, t('settings.comingSoon'));
 
   return (
     <Screen edges={[]}>
@@ -138,8 +137,8 @@ export const ChatsSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="cloud-upload-outline"
             label={t('settings.chatBackup')}
-            value={t('settings.never')}
-            onPress={() => soon(t('settings.chatBackup'))}
+            value={t('settings.exportData')}
+            onPress={() => navigation.navigate('AccountSettings')}
             last
           />
         </SettingsSection>

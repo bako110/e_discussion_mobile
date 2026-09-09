@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
@@ -40,7 +40,19 @@ export const AboutSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="star-outline"
             label={t('settings.rateApp')}
-            onPress={() => Alert.alert(t('settings.rateApp'), t('settings.comingSoon'))}
+            onPress={() => {
+              const url =
+                Platform.OS === 'ios'
+                  ? 'itms-apps://itunes.apple.com/app/id0000000000?action=write-review'
+                  : 'market://details?id=com.ediscussion';
+              const web =
+                Platform.OS === 'ios'
+                  ? 'https://apps.apple.com/app/id0000000000'
+                  : 'https://play.google.com/store/apps/details?id=com.ediscussion';
+              Linking.openURL(url).catch(() =>
+                Linking.openURL(web).catch(() => undefined),
+              );
+            }}
           />
           <SettingsRow
             icon="share-variant-outline"
