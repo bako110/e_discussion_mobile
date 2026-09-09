@@ -11,7 +11,10 @@
  */
 import { apiClient, Endpoints } from '@/api';
 import { randomBytes, toBase64 } from '@/crypto/primitives';
+import { storage } from '@/utils/storage';
 import type { CallLog, CallsConfig, CallStart, CallToken, CallType } from '@/types';
+
+const K_HISTORY = 'calls.history.cache';
 
 export const callService = {
   /** Génère une clé E2EE aléatoire (256 bits, base64) pour un nouvel appel. */
@@ -24,9 +27,26 @@ export const callService = {
     return apiClient.get<CallsConfig>(Endpoints.calls.config);
   },
 
-  /** Historique d'appels (paginé). */
-  history(page = 1, limit = 40): Promise<CallLog[]> {
-    return apiClient.get<CallLog[]>(`${Endpoints.calls.history}?page=${page}&limit=${limit}`);
+  /** Historique local (cache MMKV) — instantané, hors-ligne OK. */
+  readHistoryCache(): CallLog[] {
+    return storage.getJSON<CallLog[]>(K_HISTORY) ?? [];
+  },
+
+  /** Historique d'appels (paginé) — rafraîchit le cache local au passage. */
+  async history(page = 1, limit = 40): Promise<CallLog[]> {
+    const logs = await apiClient.get<CallLog[]>(
+      `${Endpoints.calls.history}?page=${page}&limit=${limit}`,
+    );
+    if (page === 1) storage.setJSON(K_HISTORY, logs);
+    return logs;
+  },
+
+  /** Retire une entrée du cache local (suppression optimiste). */
+  removeFromCache(callId: string): void {
+    storage.setJSON(K_HISTORY, callService.readHistoryCache().filter((l) => l.id !== callId));
+  },
+  clearCache(): void {
+    storage.setJSON(K_HISTORY, []);
   },
 
   /**
@@ -66,13 +86,15 @@ export const callService = {
     return apiClient.post<CallLog>(Endpoints.calls.hangup(callId));
   },
 
-  /** Supprime une entrée d'historique. */
-  remove(callId: string): Promise<{ message: string }> {
+  /** Supprime une entrée d'historique (cache local + serveur). */
+  async remove(callId: string): Promise<{ message: string }> {
+    callService.removeFromCache(callId);
     return apiClient.delete<{ message: string }>(Endpoints.calls.byId(callId));
   },
 
-  /** Vide tout l'historique d'appels. */
-  clear(): Promise<{ message: string }> {
+  /** Vide tout l'historique d'appels (cache local + serveur). */
+  async clear(): Promise<{ message: string }> {
+    callService.clearCache();
     return apiClient.delete<{ message: string }>(Endpoints.calls.clear);
   },
 };

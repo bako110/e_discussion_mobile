@@ -46,19 +46,22 @@ export const CallsScreen: React.FC = () => {
   const { available, startCall, phase } = useCall();
   const c = theme.colors;
 
-  const [items, setItems] = useState<CallLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<CallLog[]>(() => callService.readHistoryCache());
+  const [loading, setLoading] = useState(() => callService.readHistoryCache().length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
   const openRow = useRef<Swipeable | null>(null);
 
   const load = useCallback(async () => {
+    // 1) cache local d'abord (instantané, hors-ligne OK)
+    setItems(callService.readHistoryCache());
+    setLoading(false);
+    // 2) rafraîchit depuis le serveur si possible
     try {
       setItems(await callService.history(1, 100));
     } catch {
-      /* hors-ligne : on garde l'existant */
+      /* hors-ligne : on garde le cache local affiché */
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
   }, []);
