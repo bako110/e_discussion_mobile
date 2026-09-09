@@ -9,8 +9,9 @@
  */
 import { apiClient, Endpoints } from '@/api';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
+import { messageRepo } from '@/db/repositories/messageRepo';
 import { newClientId, outbox } from '@/sync/outbox';
-import type { ConversationDetail, ConversationSummary } from '@/types';
+import type { ConversationDetail, ConversationSummary, SharedMedia } from '@/types';
 
 export const conversationService = {
   list(): Promise<ConversationSummary[]> {
@@ -65,5 +66,18 @@ export const conversationService = {
   async setMuted(conversationId: string, muted: boolean): Promise<void> {
     await conversationRepo.setMuted(conversationId, muted);
     await outbox.enqueue('mute', newClientId(), { conversationId, muted });
+  },
+
+  /** Médias partagés dans la conversation (images/vidéos/fichiers/audio). */
+  media(conversationId: string, page = 1, limit = 60): Promise<SharedMedia[]> {
+    return apiClient.get<SharedMedia[]>(
+      `${Endpoints.conversations.media(conversationId)}?page=${page}&limit=${limit}`,
+    );
+  },
+
+  /** Efface tout l'historique (définitif, 1-to-1). Purge aussi le local. */
+  async clearHistory(conversationId: string): Promise<void> {
+    await apiClient.delete(Endpoints.conversations.clear(conversationId));
+    await messageRepo.clearConversation(conversationId).catch(() => undefined);
   },
 };

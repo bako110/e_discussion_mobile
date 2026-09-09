@@ -14,6 +14,16 @@ export type PrivacyLevel = 'everyone' | 'contacts' | 'nobody';
 
 export type Ringtone = 'default' | 'classic' | 'soft';
 
+/** Média partagé dans une conversation (GET /conversations/{id}/media). */
+export interface SharedMedia {
+  message_id: string;
+  type: 'image' | 'video' | 'file' | 'voice';
+  url: string;
+  meta: Record<string, unknown> | null;
+  sender_id: string;
+  created_at: string;
+}
+
 export interface UserMe extends UserPublic {
   email: string | null;
   phone: string | null;

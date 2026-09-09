@@ -14,7 +14,10 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner, showAlert } from '@/components/common';
+import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner, confirmAlert, showAlert } from '@/components/common';
+import { ChatMenuSheet, type ChatMenuAction } from '@/components/chat/ChatMenuSheet';
+import { EncryptionInfoModal } from '@/components/chat/EncryptionInfoModal';
+import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
@@ -26,7 +29,7 @@ import type { LocalMessage } from '@/db/repositories/messageRepo';
 import { messageRepo } from '@/db/repositories/messageRepo';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import type { MainScreenProps } from '@/navigation/types';
-import { conversationService, messageService } from '@/services';
+import { conversationService, messageService, userService } from '@/services';
 import { retryFailedDecryptions, syncNow } from '@/sync/syncEngine';
 import type { ChatMessage, RequestStatus } from '@/types';
 import { dayLabel } from '@/utils/time';
@@ -68,6 +71,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [partnerTyping, setPartnerTyping] = useState(false);
   // message en cours d'édition (null = mode envoi normal)
   const [editing, setEditing] = useState<LocalMessage | null>(null);
+  const [replyTo, setReplyTo] = useState<LocalMessage | null>(null);
+  const [actionMsg, setActionMsg] = useState<LocalMessage | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [encOpen, setEncOpen] = useState(false);
+  const [muted, setMuted] = useState(false);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const myId = me?.id ?? '';
@@ -92,6 +100,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       const d = await conversationService.detail(conversationId);
       setRequestStatus(d.request_status);
       setPartnerOnline(d.partner.is_online);
+      setMuted(d.muted);
     } catch {
       /* hors-ligne — on garde le cache local */
     }
@@ -182,8 +191,23 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     setSendError(null);
     const previous = text;
     setText('');
+    const reply = replyTo
+      ? {
+          id: replyTo.id,
+          type: replyTo.type as import('@/types').MessageType,
+          body: replyTo.body,
+          sender_id: replyTo.sender_id,
+        }
+      : null;
+    setReplyTo(null);
     try {
-      await messageService.send({ conversationId, partnerId, senderId: myId, body });
+      await messageService.send({
+        conversationId,
+        partnerId,
+        senderId: myId,
+        body,
+        replyTo: reply,
+      });
       await reload();
       void syncNow({ force: true });
     } catch (e) {
@@ -195,32 +219,40 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     }
   };
 
-  /** Menu d'actions sur un message (appui long). */
+  /** Appui long sur un message -> feuille d'actions. */
   const onMessageLongPress = (m: LocalMessage) => {
     if (m.deleted_at) return;
-    const isMine = m.sender_id === myId;
-    const options: Array<{ text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }> = [];
-    if (m.body) {
-      options.push({ text: t('chat.copy'), onPress: () => Clipboard.setString(m.body) });
+    setActionMsg(m);
+  };
+
+  const doReact = (emoji: string | null) => {
+    if (!actionMsg) return;
+    void messageService.react(actionMsg.id, emoji).then(reload).catch(() => undefined);
+  };
+  const doReply = () => {
+    if (actionMsg) setReplyTo(actionMsg);
+  };
+  const doForward = () => {
+    if (actionMsg?.body) {
+      Clipboard.setString(actionMsg.body);
+      showAlert(t('chat.forwardCopied'));
     }
-    if (isMine && m.body && !m.encrypted) {
-      options.push({
-        text: t('common.edit'),
-        onPress: () => {
-          setEditing(m);
-          setText(m.body);
-        },
-      });
-    }
-    if (isMine) {
-      options.push({
-        text: t('chat.deleteForEveryone'),
-        style: 'destructive',
-        onPress: () => void messageService.remove(m.id).then(reload),
-      });
-    }
-    options.push({ text: t('common.cancel'), style: 'cancel' });
-    showAlert(t('chat.messageActions'), undefined, options);
+  };
+  const doDeleteForMe = () => {
+    if (!actionMsg) return;
+    void messageRepo.markDeleted(actionMsg.id).then(reload);
+  };
+  const doDeleteForEveryone = () => {
+    if (!actionMsg) return;
+    void messageService.remove(actionMsg.id).then(reload).catch(() => undefined);
+  };
+  const doEditFromSheet = () => {
+    if (!actionMsg) return;
+    setEditing(actionMsg);
+    setText(actionMsg.body);
+  };
+  const doCopy = () => {
+    if (actionMsg?.body) Clipboard.setString(actionMsg.body);
   };
 
   const retry = async (m: LocalMessage) => {
@@ -270,6 +302,85 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     });
   };
 
+  const openInfo = () =>
+    navigation.navigate('ConversationInfo', {
+      conversationId,
+      partnerId,
+      partnerName,
+      partnerAvatar,
+    });
+
+  const toggleMute = async () => {
+    const next = !muted;
+    setMuted(next);
+    try {
+      await conversationService.setMuted(conversationId, next);
+    } catch {
+      setMuted(!next);
+    }
+  };
+
+  const doClear = () =>
+    confirmAlert(
+      t('chat.clearTitle'),
+      t('chat.clearBody'),
+      async () => {
+        try {
+          await conversationService.clearHistory(conversationId);
+          await reload();
+          showAlert(t('chat.cleared'));
+        } catch {
+          showAlert(t('errors.generic'));
+        }
+      },
+      { destructive: true, confirmText: t('common.delete') },
+    );
+
+  const doBlock = () =>
+    confirmAlert(
+      t('chat.blockTitle', { name: partnerName }),
+      t('chat.blockBody'),
+      async () => {
+        try {
+          await userService.block(partnerId);
+          showAlert(t('chat.reportDone'));
+        } catch {
+          showAlert(t('errors.generic'));
+        }
+      },
+      { destructive: true, confirmText: t('chat.block') },
+    );
+
+  const menuActions: ChatMenuAction[] = [
+    { key: 'info', icon: 'account-circle-outline', label: t('chat.menuInfo'), onPress: openInfo },
+    {
+      key: 'media',
+      icon: 'image-multiple-outline',
+      label: t('chat.menuMedia'),
+      onPress: openInfo,
+    },
+    {
+      key: 'mute',
+      icon: muted ? 'bell-outline' : 'bell-off-outline',
+      label: muted ? t('chat.menuUnmute') : t('chat.menuMute'),
+      onPress: () => void toggleMute(),
+    },
+    {
+      key: 'wallpaper',
+      icon: 'wallpaper',
+      label: t('chat.menuWallpaper'),
+      onPress: () => navigation.navigate('ChatsSettings'),
+    },
+    {
+      key: 'encryption',
+      icon: 'shield-lock-outline',
+      label: t('chat.menuEncryption'),
+      onPress: () => setEncOpen(true),
+    },
+    { key: 'block', icon: 'account-cancel-outline', label: t('chat.menuBlock'), danger: true, onPress: doBlock },
+    { key: 'clear', icon: 'trash-can-outline', label: t('chat.menuClear'), danger: true, onPress: doClear },
+  ];
+
   const c = theme.colors;
   const items = withDaySeparators(messages);
 
@@ -304,7 +415,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backBtn}>
               <Icon name="arrow-left" size={24} color={c.onHeader} />
             </Pressable>
-            <Pressable style={styles.headerId} hitSlop={6}>
+            <Pressable style={styles.headerId} hitSlop={6} onPress={openInfo}>
               <Avatar uri={partnerAvatar} name={partnerName} size={38} online={partnerOnline} />
               <View style={styles.headerText}>
                 <Text style={[styles.headerName, { color: c.onHeader }]} numberOfLines={1}>
@@ -328,7 +439,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               <Pressable hitSlop={10} onPress={() => placeCall('voice')}>
                 <Icon name="phone-outline" size={21} color={c.onHeader} />
               </Pressable>
-              <Pressable hitSlop={10}>
+              <Pressable hitSlop={10} onPress={() => setMenuOpen(true)}>
                 <Icon name="dots-vertical" size={22} color={c.onHeader} />
               </Pressable>
             </View>
@@ -358,6 +469,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             inverted
             keyExtractor={(it) => (it.kind === 'msg' ? it.m.id : it.key)}
             contentContainerStyle={{ paddingVertical: 10 }}
+            ListFooterComponent={
+              <Pressable style={styles.encBanner} onPress={() => setEncOpen(true)}>
+                <Icon name="lock" size={12} color={c.textMuted} />
+                <Text style={[styles.encBannerTxt, { color: c.textMuted }]}>
+                  {t('chat.encBanner')}
+                </Text>
+              </Pressable>
+            }
             renderItem={({ item, index }) => {
               if (item.kind === 'day') {
                 return (
@@ -437,6 +556,21 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                     <Icon name="close" size={18} color={c.textMuted} />
                   </Pressable>
                 </View>
+              ) : replyTo ? (
+                <View style={[styles.editBar, { borderLeftColor: c.primary }]}>
+                  <View style={styles.flex}>
+                    <Text style={[styles.editLabel, { color: c.primary }]}>
+                      {t('chat.replyingTo')}{' '}
+                      {replyTo.sender_id === myId ? t('chat.replySelf') : partnerName}
+                    </Text>
+                    <Text style={[styles.editPreview, { color: c.textMuted }]} numberOfLines={1}>
+                      {replyTo.body || `[${replyTo.type}]`}
+                    </Text>
+                  </View>
+                  <Pressable onPress={() => setReplyTo(null)} hitSlop={8}>
+                    <Icon name="close" size={18} color={c.textMuted} />
+                  </Pressable>
+                </View>
               ) : null}
               <View style={[styles.inputWrap, { backgroundColor: c.surface }]}>
                 <Pressable hitSlop={8}>
@@ -468,6 +602,38 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
           )}
         </KeyboardAvoidingView>
       )}
+
+      <ChatMenuSheet
+        visible={menuOpen}
+        actions={menuActions}
+        onClose={() => setMenuOpen(false)}
+      />
+      <MessageActionSheet
+        visible={!!actionMsg}
+        ctx={
+          actionMsg
+            ? {
+                mine: actionMsg.sender_id === myId,
+                hasText: !!actionMsg.body,
+                encrypted: !!actionMsg.encrypted,
+                currentReaction: actionMsg.reaction ?? null,
+              }
+            : null
+        }
+        onReact={doReact}
+        onReply={doReply}
+        onCopy={doCopy}
+        onEdit={doEditFromSheet}
+        onForward={doForward}
+        onDeleteForMe={doDeleteForMe}
+        onDeleteForEveryone={doDeleteForEveryone}
+        onClose={() => setActionMsg(null)}
+      />
+      <EncryptionInfoModal
+        visible={encOpen}
+        partnerName={partnerName}
+        onClose={() => setEncOpen(false)}
+      />
     </Screen>
   );
 };
@@ -535,4 +701,17 @@ const styles = StyleSheet.create({
   sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   requestBar: { padding: 16, borderTopWidth: StyleSheet.hairlineWidth },
   requestActions: { flexDirection: 'row' },
+  encBanner: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    alignItems: 'center',
+    gap: 5,
+    maxWidth: '86%',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(140,150,170,0.12)',
+  },
+  encBannerTxt: { fontSize: 11.5, textAlign: 'center', lineHeight: 15 },
 });

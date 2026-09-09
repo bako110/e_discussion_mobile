@@ -30,6 +30,13 @@ export type MainStackParamList = {
     partnerName: string;
     partnerAvatar?: string | null;
   };
+  /** Détail / paramètres d'une conversation (contact, médias, sourdine…). */
+  ConversationInfo: {
+    conversationId: string;
+    partnerId: string;
+    partnerName: string;
+    partnerAvatar?: string | null;
+  };
   /** `mode` : 'chat' (defaut) ouvre la conversation ; 'call' lance un appel. */
   NewConversation: { mode?: 'chat' | 'call' } | undefined;
   EditProfile: undefined;

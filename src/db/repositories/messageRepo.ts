@@ -339,4 +339,17 @@ export const messageRepo = {
       [plain, id],
     );
   },
+
+  /** « Effacer la discussion » — supprime tous les messages locaux. */
+  async clearConversation(conversationId: string): Promise<void> {
+    await run('DELETE FROM messages WHERE conversation_id=?', [conversationId]);
+    await run(
+      `UPDATE conversations
+         SET last_message=NULL, last_message_type=NULL,
+             last_message_encrypted=0, last_message_at=NULL, unread_count=0,
+             updated_at=?
+       WHERE id=?`,
+      [new Date().toISOString(), conversationId],
+    );
+  },
 };

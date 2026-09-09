@@ -40,6 +40,8 @@ export const Endpoints = {
     mute: (id: string) => `${V1}/conversations/${id}/mute`,
     messages: (id: string) => `${V1}/conversations/${id}/messages`,
     read: (id: string) => `${V1}/conversations/${id}/read`,
+    media: (id: string) => `${V1}/conversations/${id}/media`,
+    clear: (id: string) => `${V1}/conversations/${id}`,
   },
   messages: {
     byId: (id: string) => `${V1}/messages/${id}`,

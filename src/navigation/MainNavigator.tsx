@@ -7,6 +7,7 @@ import { AppearanceSettingsScreen } from '@/screens/Main/AppearanceSettingsScree
 import { BlockedUsersScreen } from '@/screens/Main/BlockedUsersScreen';
 import { ContactSyncScreen } from '@/screens/Main/ContactSyncScreen';
 import { ChatScreen } from '@/screens/Main/ChatScreen';
+import { ConversationInfoScreen } from '@/screens/Main/ConversationInfoScreen';
 import { ChatsSettingsScreen } from '@/screens/Main/ChatsSettingsScreen';
 import { CallsSettingsScreen } from '@/screens/Main/CallsSettingsScreen';
 import { CreateGroupScreen } from '@/screens/Main/CreateGroupScreen';
@@ -40,6 +41,7 @@ export const MainNavigator: React.FC = () => (
   <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <Stack.Screen name="Tabs" component={TabNavigator} />
     <Stack.Screen name="Chat" component={ChatScreen} />
+    <Stack.Screen name="ConversationInfo" component={ConversationInfoScreen} />
     <Stack.Screen name="NewConversation" component={NewConversationScreen} />
     <Stack.Screen name="EditProfile" component={EditProfileScreen} />
     <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} />
