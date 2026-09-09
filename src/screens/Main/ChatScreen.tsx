@@ -600,9 +600,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const c = theme.colors;
   const items = withDaySeparators(messages);
 
+  // si MA connexion est coupée, je ne peux pas savoir si le partenaire est en
+  // ligne -> on n'affiche plus le point vert ni « en ligne » (comme WhatsApp).
+  const partnerOnlineEffective = online && partnerOnline;
   const subtitle = partnerTyping
     ? t('common.typing')
-    : lastSeenLabel(partnerLastSeen, partnerOnline);
+    : !online
+      ? lastSeenLabel(partnerLastSeen, false)
+      : lastSeenLabel(partnerLastSeen, partnerOnlineEffective);
 
   // fond de conversation selon la préférence (couleur unie ou dégradé simple)
   const chatBg =
@@ -630,7 +635,12 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               <Icon name="arrow-left" size={24} color={c.onHeader} />
             </Pressable>
             <Pressable style={styles.headerId} hitSlop={6} onPress={openInfo}>
-              <Avatar uri={partnerAvatar} name={partnerName} size={38} online={partnerOnline} />
+              <Avatar
+                uri={partnerAvatar}
+                name={partnerName}
+                size={38}
+                online={partnerOnlineEffective}
+              />
               <View style={styles.headerText}>
                 <Text style={[styles.headerName, { color: c.onHeader }]} numberOfLines={1}>
                   {partnerName}
@@ -638,7 +648,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                 <Text
                   style={[
                     styles.headerSub,
-                    { color: partnerTyping || partnerOnline ? c.onHeader : c.onHeaderMuted },
+                    { color: partnerTyping || partnerOnlineEffective ? c.onHeader : c.onHeaderMuted },
                   ]}
                   numberOfLines={1}
                 >

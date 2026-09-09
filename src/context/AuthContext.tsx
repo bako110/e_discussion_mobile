@@ -38,8 +38,14 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [status, setStatus] = useState<Status>('loading');
-  const [me, setMe] = useState<UserMe | null>(null);
+  // Démarrage instantané : si un profil est en cache MMKV, on ouvre
+  // directement l'app (pas d'écran de chargement React). La vérification des
+  // tokens + le refresh réseau se font ensuite en arrière-plan.
+  const boot = authService.getCachedMe();
+  const [status, setStatus] = useState<Status>(
+    boot ? (authService.profileComplete(boot) ? 'authenticated' : 'onboarding') : 'loading',
+  );
+  const [me, setMe] = useState<UserMe | null>(boot);
 
   const registerE2EE = useCallback(() => {
     ensureDeviceRegistered()
@@ -63,6 +69,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let cancelled = false;
+    const cached = authService.getCachedMe();
+    if (cached && authService.profileComplete(cached)) {
+      setSyncUser(cached.id); // déjà "authenticated" via l'init de status
+      registerE2EE();
+    }
+
     (async () => {
       const hasTokens = await authService.bootstrap(() => {
         if (!cancelled) {
@@ -76,15 +88,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // ── DÉMARRAGE RAPIDE ──────────────────────────────────────────────
-      // Si on a un profil en cache, on entre TOUT DE SUITE dans l'app (les
-      // messages sont lus depuis SQLite local). Le rafraîchissement réseau
-      // du profil se fait en arrière-plan et n'empêche jamais l'affichage.
-      const cached = authService.getCachedMe();
-      if (cached && !cancelled) {
-        applySession(cached);
-      }
-
       try {
         const user = await authService.getMe(true);
         if (!cancelled) applySession(user);
@@ -96,7 +99,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       cancelled = true;
     };
-  }, [applySession]);
+  }, [applySession, registerE2EE]);
 
   const setSession = useCallback((user: UserMe) => applySession(user), [applySession]);
 

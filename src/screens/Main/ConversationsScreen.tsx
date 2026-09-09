@@ -209,11 +209,16 @@ export const ConversationsScreen: React.FC = () => {
               uri={item.partner.avatar_url}
               name={name}
               size={48}
-              online={item.partner.is_online}
+              online={online && item.partner.is_online}
             />
           </Pressable>
         ) : (
-          <Avatar uri={item.partner.avatar_url} name={name} size={54} online={item.partner.is_online} />
+          <Avatar
+            uri={item.partner.avatar_url}
+            name={name}
+            size={54}
+            online={online && item.partner.is_online}
+          />
         )}
         <View style={styles.rowBody}>
           <View style={styles.rowTop}>

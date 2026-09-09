@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next';
 import { Icon } from '@/components/common';
 import { useGroups } from '@/context/GroupsContext';
 import { useStories } from '@/context/StoriesContext';
-import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
 import { CallsScreen } from '@/screens/Main/CallsScreen';
 import { ConversationsScreen } from '@/screens/Main/ConversationsScreen';
@@ -58,7 +57,6 @@ export const TabNavigator: React.FC = () => {
   const { t } = useTranslation();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
-  const { pending } = useSync();
   const { unseenCount } = useStories();
   const { groups, channels } = useGroups();
   const c = theme.colors;
@@ -167,7 +165,6 @@ export const TabNavigator: React.FC = () => {
               iconFocused="cog"
               label={t('tabs.settings')}
               focused={focused}
-              badge={pending}
             />
           ),
         }}

@@ -33,7 +33,9 @@ import {
 import { EncryptionInfoModal } from '@/components/chat/EncryptionInfoModal';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useCall } from '@/context/CallContext';
+import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
+import { conversationRepo } from '@/db/repositories/conversationRepo';
 import type { MainScreenProps } from '@/navigation/types';
 import { conversationService, userService } from '@/services';
 import type { SharedMedia, UserPublic } from '@/types';
@@ -48,6 +50,7 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
   const { t } = useTranslation();
   const { theme } = useTheme();
   const { available: callsAvailable, startCall, phase } = useCall();
+  const { online } = useSync();
   const c = theme.colors;
 
   const [profile, setProfile] = useState<UserPublic | null>(null);
@@ -59,6 +62,19 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    // 1) cache LOCAL d'abord (instantané, hors-ligne OK) : partenaire + sourdine
+    try {
+      const conv = await conversationRepo.get(conversationId);
+      if (conv) {
+        setProfile((cur) => cur ?? (conv.partner as UserPublic));
+        setMuted(conv.muted);
+      }
+    } catch {
+      /* DB pas prête */
+    }
+    setLoading(false);
+
+    // 2) rafraîchit depuis le serveur (best-effort)
     try {
       const [detail, blk, med] = await Promise.all([
         conversationService.detail(conversationId).catch(() => null),
@@ -69,12 +85,13 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
         setMuted(detail.muted);
         setProfile(detail.partner);
       } else {
-        setProfile(await userService.getById(partnerId).catch(() => null));
+        const remote = await userService.getById(partnerId).catch(() => null);
+        if (remote) setProfile(remote);
       }
       setBlocked(blk.some((u) => u.id === partnerId));
-      setMedia(med);
-    } finally {
-      setLoading(false);
+      if (med.length) setMedia(med);
+    } catch {
+      /* hors-ligne — on garde le local */
     }
   }, [conversationId, partnerId]);
 
@@ -202,7 +219,12 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {/* En-tête contact */}
           <View style={styles.hero}>
-            <Avatar uri={avatar} name={name} size={96} online={profile?.is_online} />
+            <Avatar
+              uri={avatar}
+              name={name}
+              size={96}
+              online={online && !!profile?.is_online}
+            />
             <Text style={[styles.heroName, { color: c.text }]} numberOfLines={1}>
               {name}
             </Text>
@@ -213,10 +235,16 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
               <Text
                 style={[
                   styles.heroSub,
-                  { color: profile.is_online ? c.online : c.textFaint, marginTop: 2 },
+                  {
+                    color: online && profile.is_online ? c.online : c.textFaint,
+                    marginTop: 2,
+                  },
                 ]}
               >
-                {lastSeenLabel(profile.last_seen_at ?? null, !!profile.is_online)}
+                {lastSeenLabel(
+                  profile.last_seen_at ?? null,
+                  online && !!profile.is_online,
+                )}
               </Text>
             ) : null}
             {profile?.about ? (
