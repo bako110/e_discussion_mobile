@@ -1,0 +1,39 @@
+# ── Node ─────────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log
+yarn-error.log
+.expo/
+dist/
+*.log
+.DS_Store
+
+# ── Metro ────────────────────────────────────────────────────────────────────
+.metro-health-check*
+metro.config.js.bak
+
+# ── Android ──────────────────────────────────────────────────────────────────
+android/build/
+android/app/build/
+android/.gradle/
+android/.cxx/
+android/app/.cxx/
+android/captures/
+android/local.properties
+android/.idea/
+android/*.iml
+*.keystore
+!debug.keystore
+.gradle/
+
+# ── iOS ──────────────────────────────────────────────────────────────────────
+ios/Pods/
+ios/build/
+ios/*.xcworkspace/xcuserdata/
+ios/.xcode.env.local
+*.xcuserstate
+DerivedData/
+
+# ── Divers ───────────────────────────────────────────────────────────────────
+.env
+*.orig.*
+web-build/
