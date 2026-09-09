@@ -267,7 +267,8 @@
     "peerBusy": "Busy",
     "declined": "Call declined",
     "noAnswer": "No answer",
-    "failed": "Call failed"
+    "failed": "Call failed",
+    "flip": "Flip"
   },
   "settings": {
     "title": "Settings",

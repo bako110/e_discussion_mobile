@@ -86,6 +86,8 @@ interface CallContextValue {
   cameraEnabled: boolean;
   /** true si le SFU est configuré côté serveur. */
   available: boolean;
+  /** true = écran d'appel réduit (pilule flottante), l'appel continue. */
+  minimized: boolean;
 
   startCall: (callee: UserPublic, type: CallType) => Promise<void>;
   acceptCall: () => Promise<void>;
@@ -97,6 +99,10 @@ interface CallContextValue {
   switchCamera: () => Promise<void>;
   /** Bascule l'appel voix <-> vidéo à chaud (publie / retire la caméra). */
   setVideo: (enabled: boolean) => Promise<void>;
+  /** Réduit l'écran d'appel — l'appel reste actif, pilule flottante. */
+  minimize: () => void;
+  /** Restaure l'écran d'appel plein écran. */
+  restore: () => void;
 }
 
 const CallContext = createContext<CallContextValue | null>(null);
@@ -108,6 +114,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [available, setAvailable] = useState(false);
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [endReason, setEndReason] = useState<EndReason | null>(null);
+  const [minimized, setMinimized] = useState(false);
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -204,8 +211,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const minimize = useCallback(() => setMinimized(true), []);
+  const restore = useCallback(() => setMinimized(false), []);
+
   const resetToIdle = useCallback((reason?: EndReason) => {
     setEndReason(reason ?? 'ended');
+    setMinimized(false);
     setPhase('ended');
     setCall(null);
     // petit délai pour laisser l'UI afficher "Appel terminé / Occupé / Refusé"
@@ -593,6 +604,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       speaker,
       cameraEnabled,
       available,
+      minimized,
       startCall,
       acceptCall,
       rejectCall,
@@ -602,6 +614,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toggleCamera,
       switchCamera,
       setVideo,
+      minimize,
+      restore,
     }),
     [
       phase,
@@ -613,6 +627,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       speaker,
       cameraEnabled,
       available,
+      minimized,
       startCall,
       acceptCall,
       rejectCall,
@@ -622,6 +637,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toggleCamera,
       switchCamera,
       setVideo,
+      minimize,
+      restore,
     ],
   );
 

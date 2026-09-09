@@ -267,7 +267,8 @@
     "peerBusy": "Occupé",
     "declined": "Appel refusé",
     "noAnswer": "Pas de réponse",
-    "failed": "Échec de l'appel"
+    "failed": "Échec de l'appel",
+    "flip": "Retourner"
   },
   "settings": {
     "title": "Réglages",

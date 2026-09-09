@@ -12,6 +12,7 @@ import { useCall } from '@/context/CallContext';
 import { useTheme } from '@/context/ThemeContext';
 
 import { ActiveCallScreen } from './ActiveCallScreen';
+import { CallPill } from './CallPill';
 import { IncomingCallScreen } from './IncomingCallScreen';
 
 /** Petite carte affichée ~1,6 s après la fin d'un appel non abouti
@@ -63,7 +64,7 @@ const EndToast: React.FC = () => {
 };
 
 export const CallOverlay: React.FC = () => {
-  const { phase, call } = useCall();
+  const { phase, call, minimized } = useCall();
 
   if (phase === 'idle') return null;
 
@@ -76,11 +77,27 @@ export const CallOverlay: React.FC = () => {
     );
   }
 
-  return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+  // appel entrant : toujours plein écran
+  if (phase === 'incoming') {
+    return (
       <View style={StyleSheet.absoluteFill}>
-        {phase === 'incoming' ? <IncomingCallScreen /> : <ActiveCallScreen />}
+        <IncomingCallScreen />
       </View>
+    );
+  }
+
+  // appel réduit : pilule flottante, la navigation dessous reste utilisable
+  if (minimized) {
+    return (
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        <CallPill />
+      </View>
+    );
+  }
+
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <ActiveCallScreen />
     </View>
   );
 };
