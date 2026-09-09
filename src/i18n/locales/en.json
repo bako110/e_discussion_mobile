@@ -219,7 +219,13 @@
     "addDescription": "Add a description",
     "inviteQr": "Invite QR code",
     "qrHint": "Have it scanned to join",
-    "shareInvite": "Share link"
+    "shareInvite": "Share link",
+    "active": "Active",
+    "allTitle": "All",
+    "membersShort": "{{count}} group",
+    "membersShort_other": "{{count}} groups",
+    "channelsShort": "{{count}} channel",
+    "channelsShort_other": "{{count}} channels"
   },
   "calls": {
     "title": "Calls",

@@ -1,9 +1,10 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -184,16 +185,17 @@ const styles = StyleSheet.create({
 
   // ── onglet Groupes ──
   tabHdrActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  tabListContent: { paddingBottom: 12 },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 6,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
-  sectionTitle: { fontSize: 13, fontWeight: '800', letterSpacing: 0.3, textTransform: 'uppercase' },
-  sectionCount: { fontSize: 12, fontWeight: '700' },
+  tabSectionTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  clearFilter: { fontSize: 13, fontWeight: '700' },
   kindDot: {
     position: 'absolute',
     right: -2,
@@ -205,20 +207,165 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
   },
+
+  // carrousel bulles (façon « moments »)
+  hList: { paddingHorizontal: 12, gap: 2, paddingBottom: 4 },
+  bubble: { width: 78, alignItems: 'center', paddingVertical: 4 },
+  bubbleRing: {
+    borderWidth: 2.5,
+    borderRadius: 38,
+    padding: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bubbleKind: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bubbleCount: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    paddingHorizontal: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bubbleCountText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  bubbleName: { fontSize: 12, fontWeight: '700', marginTop: 5, maxWidth: 76 },
+  bubbleTime: { fontSize: 10.5, marginTop: 1 },
+
+  // cartes filtre Groupes / Chaînes
+  twoCards: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginTop: 6 },
+  filterCard: { flex: 1, borderRadius: 16, padding: 14, gap: 8, borderWidth: 2 },
+  filterCardIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterCardBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    backgroundColor: '#E5484D',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterCardBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  filterCardTitle: { fontSize: 15, fontWeight: '800' },
+  filterCardSub: { fontSize: 12 },
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+type GroupFilter = 'all' | 'group' | 'channel';
+
+/** Bulle ronde d'un groupe / chaîne actif (carrousel haut, façon « moments »). */
+const GroupBubble: React.FC<{
+  group: Group;
+  channel: boolean;
+  newLabel: string;
+  onPress: () => void;
+}> = ({ group, channel, newLabel, onPress }) => {
+  const { theme } = useTheme();
+  const c = theme.colors;
+  const accent = channel ? c.primary : c.success;
+  const hasUnread = group.unread_count > 0;
+  return (
+    <Pressable style={styles.bubble} onPress={onPress} android_ripple={{ color: c.surfaceAlt, borderless: true }}>
+      <View
+        style={[
+          styles.bubbleRing,
+          { borderColor: hasUnread ? accent : c.border, borderStyle: hasUnread ? 'solid' : 'dashed' },
+        ]}
+      >
+        <Avatar uri={group.avatar_url} name={group.name} size={58} />
+        <View style={[styles.bubbleKind, { backgroundColor: accent, borderColor: c.background }]}>
+          <Icon name={channel ? 'bullhorn' : 'account-group'} size={11} color="#fff" />
+        </View>
+        {hasUnread ? (
+          <View style={[styles.bubbleCount, { backgroundColor: c.primary, borderColor: c.background }]}>
+            <Text style={styles.bubbleCountText}>
+              {group.unread_count > 99 ? '99+' : group.unread_count}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      <Text style={[styles.bubbleName, { color: c.text }]} numberOfLines={1}>
+        {group.name}
+      </Text>
+      <Text style={[styles.bubbleTime, { color: c.textFaint }]} numberOfLines={1}>
+        {group.last_message_at ? relativeTime(group.last_message_at) : newLabel}
+      </Text>
+    </Pressable>
+  );
+};
+
+/** Carte-filtre Groupes / Chaînes (2 cartes façon Statut). */
+const FilterCard: React.FC<{
+  selected: boolean;
+  icon: string;
+  tint: string;
+  title: string;
+  sub: string;
+  badge: number;
+  onPress: () => void;
+}> = ({ selected, icon, tint, title, sub, badge, onPress }) => {
+  const { theme } = useTheme();
+  const c = theme.colors;
+  return (
+    <Pressable
+      style={[
+        styles.filterCard,
+        { backgroundColor: c.surfaceAlt, borderColor: selected ? tint : 'transparent' },
+      ]}
+      onPress={onPress}
+      android_ripple={{ color: c.surface }}
+    >
+      <View style={[styles.filterCardIcon, { backgroundColor: tint }]}>
+        <Icon name={icon} size={20} color="#fff" />
+        {badge > 0 ? (
+          <View style={[styles.filterCardBadge, { borderColor: c.surfaceAlt }]}>
+            <Text style={styles.filterCardBadgeText}>{badge > 99 ? '99+' : badge}</Text>
+          </View>
+        ) : null}
+      </View>
+      <Text style={[styles.filterCardTitle, { color: c.text }]}>{title}</Text>
+      <Text style={[styles.filterCardSub, { color: c.textMuted }]}>{sub}</Text>
+    </Pressable>
+  );
+};
+
 /**
- * Onglet « Groupes » de la tab bar (mockup) : groupes ET chaînes réunis,
- * sans bouton retour. Header + accès scanner + création.
+ * Onglet « Groupes » de la tab bar — design façon Statut :
+ *   1. carrousel horizontal des groupes/chaînes actifs (bulles rondes)
+ *   2. deux cartes filtre : Mes groupes (N) · Mes chaînes (N)
+ *   3. liste filtrée
  */
 export const GroupsTabScreen: React.FC = () => {
   const navigation = useNavigation<MainNav>();
   const { t } = useTranslation();
   const { theme } = useTheme();
-  const { groups, channels, loading, reload } = useGroups();
+  const { groups, channels, groupsUnread, channelsUnread, loading, reload } = useGroups();
   const c = theme.colors;
   const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<GroupFilter>('all');
 
   useFocusEffect(
     useCallback(() => {
@@ -226,35 +373,45 @@ export const GroupsTabScreen: React.FC = () => {
     }, [reload]),
   );
 
-  type Item =
-    | { kind: 'section'; key: string; title: string; count: number }
-    | { kind: 'group'; key: string; group: Group; channel: boolean };
+  const all = useMemo(
+    () =>
+      [...groups.map((g) => ({ g, channel: false })), ...channels.map((g) => ({ g, channel: true }))].sort(
+        (a, b) => {
+          const ta = a.g.last_message_at ? Date.parse(a.g.last_message_at) : 0;
+          const tb = b.g.last_message_at ? Date.parse(b.g.last_message_at) : 0;
+          return tb - ta;
+        },
+      ),
+    [groups, channels],
+  );
 
-  const data: Item[] = [];
-  if (groups.length) {
-    data.push({ kind: 'section', key: 's-g', title: t('groups.groups'), count: groups.length });
-    for (const g of groups) data.push({ kind: 'group', key: g.id, group: g, channel: false });
-  }
-  if (channels.length) {
-    data.push({ kind: 'section', key: 's-c', title: t('groups.channels'), count: channels.length });
-    for (const g of channels) data.push({ kind: 'group', key: g.id, group: g, channel: true });
-  }
+  // carrousel : ceux qui ont eu de l'activité (dernier message), non-lus d'abord
+  const active = useMemo(
+    () =>
+      all
+        .filter((x) => x.g.last_message_at || x.g.unread_count > 0)
+        .sort((a, b) => b.g.unread_count - a.g.unread_count)
+        .slice(0, 12),
+    [all],
+  );
 
-  const renderItem = ({ item }: { item: Item }) => {
-    if (item.kind === 'section') {
-      return (
-        <View style={styles.sectionHead}>
-          <Text style={[styles.sectionTitle, { color: c.textMuted }]}>{item.title}</Text>
-          <Text style={[styles.sectionCount, { color: c.textFaint }]}>{item.count}</Text>
-        </View>
-      );
-    }
-    const g = item.group;
+  const list = useMemo(
+    () => (filter === 'all' ? all : all.filter((x) => (filter === 'channel') === x.channel)),
+    [all, filter],
+  );
+
+  const openChat = useCallback(
+    (g: Group) => navigation.navigate('GroupChat', { groupId: g.id, name: g.name }),
+    [navigation],
+  );
+
+  const renderRow = ({ item }: { item: { g: Group; channel: boolean } }) => {
+    const g = item.g;
     return (
       <Pressable
         style={styles.row}
         android_ripple={{ color: c.surfaceAlt }}
-        onPress={() => navigation.navigate('GroupChat', { groupId: g.id, name: g.name })}
+        onPress={() => openChat(g)}
       >
         <View>
           <Avatar uri={g.avatar_url} name={g.name} size={52} />
@@ -264,11 +421,7 @@ export const GroupsTabScreen: React.FC = () => {
               { backgroundColor: item.channel ? c.primary : c.success, borderColor: c.card },
             ]}
           >
-            <Icon
-              name={item.channel ? 'bullhorn' : 'account-group'}
-              size={11}
-              color="#fff"
-            />
+            <Icon name={item.channel ? 'bullhorn' : 'account-group'} size={11} color="#fff" />
           </View>
         </View>
         <View style={styles.rowBody}>
@@ -300,6 +453,69 @@ export const GroupsTabScreen: React.FC = () => {
     );
   };
 
+  const header = (
+    <View>
+      {active.length > 0 ? (
+        <>
+          <View style={styles.sectionHead}>
+            <Text style={[styles.tabSectionTitle, { color: c.text }]}>{t('groups.active')}</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.hList}
+          >
+            {active.map((x) => (
+              <GroupBubble
+                key={x.g.id}
+                group={x.g}
+                channel={x.channel}
+                newLabel={t('groups.new')}
+                onPress={() => openChat(x.g)}
+              />
+            ))}
+          </ScrollView>
+        </>
+      ) : null}
+
+      <View style={styles.twoCards}>
+        <FilterCard
+          selected={filter === 'group' || filter === 'all'}
+          icon="account-group"
+          tint={c.success}
+          title={t('groups.groups')}
+          sub={t('groups.membersShort', { count: groups.length })}
+          badge={groupsUnread}
+          onPress={() => setFilter((f) => (f === 'group' ? 'all' : 'group'))}
+        />
+        <FilterCard
+          selected={filter === 'channel' || filter === 'all'}
+          icon="bullhorn"
+          tint={c.primary}
+          title={t('groups.channels')}
+          sub={t('groups.channelsShort', { count: channels.length })}
+          badge={channelsUnread}
+          onPress={() => setFilter((f) => (f === 'channel' ? 'all' : 'channel'))}
+        />
+      </View>
+
+      <View style={styles.sectionHead}>
+        <Text style={[styles.tabSectionTitle, { color: c.text }]}>
+          {filter === 'channel'
+            ? t('groups.channels')
+            : filter === 'group'
+              ? t('groups.groups')
+              : t('groups.allTitle')}
+        </Text>
+        {filter !== 'all' ? (
+          <Pressable onPress={() => setFilter('all')} hitSlop={8}>
+            <Text style={[styles.clearFilter, { color: c.primary }]}>{t('common.seeAll')}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+
   return (
     <Screen edges={[]}>
       <AppHeader
@@ -320,16 +536,18 @@ export const GroupsTabScreen: React.FC = () => {
         }
       />
 
-      {loading && data.length === 0 ? (
+      {loading && all.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator color={c.primary} />
         </View>
       ) : (
         <FlatList
-          data={data}
-          keyExtractor={(it) => it.key}
-          renderItem={renderItem}
-          contentContainerStyle={data.length === 0 ? styles.emptyWrap : undefined}
+          data={list}
+          keyExtractor={(it) => it.g.id}
+          renderItem={renderRow}
+          ListHeaderComponent={header}
+          ItemSeparatorComponent={() => <View style={[styles.sep, { backgroundColor: c.divider }]} />}
+          contentContainerStyle={list.length === 0 ? styles.emptyWrap : styles.tabListContent}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -344,15 +562,25 @@ export const GroupsTabScreen: React.FC = () => {
           ListEmptyComponent={
             <View style={styles.empty}>
               <View style={[styles.emptyIcon, { backgroundColor: c.surfaceAlt }]}>
-                <Icon name="account-multiple-outline" size={34} color={c.textFaint} />
+                <Icon
+                  name={filter === 'channel' ? 'bullhorn-outline' : 'account-multiple-outline'}
+                  size={34}
+                  color={c.textFaint}
+                />
               </View>
-              <Text style={[styles.emptyText, { color: c.text }]}>{t('groups.noGroups')}</Text>
+              <Text style={[styles.emptyText, { color: c.text }]}>
+                {filter === 'channel' ? t('groups.noChannels') : t('groups.noGroups')}
+              </Text>
               <Pressable
-                onPress={() => navigation.navigate('CreateGroup', {})}
+                onPress={() =>
+                  navigation.navigate('CreateGroup', filter === 'channel' ? { kind: 'channel' } : {})
+                }
                 style={[styles.cta, { backgroundColor: c.primary }]}
               >
                 <Icon name="plus" size={18} color="#fff" />
-                <Text style={styles.ctaText}>{t('groups.createGroup')}</Text>
+                <Text style={styles.ctaText}>
+                  {filter === 'channel' ? t('groups.createChannel') : t('groups.createGroup')}
+                </Text>
               </Pressable>
             </View>
           }

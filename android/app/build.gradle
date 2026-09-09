@@ -135,3 +135,5 @@ dependencies {
 
 // react-native-vector-icons — copie les polices .ttf dans l'APK
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
+
+
