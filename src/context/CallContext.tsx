@@ -525,12 +525,28 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!r) return;
     const next = !cameraEnabled;
     // publie/retire explicitement la piste caméra (h720, non simulcast) pour
-    // que l'autre la reçoive tout de suite.
-    await r.localParticipant.setCameraEnabled(next, {
-      resolution: VideoPresets.h720.resolution,
-    });
+    // que l'autre la reçoive tout de suite (crée la piste si on était en voix).
+    await r.localParticipant.setCameraEnabled(
+      next,
+      next ? { resolution: VideoPresets.h720.resolution } : undefined,
+    );
     setCameraEnabled(next);
-  }, [cameraEnabled]);
+    // reflète le type d'appel : dès que MA caméra est active, on est "vidéo"
+    setCall((prev) =>
+      prev ? { ...prev, callType: next ? 'video' : prev.callType } : prev,
+    );
+    // caméra ON -> haut-parleur
+    if (next && !speaker) {
+      try {
+        await AudioSession.selectAudioOutput(
+          Platform.OS === 'ios' ? 'force_speaker' : 'speaker',
+        );
+        setSpeaker(true);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [cameraEnabled, speaker]);
 
   const switchCamera = useCallback(async () => {
     const r = roomRef.current;

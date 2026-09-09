@@ -20,6 +20,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useWs, type WsEvent } from '@/context/WebSocketContext';
 import type { LocalMessage } from '@/db/repositories/messageRepo';
 import { conversationService, messageService } from '@/services';
+import type { ChatMessage } from '@/types';
 
 interface Props {
   partnerId: string;
@@ -47,24 +48,40 @@ export const InCallChat: React.FC<Props> = ({ partnerId, partnerName, onClose })
         setConversationId(detail.id);
         const page = await messageService.page(detail.id, 40);
         if (alive) setMessages(page);
+        void messageService.markRead(detail.id, myId);
       })
       .catch(() => undefined);
     return () => {
       alive = false;
     };
-  }, [partnerId]);
+  }, [partnerId, myId]);
 
-  // messages entrants en temps réel
+  const reload = useCallback(
+    (cid: string) => messageService.page(cid, 40).then(setMessages),
+    [],
+  );
+
+  // messages entrants en temps réel — il faut INGÉRER le message reçu
+  // (déchiffrement + stockage SQLite) avant de relire la page locale,
+  // comme le fait ChatScreen. Sinon `page()` ne renvoie rien de nouveau.
   useEffect(() => {
     if (!conversationId) return;
     const off = addListener((e: WsEvent) => {
-      if (e.type !== 'message.new') return;
-      const m = e.message as { conversation_id?: string } | undefined;
-      if (!m || m.conversation_id !== conversationId) return;
-      void messageService.page(conversationId, 40).then(setMessages);
+      if (conversationId == null) return;
+      if (e.type === 'message.new') {
+        const m = e.message as ChatMessage | undefined;
+        if (!m || m.conversation_id !== conversationId) return;
+        void messageService.ingestRealtime(m, myId).then(() => void reload(conversationId));
+        void messageService.markRead(conversationId, myId);
+      } else if (e.type === 'message.edited') {
+        const m = e.message as ChatMessage | undefined;
+        if (m?.conversation_id === conversationId) void reload(conversationId);
+      } else if (e.type === 'message.deleted' && e.conversation_id === conversationId) {
+        void reload(conversationId);
+      }
     });
     return off;
-  }, [conversationId, addListener]);
+  }, [conversationId, addListener, myId, reload]);
 
   const send = useCallback(async () => {
     const body = text.trim();
@@ -72,13 +89,12 @@ export const InCallChat: React.FC<Props> = ({ partnerId, partnerName, onClose })
     setText('');
     try {
       await messageService.send({ conversationId, partnerId, senderId: myId, body });
-      const page = await messageService.page(conversationId, 40);
-      setMessages(page);
+      await reload(conversationId);
       requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
     } catch {
       /* l'outbox retentera */
     }
-  }, [text, conversationId, partnerId, myId]);
+  }, [text, conversationId, partnerId, myId, reload]);
 
   return (
     <KeyboardAvoidingView

@@ -5,7 +5,7 @@
  * Vidéo : rendu via <RoomContext.Provider> + hooks LiveKit. Audio : géré par
  * la Room + AudioSession (voir CallContext).
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -72,14 +72,16 @@ const CallStage: React.FC = () => {
     toggleSpeaker,
     toggleCamera,
     switchCamera,
-    setVideo,
     minimize,
   } = useCall();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   const [chatOpen, setChatOpen] = useState(false);
+  const [controlsShown, setControlsShown] = useState(true);
   const enter = useRef(new Animated.Value(0)).current;
+  const ctrlAnim = useRef(new Animated.Value(1)).current;
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { localParticipant } = useLocalParticipant();
   const remotes = useRemoteParticipants();
@@ -94,10 +96,15 @@ const CallStage: React.FC = () => {
     }).start();
   }, [enter]);
 
-  if (!call) return null;
-
-  const name = call.peer?.display_name || call.peer?.username || t('calls.unknown');
-  const peerConnected = remotes.length > 0;
+  // anime l'apparition / disparition des contrôles
+  useEffect(() => {
+    Animated.timing(ctrlAnim, {
+      toValue: controlsShown ? 1 : 0,
+      duration: 200,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  }, [controlsShown, ctrlAnim]);
 
   const remoteVideo = tracks.find(
     (tr) =>
@@ -108,9 +115,39 @@ const CallStage: React.FC = () => {
   const localVideo = tracks.find(
     (tr) => tr.participant.identity === localParticipant.identity && !tr.publication?.isMuted,
   );
+  // affiche la vidéo distante dès qu'elle est là (même si j'étais en voix)
+  const showRemoteVideo = phase === 'active' && !!remoteVideo;
+  // en vidéo, les contrôles s'auto-masquent ; en voix ils restent visibles
+  const autoHideControls = showRemoteVideo;
 
-  // « appel vidéo » = ma caméra est active OU l'autre envoie de la vidéo
-  const isVideo = call.callType === 'video' || cameraEnabled || !!remoteVideo;
+  const bumpHideTimer = useCallback(() => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    if (!autoHideControls) return;
+    hideTimer.current = setTimeout(() => setControlsShown(false), 4000);
+  }, [autoHideControls]);
+
+  useEffect(() => {
+    setControlsShown(true);
+    if (autoHideControls) bumpHideTimer();
+    else if (hideTimer.current) clearTimeout(hideTimer.current);
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
+  }, [autoHideControls, bumpHideTimer]);
+
+  const onTapStage = useCallback(() => {
+    if (!autoHideControls) return;
+    setControlsShown((v) => {
+      const next = !v;
+      if (next) bumpHideTimer();
+      return next;
+    });
+  }, [autoHideControls, bumpHideTimer]);
+
+  if (!call) return null;
+
+  const name = call.peer?.display_name || call.peer?.username || t('calls.unknown');
+  const peerConnected = remotes.length > 0;
 
   const statusText =
     phase === 'outgoing'
@@ -123,11 +160,8 @@ const CallStage: React.FC = () => {
             ? formatCallDuration(elapsed)
             : t('calls.waitingPeer');
 
-  // affiche la vidéo distante dès qu'elle est là (même si j'étais en voix)
-  const showRemoteVideo = phase === 'active' && !!remoteVideo;
-
   return (
-    <View style={[styles.root, { backgroundColor: BG }]}>
+    <Pressable style={[styles.root, { backgroundColor: BG }]} onPress={onTapStage}>
       {/* fond vidéo distante plein écran */}
       {showRemoteVideo ? (
         <VideoTrack trackRef={remoteVideo} style={styles.fill} objectFit="cover" />
@@ -139,8 +173,19 @@ const CallStage: React.FC = () => {
         </>
       )}
 
+      {/* voile HAUT + BAS derrière les barres (léger, la vidéo reste nette) */}
+      {showRemoteVideo ? (
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: ctrlAnim }]}>
+          <View style={[styles.scrimTop, { height: insets.top + 90 }]} />
+          <View style={styles.scrimBottom} />
+        </Animated.View>
+      ) : null}
+
       {/* barre haut : réduire + (nom si vidéo) */}
-      <View style={[styles.topRow, { paddingTop: insets.top + 8 }]}>
+      <Animated.View
+        style={[styles.topRow, { paddingTop: insets.top + 8, opacity: ctrlAnim }]}
+        pointerEvents={controlsShown ? 'auto' : 'none'}
+      >
         <Pressable onPress={minimize} hitSlop={12} style={styles.topBtn}>
           <Icon name="chevron-down" size={26} color="#fff" />
         </Pressable>
@@ -156,7 +201,7 @@ const CallStage: React.FC = () => {
           </View>
         )}
         <View style={styles.topBtn} />
-      </View>
+      </Animated.View>
 
       {/* infos correspondant (voix, ou vidéo pas encore là) */}
       {!showRemoteVideo ? (
@@ -179,11 +224,14 @@ const CallStage: React.FC = () => {
         </Animated.View>
       ) : null}
 
-      {/* vignette vidéo locale */}
-      {isVideo && cameraEnabled && localVideo ? (
+      {/* vignette vidéo locale — visible dès que MA caméra est active */}
+      {cameraEnabled && localVideo ? (
         <Pressable
           onPress={() => void switchCamera()}
-          style={[styles.pip, { top: insets.top + 60 }]}
+          style={[
+            styles.pip,
+            { top: (controlsShown ? insets.top + 60 : insets.top + 16) },
+          ]}
         >
           <VideoTrack trackRef={localVideo} style={styles.fill} mirror objectFit="cover" />
           <View style={styles.pipFlip}>
@@ -199,12 +247,18 @@ const CallStage: React.FC = () => {
             styles.controls,
             {
               paddingBottom: insets.bottom + 26,
-              opacity: enter,
+              opacity: Animated.multiply(enter, ctrlAnim),
               transform: [
-                { translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
+                {
+                  translateY: Animated.multiply(enter, ctrlAnim).interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [24, 0],
+                  }),
+                },
               ],
             },
           ]}
+          pointerEvents={controlsShown ? 'auto' : 'none'}
         >
           <View style={styles.ctrlRow}>
             <CtrlBtn
@@ -219,11 +273,12 @@ const CallStage: React.FC = () => {
               on={speaker}
               onPress={() => void toggleSpeaker()}
             />
+            {/* activer / couper MA caméra — toujours dispo */}
             <CtrlBtn
-              icon={isVideo ? 'video' : 'video-plus'}
-              label={isVideo ? t('calls.switchToVoice') : t('calls.switchToVideo')}
-              on={isVideo}
-              onPress={() => void setVideo(!isVideo)}
+              icon={cameraEnabled ? 'camera' : 'camera-off'}
+              label={cameraEnabled ? t('calls.cameraOff') : t('calls.cameraOn')}
+              on={cameraEnabled}
+              onPress={() => void toggleCamera()}
             />
             <CtrlBtn
               icon="message-text"
@@ -233,18 +288,7 @@ const CallStage: React.FC = () => {
           </View>
 
           <View style={styles.ctrlRow}>
-            {isVideo ? (
-              <CtrlBtn
-                icon={cameraEnabled ? 'camera' : 'camera-off'}
-                label={t('calls.camera')}
-                on={!cameraEnabled}
-                onPress={() => void toggleCamera()}
-              />
-            ) : (
-              <View style={styles.ctrlCol} />
-            )}
-            <CtrlBtn icon="phone-hangup" big danger onPress={() => void hangUp()} />
-            {isVideo ? (
+            {cameraEnabled ? (
               <CtrlBtn
                 icon="camera-flip"
                 label={t('calls.flip')}
@@ -253,12 +297,11 @@ const CallStage: React.FC = () => {
             ) : (
               <View style={styles.ctrlCol} />
             )}
+            <CtrlBtn icon="phone-hangup" big danger onPress={() => void hangUp()} />
+            <View style={styles.ctrlCol} />
           </View>
         </Animated.View>
       ) : null}
-
-      {/* voile sombre en bas de la vidéo pour lisibilité des contrôles */}
-      {showRemoteVideo && !chatOpen ? <View pointerEvents="none" style={styles.scrim} /> : null}
 
       {/* messagerie pendant l'appel */}
       {chatOpen && call.peer ? (
@@ -268,7 +311,7 @@ const CallStage: React.FC = () => {
           onClose={() => setChatOpen(false)}
         />
       ) : null}
-    </View>
+    </Pressable>
   );
 };
 
@@ -363,12 +406,21 @@ const styles = StyleSheet.create({
   ctrlLabel: { color: '#AEBDD1', fontSize: 11, fontWeight: '600', textAlign: 'center' },
   ctrlLabelOn: { color: '#fff' },
 
-  scrim: {
+  // voiles légers uniquement derrière les barres (haut / bas) — la vidéo
+  // au centre reste parfaitement visible.
+  scrimTop: {
     position: 'absolute',
+    top: 0,
     left: 0,
     right: 0,
+    backgroundColor: 'rgba(6,10,20,0.38)',
+  },
+  scrimBottom: {
+    position: 'absolute',
     bottom: 0,
-    height: 260,
-    backgroundColor: 'rgba(10,16,32,0.72)',
+    left: 0,
+    right: 0,
+    height: 190,
+    backgroundColor: 'rgba(6,10,20,0.42)',
   },
 });

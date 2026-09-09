@@ -277,7 +277,9 @@
     "filter_video": "Video",
     "filterEmpty": "No calls for this filter.",
     "deleteOneBody": "Delete this call from history?",
-    "answeredFor": "Duration {{dur}}"
+    "answeredFor": "Duration {{dur}}",
+    "cameraOn": "Camera",
+    "cameraOff": "Camera off"
   },
   "settings": {
     "title": "Settings",

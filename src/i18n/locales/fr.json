@@ -277,7 +277,9 @@
     "filter_video": "Vidéo",
     "filterEmpty": "Aucun appel pour ce filtre.",
     "deleteOneBody": "Supprimer cet appel de l'historique ?",
-    "answeredFor": "Durée {{dur}}"
+    "answeredFor": "Durée {{dur}}",
+    "cameraOn": "Caméra",
+    "cameraOff": "Couper cam."
   },
   "settings": {
     "title": "Réglages",
