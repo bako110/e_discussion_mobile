@@ -1,10 +1,16 @@
 /**
- * Connexion WebSocket temps réel unique (/api/v1/ws). Auth par 1er message,
- * ping toutes les 25 s, reconnexion exponentielle. Les écrans s'abonnent aux
- * events via `addListener`.
+ * Connexion WebSocket temps réel unique (/api/v1/ws). Auth par 1er message.
+ * Les écrans s'abonnent aux events via `addListener`.
  *
- * Events serveur : message.new/edited/deleted/reaction, receipt.delivered/read,
- * typing.start/stop, presence.update, auth.ok.
+ * Résilience :
+ *  - ping périodique + watchdog sur le `pong` (détecte les sockets « half-open »)
+ *  - reconnexion exponentielle en temps normal ; INSTANTANÉE en mode keep-alive
+ *  - reconnexion immédiate au retour du réseau (NetInfo)
+ *  - `keepAlive(true)` pendant un appel : ping 8 s, watchdog 18 s, reconnexion
+ *    sans délai, et on NE ferme JAMAIS la socket sur passage en arrière-plan.
+ *
+ * Events serveur : message.*, receipt.*, typing.*, presence.update,
+ * call.incoming/accepted/rejected/cancelled/ended, auth.ok.
  */
 import React, {
   createContext,
@@ -16,6 +22,7 @@ import React, {
   useState,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import * as Keychain from 'react-native-keychain';
 
 import { WS_URL } from '@/utils/constants';
@@ -31,11 +38,19 @@ interface WsContextValue {
   send: (payload: object) => void;
   addListener: (fn: Listener) => () => void;
   sendTyping: (conversationId: string, state: 'start' | 'stop') => void;
+  /** Active le mode « ne jamais lâcher » (à appeler pendant un appel). */
+  keepAlive: (on: boolean) => void;
 }
 
 const WsContext = createContext<WsContextValue | null>(null);
 
 const KEYCHAIN_SERVICE = 'ediscussion-auth-tokens';
+
+// intervalles (ms)
+const PING_NORMAL = 25_000;
+const PING_KEEPALIVE = 8_000;
+const PONG_TIMEOUT_NORMAL = 40_000;
+const PONG_TIMEOUT_KEEPALIVE = 18_000;
 
 async function currentAccessToken(): Promise<string | null> {
   try {
@@ -56,18 +71,78 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
   const listeners = useRef<Set<Listener>>(new Set());
   const reconnectAttempt = useRef(0);
   const pingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pongWatchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closedByUs = useRef(false);
+  const keepAliveRef = useRef(false);
+  const lastPong = useRef(Date.now());
 
-  const cleanup = useCallback(() => {
+  const clearTimers = useCallback(() => {
     if (pingTimer.current) clearInterval(pingTimer.current);
+    if (pongWatchdog.current) clearTimeout(pongWatchdog.current);
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     pingTimer.current = null;
+    pongWatchdog.current = null;
     reconnectTimer.current = null;
   }, []);
 
+  const scheduleReconnect = useCallback(
+    (connectFn: () => void) => {
+      if (reconnectTimer.current || closedByUs.current || !enabled) return;
+      const delay = keepAliveRef.current
+        ? 0 // pendant un appel : on ne perd pas une seconde
+        : Math.min(30_000, 2 ** reconnectAttempt.current * 1000);
+      reconnectAttempt.current += 1;
+      reconnectTimer.current = setTimeout(() => {
+        reconnectTimer.current = null;
+        connectFn();
+      }, delay);
+    },
+    [enabled],
+  );
+
+  const armHeartbeat = useCallback(
+    (ws: WebSocket, connectFn: () => void) => {
+      if (pingTimer.current) clearInterval(pingTimer.current);
+      if (pongWatchdog.current) clearTimeout(pongWatchdog.current);
+      lastPong.current = Date.now();
+
+      const tick = () => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({ type: 'ping' }));
+
+        // watchdog : si aucun pong depuis trop longtemps -> la socket est morte
+        const timeout = keepAliveRef.current ? PONG_TIMEOUT_KEEPALIVE : PONG_TIMEOUT_NORMAL;
+        if (Date.now() - lastPong.current > timeout) {
+          console.warn('[ws] pas de pong -> socket morte, reconnexion');
+          try {
+            closedByUs.current = false;
+            ws.close();
+          } catch {
+            /* ignore */
+          }
+          scheduleReconnect(connectFn);
+        }
+      };
+
+      pingTimer.current = setInterval(
+        tick,
+        keepAliveRef.current ? PING_KEEPALIVE : PING_NORMAL,
+      );
+    },
+    [scheduleReconnect],
+  );
+
   const connect = useCallback(async () => {
     if (!enabled) return;
+    // évite les connexions concurrentes
+    if (
+      wsRef.current &&
+      (wsRef.current.readyState === WebSocket.CONNECTING ||
+        wsRef.current.readyState === WebSocket.OPEN)
+    ) {
+      return;
+    }
     const token = await currentAccessToken();
     if (!token) {
       console.warn('[ws] pas de token access — connexion differee');
@@ -75,12 +150,10 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
     }
 
     closedByUs.current = false;
-    console.log('[ws] connexion ->', WS_URL);
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('[ws] socket ouverte, envoi auth');
       ws.send(JSON.stringify({ type: 'auth', token }));
     };
 
@@ -92,62 +165,77 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
         return;
       }
       if (data.type === 'auth.ok') {
-        console.log('[ws] auth.ok — connecte');
         setConnected(true);
         reconnectAttempt.current = 0;
+        lastPong.current = Date.now();
         return;
       }
-      if (data.type === 'pong') return;
-      console.log('[ws] event recu:', data.type);
+      if (data.type === 'pong') {
+        lastPong.current = Date.now();
+        return;
+      }
       listeners.current.forEach((fn) => fn(data));
     };
 
-    ws.onclose = (ev) => {
-      console.warn(`[ws] fermeture code=${(ev as { code?: number }).code} reason=${(ev as { reason?: string }).reason}`);
+    ws.onclose = () => {
       setConnected(false);
       if (pingTimer.current) clearInterval(pingTimer.current);
+      if (pongWatchdog.current) clearTimeout(pongWatchdog.current);
       if (!closedByUs.current && enabled) {
-        const delay = Math.min(30_000, 2 ** reconnectAttempt.current * 1000);
-        reconnectAttempt.current += 1;
-        console.log(`[ws] reconnexion dans ${delay}ms (tentative ${reconnectAttempt.current})`);
-        reconnectTimer.current = setTimeout(() => void connect(), delay);
+        scheduleReconnect(() => void connect());
       }
     };
 
-    ws.onerror = (e) => {
-      console.warn('[ws] erreur:', (e as { message?: string }).message ?? 'inconnue');
-      ws.close();
+    ws.onerror = () => {
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
     };
 
-    pingTimer.current = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
-    }, 25_000);
-  }, [enabled]);
+    armHeartbeat(ws, () => void connect());
+  }, [enabled, armHeartbeat, scheduleReconnect]);
 
+  // (re)connexion + réactions AppState / réseau
   useEffect(() => {
     if (!enabled) {
       closedByUs.current = true;
       wsRef.current?.close();
-      cleanup();
+      clearTimers();
       setConnected(false);
       return;
     }
     void connect();
 
-    const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
+    const appSub = AppState.addEventListener('change', (s: AppStateStatus) => {
       if (s === 'active' && wsRef.current?.readyState !== WebSocket.OPEN) {
+        reconnectAttempt.current = 0;
+        void connect();
+      }
+      // en arrière-plan : on NE ferme rien — la socket vit tant que l'OS
+      // laisse le process tourner (indispensable pendant un appel).
+    });
+
+    const netSub = NetInfo.addEventListener((state) => {
+      if (
+        state.isConnected &&
+        wsRef.current?.readyState !== WebSocket.OPEN &&
+        wsRef.current?.readyState !== WebSocket.CONNECTING
+      ) {
         reconnectAttempt.current = 0;
         void connect();
       }
     });
 
     return () => {
-      sub.remove();
+      appSub.remove();
+      netSub();
       closedByUs.current = true;
       wsRef.current?.close();
-      cleanup();
+      clearTimers();
     };
-  }, [enabled, connect, cleanup]);
+  }, [enabled, connect, clearTimers]);
 
   const send = useCallback((payload: object) => {
     const ws = wsRef.current;
@@ -166,9 +254,26 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
     [send],
   );
 
+  const keepAlive = useCallback(
+    (on: boolean) => {
+      if (keepAliveRef.current === on) return;
+      keepAliveRef.current = on;
+      // ré-arme le heartbeat au nouveau rythme, et reconnecte tout de suite
+      // si la socket n'est pas ouverte.
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        armHeartbeat(ws, () => void connect());
+      } else if (on) {
+        reconnectAttempt.current = 0;
+        void connect();
+      }
+    },
+    [armHeartbeat, connect],
+  );
+
   const value = useMemo(
-    () => ({ connected, send, addListener, sendTyping }),
-    [connected, send, addListener, sendTyping],
+    () => ({ connected, send, addListener, sendTyping, keepAlive }),
+    [connected, send, addListener, sendTyping, keepAlive],
   );
 
   return <WsContext.Provider value={value}>{children}</WsContext.Provider>;

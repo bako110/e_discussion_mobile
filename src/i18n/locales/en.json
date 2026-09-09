@@ -269,7 +269,15 @@
     "noAnswer": "No answer",
     "failed": "Call failed",
     "flip": "Flip",
-    "answerAudio": "Audio"
+    "answerAudio": "Audio",
+    "filter_all": "All",
+    "filter_missed": "Missed",
+    "filter_incoming": "Incoming",
+    "filter_outgoing": "Outgoing",
+    "filter_video": "Video",
+    "filterEmpty": "No calls for this filter.",
+    "deleteOneBody": "Delete this call from history?",
+    "answeredFor": "Duration {{dur}}"
   },
   "settings": {
     "title": "Settings",
@@ -403,7 +411,21 @@
     "font_large": "Large",
     "fontPreview": "Text size preview",
     "wallpaperDefault": "Default",
-    "shareAppText": "Discover Gofolyx, the private encrypted messenger: gofolyx://"
+    "shareAppText": "Discover Gofolyx, the private encrypted messenger: gofolyx://",
+    "calls": "Calls",
+    "ringtoneSection": "Ringtone",
+    "ringtone": "Call ringtone",
+    "ringtone_default": "Default",
+    "ringtone_classic": "Classic",
+    "ringtone_soft": "Soft",
+    "vibrate": "Vibrate",
+    "answerOnSpeaker": "Answer on speaker",
+    "answerOnSpeakerHint": "Voice calls start on speakerphone.",
+    "lowData": "Data saver",
+    "lowDataHint": "Video is off by default; you can still turn it on during the call.",
+    "blockUnknownCalls": "Block unknown callers",
+    "blockUnknownCallsHint": "Automatically decline calls from people not in your contacts.",
+    "callsNote": "Calls are end-to-end encrypted. These settings are stored on this device."
   },
   "sync": {
     "offline": "Offline",

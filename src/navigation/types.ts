@@ -44,6 +44,7 @@ export type MainStackParamList = {
   ContactSync: undefined;
   PrivacySettings: undefined;
   ChatsSettings: undefined;
+  CallsSettings: undefined;
   NotificationsSettings: undefined;
   AppearanceSettings: undefined;
   StorageSettings: undefined;

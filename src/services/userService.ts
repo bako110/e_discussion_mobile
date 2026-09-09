@@ -1,5 +1,8 @@
 import { apiClient, Endpoints } from '@/api';
 import type { ContactMatch, PrivacyLevel, UserMe, UserPublic } from '@/types';
+import { storage } from '@/utils/storage';
+
+const KNOWN_CONTACT_IDS = 'contacts.knownIds';
 
 export const userService = {
   search(query: string): Promise<UserPublic[]> {
@@ -13,8 +16,16 @@ export const userService = {
   },
 
   /** Mes contacts E-discussion (repertoire reconnu + conversations existantes). */
-  contacts(): Promise<UserPublic[]> {
-    return apiClient.get<UserPublic[]>(Endpoints.contacts.list);
+  async contacts(): Promise<UserPublic[]> {
+    const list = await apiClient.get<UserPublic[]>(Endpoints.contacts.list);
+    // cache local des IDs -> blocage des appels d'inconnus (CallContext)
+    storage.setJSON(KNOWN_CONTACT_IDS, list.map((u) => u.id));
+    return list;
+  },
+
+  /** IDs des contacts connus (cache MMKV alimenté par `contacts()`). */
+  knownContactIds(): string[] {
+    return storage.getJSON<string[]>(KNOWN_CONTACT_IDS) ?? [];
   },
 
   getById(id: string): Promise<UserPublic> {

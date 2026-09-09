@@ -269,7 +269,15 @@
     "noAnswer": "Pas de réponse",
     "failed": "Échec de l'appel",
     "flip": "Retourner",
-    "answerAudio": "Audio"
+    "answerAudio": "Audio",
+    "filter_all": "Tous",
+    "filter_missed": "Manqués",
+    "filter_incoming": "Reçus",
+    "filter_outgoing": "Émis",
+    "filter_video": "Vidéo",
+    "filterEmpty": "Aucun appel pour ce filtre.",
+    "deleteOneBody": "Supprimer cet appel de l'historique ?",
+    "answeredFor": "Durée {{dur}}"
   },
   "settings": {
     "title": "Réglages",
@@ -403,7 +411,21 @@
     "font_large": "Grand",
     "fontPreview": "Aperçu de la taille du texte",
     "wallpaperDefault": "Défaut",
-    "shareAppText": "Découvre Gofolyx, la messagerie privée et chiffrée : gofolyx://"
+    "shareAppText": "Découvre Gofolyx, la messagerie privée et chiffrée : gofolyx://",
+    "calls": "Appels",
+    "ringtoneSection": "Sonnerie",
+    "ringtone": "Sonnerie des appels",
+    "ringtone_default": "Standard",
+    "ringtone_classic": "Classique",
+    "ringtone_soft": "Douce",
+    "vibrate": "Vibreur",
+    "answerOnSpeaker": "Décrocher en haut-parleur",
+    "answerOnSpeakerHint": "Les appels audio démarrent sur le haut-parleur.",
+    "lowData": "Économie de données",
+    "lowDataHint": "La vidéo est désactivée par défaut ; vous pouvez toujours la réactiver pendant l'appel.",
+    "blockUnknownCalls": "Bloquer les appels d'inconnus",
+    "blockUnknownCallsHint": "Refuser automatiquement les appels de personnes hors de vos contacts.",
+    "callsNote": "Les appels sont chiffrés de bout en bout. Ces réglages sont stockés sur cet appareil."
   },
   "sync": {
     "offline": "Hors ligne",

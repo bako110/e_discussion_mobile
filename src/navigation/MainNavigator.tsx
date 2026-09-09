@@ -8,6 +8,7 @@ import { BlockedUsersScreen } from '@/screens/Main/BlockedUsersScreen';
 import { ContactSyncScreen } from '@/screens/Main/ContactSyncScreen';
 import { ChatScreen } from '@/screens/Main/ChatScreen';
 import { ChatsSettingsScreen } from '@/screens/Main/ChatsSettingsScreen';
+import { CallsSettingsScreen } from '@/screens/Main/CallsSettingsScreen';
 import { CreateGroupScreen } from '@/screens/Main/CreateGroupScreen';
 import { DevicesScreen } from '@/screens/Main/DevicesScreen';
 import { EditProfileScreen } from '@/screens/Main/EditProfileScreen';
@@ -48,6 +49,7 @@ export const MainNavigator: React.FC = () => (
     <Stack.Screen name="ContactSync" component={ContactSyncScreen} />
     <Stack.Screen name="PrivacySettings" component={PrivacySettingsScreen} />
     <Stack.Screen name="ChatsSettings" component={ChatsSettingsScreen} />
+    <Stack.Screen name="CallsSettings" component={CallsSettingsScreen} />
     <Stack.Screen name="NotificationsSettings" component={NotificationsSettingsScreen} />
     <Stack.Screen name="AppearanceSettings" component={AppearanceSettingsScreen} />
     <Stack.Screen name="StorageSettings" component={StorageSettingsScreen} />

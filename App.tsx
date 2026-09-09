@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import '@/i18n';
 import { AppAlertHost, ThemedStatusBar } from '@/components/common';
 import { AuthProvider } from '@/context/AuthContext';
+import { CallPrefsProvider } from '@/context/CallPrefsContext';
 import { ChatPrefsProvider } from '@/context/ChatPrefsContext';
 import { SyncProvider } from '@/context/SyncContext';
 import { ThemeProvider } from '@/context/ThemeContext';
@@ -19,7 +20,9 @@ const App: React.FC = () => (
         <AuthProvider>
           <SyncProvider>
             <ChatPrefsProvider>
-              <RootNavigator />
+              <CallPrefsProvider>
+                <RootNavigator />
+              </CallPrefsProvider>
             </ChatPrefsProvider>
           </SyncProvider>
         </AuthProvider>

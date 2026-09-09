@@ -78,6 +78,11 @@ export const SettingsScreen: React.FC = () => {
             onPress={() => navigation.navigate('ChatsSettings')}
           />
           <SettingsRow
+            icon="phone-outline"
+            label={t('settings.calls')}
+            onPress={() => navigation.navigate('CallsSettings')}
+          />
+          <SettingsRow
             icon="bell-outline"
             label={t('settings.notifications')}
             onPress={() => navigation.navigate('NotificationsSettings')}

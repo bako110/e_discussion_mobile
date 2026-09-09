@@ -32,8 +32,9 @@ import {
 import { Room, RoomEvent, Track, VideoPresets } from 'livekit-client';
 
 import { useAuth } from '@/context/AuthContext';
+import { useCallPrefs } from '@/context/CallPrefsContext';
 import { useWs, type WsEvent } from '@/context/WebSocketContext';
-import { callService } from '@/services';
+import { callService, userService } from '@/services';
 import {
   clearIncomingCall,
   displayIncomingCall,
@@ -109,7 +110,10 @@ const CallContext = createContext<CallContextValue | null>(null);
 
 export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { me } = useAuth();
-  const { addListener } = useWs();
+  const { addListener, keepAlive } = useWs();
+  const prefs = useCallPrefs();
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
 
   const [available, setAvailable] = useState(false);
   const [phase, setPhase] = useState<CallPhase>('idle');
@@ -134,6 +138,13 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   callRef.current = call;
   phaseRef.current = phase;
+
+  // Pendant un appel (toute phase sauf idle), on force le WebSocket à ne
+  // jamais lâcher : heartbeat rapide + reconnexion instantanée. Sinon un
+  // réseau qui vacille pendant WebRTC ferait perdre les events call.*.
+  useEffect(() => {
+    keepAlive(phase !== 'idle' && phase !== 'ended');
+  }, [phase, keepAlive]);
 
   // ── disponibilité (config serveur) + setup notifications ─────────────
   // On réessaie quelques fois (réseau lent au lancement) et on revérifie
@@ -292,10 +303,23 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await r.connect(opts.livekitUrl, opts.token);
 
       await r.localParticipant.setMicrophoneEnabled(true);
-      if (opts.callType === 'video') {
+
+      const p = prefsRef.current;
+      // vidéo : caméra ON sauf mode « économie de données »
+      if (opts.callType === 'video' && !p.lowData) {
         await r.localParticipant.setCameraEnabled(true);
         setCameraEnabled(true);
-        setSpeaker(true);
+      }
+      // haut-parleur : forcé en vidéo, ou si l'utilisateur l'a réglé ainsi
+      if (opts.callType === 'video' || p.answerOnSpeaker) {
+        try {
+          await AudioSession.selectAudioOutput(
+            Platform.OS === 'ios' ? 'force_speaker' : 'speaker',
+          );
+          setSpeaker(true);
+        } catch {
+          /* ignore */
+        }
       }
 
       setPhase('active');
@@ -515,14 +539,22 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const off = addListener((e: WsEvent) => {
       switch (e.type) {
         case 'call.incoming': {
-          // déjà en appel -> refus automatique avec le motif "occupé"
-          // (l'appelant verra « Occupé », pas « Refusé »).
+          const cid = String(e.call_id);
+          // déjà en appel -> refus automatique avec le motif "occupé".
           if (phaseRef.current !== 'idle') {
-            const cid = String(e.call_id);
             void callService.reject(cid, 'busy').catch(() => undefined);
             return;
           }
           const caller = (e.caller ?? null) as UserPublic | null;
+          // bloquer les appels d'inconnus (préférence) : refus silencieux si
+          // l'appelant n'est pas dans mes contacts connus.
+          if (prefsRef.current.blockUnknown && caller) {
+            const known = userService.knownContactIds();
+            if (!known.includes(caller.id)) {
+              void callService.reject(cid, 'declined').catch(() => undefined);
+              return;
+            }
+          }
           const ct = (e.call_type as CallType) ?? 'voice';
           setCall({
             callId: String(e.call_id),
