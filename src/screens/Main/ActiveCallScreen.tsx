@@ -97,13 +97,20 @@ const CallStage: React.FC = () => {
   if (!call) return null;
 
   const name = call.peer?.display_name || call.peer?.username || t('calls.unknown');
-  const isVideo = call.callType === 'video';
   const peerConnected = remotes.length > 0;
 
   const remoteVideo = tracks.find(
-    (tr) => tr.participant.identity !== localParticipant.identity && tr.publication?.isSubscribed,
+    (tr) =>
+      tr.participant.identity !== localParticipant.identity &&
+      tr.publication?.isSubscribed &&
+      !tr.publication?.isMuted,
   );
-  const localVideo = tracks.find((tr) => tr.participant.identity === localParticipant.identity);
+  const localVideo = tracks.find(
+    (tr) => tr.participant.identity === localParticipant.identity && !tr.publication?.isMuted,
+  );
+
+  // « appel vidéo » = ma caméra est active OU l'autre envoie de la vidéo
+  const isVideo = call.callType === 'video' || cameraEnabled || !!remoteVideo;
 
   const statusText =
     phase === 'outgoing'
@@ -116,7 +123,8 @@ const CallStage: React.FC = () => {
             ? formatCallDuration(elapsed)
             : t('calls.waitingPeer');
 
-  const showRemoteVideo = isVideo && phase === 'active' && !!remoteVideo;
+  // affiche la vidéo distante dès qu'elle est là (même si j'étais en voix)
+  const showRemoteVideo = phase === 'active' && !!remoteVideo;
 
   return (
     <View style={[styles.root, { backgroundColor: BG }]}>

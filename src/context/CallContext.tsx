@@ -269,11 +269,18 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const r = new Room({
-        adaptiveStream: true,
-        dynacast: true,
+        // appel 1-to-1 : on veut TOUJOURS émettre l'audio et la vidéo dès
+        // qu'ils sont activés. dynacast/adaptiveStream peuvent retarder ou
+        // couper la vidéo si l'autre "ne la demande pas encore" -> désactivés.
+        adaptiveStream: false,
+        dynacast: false,
         e2ee: e2eeManager ? { e2eeManager } : undefined,
         videoCaptureDefaults: {
           resolution: VideoPresets.h720.resolution,
+        },
+        publishDefaults: {
+          simulcast: false, // 1 seule couche : évite que l'autre ne reçoive rien
+          videoCodec: 'vp8',
         },
       });
 
@@ -290,8 +297,25 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           resetToIdle();
         }
       });
-      r.on(RoomEvent.ConnectionStateChanged, () => {
-        // no-op : on s'appuie sur Connected/Disconnected
+      // chrono commun : démarre quand les DEUX sont dans la room (média établi),
+      // pas à la connexion — sinon l'appelant compte depuis avant le décroché.
+      const startClock = () => {
+        if (tickRef.current) return; // déjà démarré
+        const startedAt = Date.now();
+        setElapsed(0);
+        tickRef.current = setInterval(() => {
+          setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+        }, 1000);
+      };
+      r.on(RoomEvent.ParticipantConnected, () => {
+        startClock();
+        setPhase('active');
+      });
+      // filet : si on reçoit une piste de l'autre sans avoir vu
+      // ParticipantConnected (rare), on considère l'appel actif.
+      r.on(RoomEvent.TrackSubscribed, () => {
+        startClock();
+        setPhase('active');
       });
 
       roomRef.current = r;
@@ -300,7 +324,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (opts.e2eeKey) {
         await r.setE2EEEnabled(true);
       }
-      await r.connect(opts.livekitUrl, opts.token);
+      // autoSubscribe: true -> on reçoit toutes les pistes de l'autre dès
+      // qu'elles sont publiées (y compris la vidéo activée plus tard).
+      await r.connect(opts.livekitUrl, opts.token, { autoSubscribe: true });
 
       await r.localParticipant.setMicrophoneEnabled(true);
 
@@ -322,12 +348,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
 
-      setPhase('active');
-      // chrono
-      const startedAt = Date.now();
-      tickRef.current = setInterval(() => {
-        setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-      }, 1000);
+      // si l'autre est DÉJÀ là (l'un des deux a rejoint la room en second),
+      // on démarre tout de suite ; sinon on reste « connexion… » jusqu'à
+      // RoomEvent.ParticipantConnected.
+      if (r.remoteParticipants.size > 0) {
+        startClock();
+        setPhase('active');
+      } else {
+        setPhase('connecting');
+      }
     },
     [teardown, resetToIdle],
   );
@@ -495,7 +524,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const r = roomRef.current;
     if (!r) return;
     const next = !cameraEnabled;
-    await r.localParticipant.setCameraEnabled(next);
+    // publie/retire explicitement la piste caméra (h720, non simulcast) pour
+    // que l'autre la reçoive tout de suite.
+    await r.localParticipant.setCameraEnabled(next, {
+      resolution: VideoPresets.h720.resolution,
+    });
     setCameraEnabled(next);
   }, [cameraEnabled]);
 
@@ -517,7 +550,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const setVideo = useCallback(async (enabled: boolean) => {
     const r = roomRef.current;
     if (!r) return;
-    await r.localParticipant.setCameraEnabled(enabled);
+    // publication explicite de la caméra (h720) -> l'autre la reçoit
+    // immédiatement grâce à autoSubscribe + dynacast off.
+    await r.localParticipant.setCameraEnabled(
+      enabled,
+      enabled ? { resolution: VideoPresets.h720.resolution } : undefined,
+    );
     setCameraEnabled(enabled);
     // passe le haut-parleur en vidéo, revient à l'écouteur en voix
     if (enabled && !speaker) {
