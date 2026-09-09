@@ -51,9 +51,10 @@
   },
   "tabs": {
     "chats": "Discussion",
-    "calls": "Appel",
-    "status": "Storie",
-    "settings": "Réglages"
+    "calls": "Appels",
+    "status": "Stories",
+    "settings": "Réglages",
+    "groups": "Groupes"
   },
   "conversations": {
     "title": "Messages",
@@ -79,7 +80,8 @@
     "muted": "Silencieux",
     "accept": "Accepter",
     "decline": "Refuser",
-    "acceptRequestHint": "{{name}} souhaite discuter avec vous."
+    "acceptRequestHint": "{{name}} souhaite discuter avec vous.",
+    "sectionTitle": "Discussions"
   },
   "stories": {
     "myStatus": "Mon statut",
@@ -396,7 +398,8 @@
     "syncing": "Synchronisation…",
     "pendingCount": "{{count}} en attente de synchronisation",
     "sentWhenOnline": "Sera envoyé une fois en ligne",
-    "failed": "Échec de l'envoi — appuyez pour réessayer"
+    "failed": "Échec de l'envoi — appuyez pour réessayer",
+    "upToDate": "À jour"
   },
   "errors": {
     "network": "Problème de connexion. Vérifiez votre réseau.",

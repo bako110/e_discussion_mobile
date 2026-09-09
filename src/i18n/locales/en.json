@@ -52,8 +52,9 @@
   "tabs": {
     "chats": "Chats",
     "calls": "Calls",
-    "status": "Status",
-    "settings": "Settings"
+    "status": "Stories",
+    "settings": "Settings",
+    "groups": "Groups"
   },
   "conversations": {
     "title": "Chats",
@@ -79,7 +80,8 @@
     "muted": "Muted",
     "accept": "Accept",
     "decline": "Decline",
-    "acceptRequestHint": "{{name}} wants to chat with you."
+    "acceptRequestHint": "{{name}} wants to chat with you.",
+    "sectionTitle": "Chats"
   },
   "stories": {
     "myStatus": "My status",
@@ -396,7 +398,8 @@
     "syncing": "Syncing…",
     "pendingCount": "{{count}} waiting to sync",
     "sentWhenOnline": "Will be sent once online",
-    "failed": "Failed to send — tap to retry"
+    "failed": "Failed to send — tap to retry",
+    "upToDate": "Up to date"
   },
   "errors": {
     "network": "Connection problem. Check your network.",

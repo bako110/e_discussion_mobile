@@ -18,6 +18,7 @@ export type TabParamList = {
   ChatsTab: undefined;
   CallsTab: undefined;
   StatusTab: undefined;
+  GroupsTab: undefined;
   SettingsTab: undefined;
 };
 

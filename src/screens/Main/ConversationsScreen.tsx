@@ -1,5 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
+  Easing,
   FlatList,
   Image,
   Pressable,
@@ -12,7 +14,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, SyncBanner } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -59,9 +61,30 @@ export const ConversationsScreen: React.FC = () => {
   const { theme } = useTheme();
   const { me } = useAuth();
   const { addListener } = useWs();
-  const { ready, syncNow } = useSync();
+  const { ready, syncNow, online, syncing, pending } = useSync();
   const c = theme.colors;
   const myId = me?.id ?? '';
+
+  // rotation continue de l'icone de synchro tant qu'une passe tourne
+  const spin = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!syncing) {
+      spin.stopAnimation();
+      spin.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.timing(spin, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [syncing, spin]);
+  const spinDeg = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -233,13 +256,51 @@ export const ConversationsScreen: React.FC = () => {
         }
       />
 
-      <SyncBanner />
-
       <FlatList
         data={filtered}
         keyExtractor={(it) => it.id}
         contentContainerStyle={
           filtered.length === 0 ? styles.emptyWrap : styles.listContent
+        }
+        ListHeaderComponent={
+          filtered.length > 0 || !query ? (
+            <View style={styles.sectionHead}>
+              <View style={styles.sectionLeft}>
+                <Icon name="message-text" size={17} color={c.primary} />
+                <Text style={[styles.sectionTitle, { color: c.text }]}>
+                  {t('conversations.sectionTitle')}
+                </Text>
+              </View>
+              <View style={styles.sectionRight}>
+                {!online ? (
+                  <>
+                    <Icon name="cloud-off-outline" size={14} color={c.textMuted} />
+                    <Text style={[styles.sectionState, { color: c.textMuted }]}>
+                      {t('sync.offline')}
+                    </Text>
+                  </>
+                ) : pending > 0 || syncing ? (
+                  <>
+                    <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
+                      <Icon name="sync" size={14} color={c.primary} />
+                    </Animated.View>
+                    <Text style={[styles.sectionState, { color: c.primary }]} numberOfLines={1}>
+                      {pending > 0
+                        ? t('sync.pendingCount', { count: pending })
+                        : t('sync.syncing')}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="check-circle-outline" size={14} color={c.textFaint} />
+                    <Text style={[styles.sectionState, { color: c.textFaint }]}>
+                      {t('sync.upToDate')}
+                    </Text>
+                  </>
+                )}
+              </View>
+            </View>
+          ) : null
         }
         refreshControl={
           <RefreshControl
@@ -321,6 +382,19 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
+
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 8,
+  },
+  sectionLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sectionTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  sectionRight: { flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '55%' },
+  sectionState: { fontSize: 12.5, fontWeight: '700', flexShrink: 1 },
 
   row: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 12, alignItems: 'center' },
   rowBody: { flex: 1, justifyContent: 'center' },

@@ -8,13 +8,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
-import type { MainScreenProps } from '@/navigation/types';
+import type { MainNav, MainScreenProps } from '@/navigation/types';
 import type { Group } from '@/types';
 import { relativeTime } from '@/utils/time';
 
@@ -181,4 +181,183 @@ const styles = StyleSheet.create({
     borderRadius: 24,
   },
   ctaText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  // ── onglet Groupes ──
+  tabHdrActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 6,
+  },
+  sectionTitle: { fontSize: 13, fontWeight: '800', letterSpacing: 0.3, textTransform: 'uppercase' },
+  sectionCount: { fontSize: 12, fontWeight: '700' },
+  kindDot: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+  },
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Onglet « Groupes » de la tab bar (mockup) : groupes ET chaînes réunis,
+ * sans bouton retour. Header + accès scanner + création.
+ */
+export const GroupsTabScreen: React.FC = () => {
+  const navigation = useNavigation<MainNav>();
+  const { t } = useTranslation();
+  const { theme } = useTheme();
+  const { groups, channels, loading, reload } = useGroups();
+  const c = theme.colors;
+  const [refreshing, setRefreshing] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload]),
+  );
+
+  type Item =
+    | { kind: 'section'; key: string; title: string; count: number }
+    | { kind: 'group'; key: string; group: Group; channel: boolean };
+
+  const data: Item[] = [];
+  if (groups.length) {
+    data.push({ kind: 'section', key: 's-g', title: t('groups.groups'), count: groups.length });
+    for (const g of groups) data.push({ kind: 'group', key: g.id, group: g, channel: false });
+  }
+  if (channels.length) {
+    data.push({ kind: 'section', key: 's-c', title: t('groups.channels'), count: channels.length });
+    for (const g of channels) data.push({ kind: 'group', key: g.id, group: g, channel: true });
+  }
+
+  const renderItem = ({ item }: { item: Item }) => {
+    if (item.kind === 'section') {
+      return (
+        <View style={styles.sectionHead}>
+          <Text style={[styles.sectionTitle, { color: c.textMuted }]}>{item.title}</Text>
+          <Text style={[styles.sectionCount, { color: c.textFaint }]}>{item.count}</Text>
+        </View>
+      );
+    }
+    const g = item.group;
+    return (
+      <Pressable
+        style={styles.row}
+        android_ripple={{ color: c.surfaceAlt }}
+        onPress={() => navigation.navigate('GroupChat', { groupId: g.id, name: g.name })}
+      >
+        <View>
+          <Avatar uri={g.avatar_url} name={g.name} size={52} />
+          <View
+            style={[
+              styles.kindDot,
+              { backgroundColor: item.channel ? c.primary : c.success, borderColor: c.card },
+            ]}
+          >
+            <Icon
+              name={item.channel ? 'bullhorn' : 'account-group'}
+              size={11}
+              color="#fff"
+            />
+          </View>
+        </View>
+        <View style={styles.rowBody}>
+          <View style={styles.rowTop}>
+            <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+              {g.name}
+            </Text>
+            <Text style={[styles.time, { color: g.unread_count ? c.primary : c.textFaint }]}>
+              {relativeTime(g.last_message_at)}
+            </Text>
+          </View>
+          <View style={styles.rowBottom}>
+            <Text style={[styles.preview, { color: c.textMuted }]} numberOfLines={1}>
+              {g.last_message_preview ??
+                (item.channel
+                  ? t('groups.subscribersCount', { count: g.member_count })
+                  : t('groups.membersCount', { count: g.member_count }))}
+            </Text>
+            {g.unread_count > 0 ? (
+              <View style={[styles.badge, { backgroundColor: c.primary }]}>
+                <Text style={styles.badgeText}>
+                  {g.unread_count > 99 ? '99+' : g.unread_count}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Pressable>
+    );
+  };
+
+  return (
+    <Screen edges={[]}>
+      <AppHeader
+        title={t('tabs.groups')}
+        right={
+          <View style={styles.tabHdrActions}>
+            <Pressable onPress={() => navigation.navigate('Scanner')} hitSlop={10} style={styles.hdrBtn}>
+              <Icon name="qrcode-scan" size={21} color={c.onHeader} />
+            </Pressable>
+            <Pressable
+              onPress={() => navigation.navigate('CreateGroup', {})}
+              hitSlop={10}
+              style={styles.hdrBtn}
+            >
+              <Icon name="plus" size={23} color={c.onHeader} />
+            </Pressable>
+          </View>
+        }
+      />
+
+      {loading && data.length === 0 ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={c.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={data}
+          keyExtractor={(it) => it.key}
+          renderItem={renderItem}
+          contentContainerStyle={data.length === 0 ? styles.emptyWrap : undefined}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={async () => {
+                setRefreshing(true);
+                await reload();
+                setRefreshing(false);
+              }}
+              tintColor={c.primary}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <View style={[styles.emptyIcon, { backgroundColor: c.surfaceAlt }]}>
+                <Icon name="account-multiple-outline" size={34} color={c.textFaint} />
+              </View>
+              <Text style={[styles.emptyText, { color: c.text }]}>{t('groups.noGroups')}</Text>
+              <Pressable
+                onPress={() => navigation.navigate('CreateGroup', {})}
+                style={[styles.cta, { backgroundColor: c.primary }]}
+              >
+                <Icon name="plus" size={18} color="#fff" />
+                <Text style={styles.ctaText}>{t('groups.createGroup')}</Text>
+              </Pressable>
+            </View>
+          }
+        />
+      )}
+    </Screen>
+  );
+};

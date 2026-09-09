@@ -5,11 +5,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/common';
+import { useGroups } from '@/context/GroupsContext';
 import { useStories } from '@/context/StoriesContext';
 import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
 import { CallsScreen } from '@/screens/Main/CallsScreen';
 import { ConversationsScreen } from '@/screens/Main/ConversationsScreen';
+import { GroupsTabScreen } from '@/screens/Main/GroupsListScreen';
 import { SettingsScreen } from '@/screens/Main/SettingsScreen';
 import { StatusScreen } from '@/screens/Main/StatusScreen';
 
@@ -58,7 +60,11 @@ export const TabNavigator: React.FC = () => {
   const insets = useSafeAreaInsets();
   const { pending } = useSync();
   const { unseenCount } = useStories();
+  const { groups, channels } = useGroups();
   const c = theme.colors;
+
+  const groupsUnread =
+    [...groups, ...channels].reduce((n, g) => n + (g.unread_count || 0), 0) || 0;
 
   // La barre couvre la zone des boutons de navigation Android (safe-area bas).
   const safeBottom = insets.bottom;
@@ -127,11 +133,26 @@ export const TabNavigator: React.FC = () => {
         options={{
           tabBarIcon: ({ focused }) => (
             <TabItem
-              icon="record-circle-outline"
-              iconFocused="record-circle"
+              icon="circle-slice-8"
+              iconFocused="circle-slice-8"
               label={t('tabs.status')}
               focused={focused}
               badge={unseenCount}
+            />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="GroupsTab"
+        component={GroupsTabScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabItem
+              icon="account-group-outline"
+              iconFocused="account-group"
+              label={t('tabs.groups')}
+              focused={focused}
+              badge={groupsUnread}
             />
           ),
         }}
@@ -156,10 +177,10 @@ export const TabNavigator: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  item: { alignItems: 'center', justifyContent: 'center', width: 72, gap: 2 },
+  item: { alignItems: 'center', justifyContent: 'center', width: 62, gap: 2 },
   dot: { width: 5, height: 5, borderRadius: 3, marginBottom: 1 },
   iconWrap: { width: 26, alignItems: 'center' },
-  label: { fontSize: 10.5, fontWeight: '700', letterSpacing: -0.2 },
+  label: { fontSize: 10, fontWeight: '700', letterSpacing: -0.3 },
   badge: {
     position: 'absolute',
     top: -5,
