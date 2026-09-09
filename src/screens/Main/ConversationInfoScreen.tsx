@@ -38,6 +38,7 @@ import type { MainScreenProps } from '@/navigation/types';
 import { conversationService, userService } from '@/services';
 import type { SharedMedia, UserPublic } from '@/types';
 import { mediaUrl } from '@/utils/media';
+import { lastSeenLabel } from '@/utils/time';
 
 export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'>> = ({
   route,
@@ -207,6 +208,16 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
             </Text>
             {profile?.username ? (
               <Text style={[styles.heroSub, { color: c.textMuted }]}>@{profile.username}</Text>
+            ) : null}
+            {profile ? (
+              <Text
+                style={[
+                  styles.heroSub,
+                  { color: profile.is_online ? c.online : c.textFaint, marginTop: 2 },
+                ]}
+              >
+                {lastSeenLabel(profile.last_seen_at ?? null, !!profile.is_online)}
+              </Text>
             ) : null}
             {profile?.about ? (
               <Text style={[styles.heroAbout, { color: c.textMuted }]} numberOfLines={3}>

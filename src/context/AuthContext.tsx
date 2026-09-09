@@ -75,15 +75,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!cancelled) setStatus('unauthenticated');
         return;
       }
+
+      // ── DÉMARRAGE RAPIDE ──────────────────────────────────────────────
+      // Si on a un profil en cache, on entre TOUT DE SUITE dans l'app (les
+      // messages sont lus depuis SQLite local). Le rafraîchissement réseau
+      // du profil se fait en arrière-plan et n'empêche jamais l'affichage.
+      const cached = authService.getCachedMe();
+      if (cached && !cancelled) {
+        applySession(cached);
+      }
+
       try {
         const user = await authService.getMe(true);
         if (!cancelled) applySession(user);
       } catch {
-        const cached = authService.getCachedMe();
-        if (!cancelled) {
-          if (cached) applySession(cached);
-          else setStatus('unauthenticated');
-        }
+        if (!cancelled && !cached) setStatus('unauthenticated');
+        // si on avait déjà un cache, on reste dans l'app avec ce cache
       }
     })();
     return () => {

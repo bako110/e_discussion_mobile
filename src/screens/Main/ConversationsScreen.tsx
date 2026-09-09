@@ -15,6 +15,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Avatar, Icon, Screen, showSheet } from '@/components/common';
+import { useStories } from '@/context/StoriesContext';
 import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
@@ -63,7 +64,15 @@ export const ConversationsScreen: React.FC = () => {
   const { theme } = useTheme();
   const { addListener } = useWs();
   const { ready, syncNow, online, syncing, pending } = useSync();
+  const { feed: storyFeed } = useStories();
   const c = theme.colors;
+
+  // partenaires ayant au moins une story active -> { has_unseen } pour l'anneau
+  const storyByAuthor = useMemo(() => {
+    const m = new Map<string, boolean>(); // authorId -> has_unseen
+    for (const f of storyFeed) m.set(f.author.id, f.has_unseen);
+    return m;
+  }, [storyFeed]);
 
   // rotation continue de l'icone de synchro tant qu'une passe tourne
   const spin = useRef(new Animated.Value(0)).current;
@@ -171,6 +180,8 @@ export const ConversationsScreen: React.FC = () => {
   const renderRow = ({ item }: { item: ConversationSummary }) => {
     const name = item.partner.display_name || item.partner.username || '—';
     const incoming = item.request_status === 'pending_incoming';
+    const hasStory = storyByAuthor.has(item.partner.id);
+    const storyUnseen = storyByAuthor.get(item.partner.id) === true;
     return (
       <Pressable
         android_ripple={{ color: c.surfaceAlt }}
@@ -184,7 +195,26 @@ export const ConversationsScreen: React.FC = () => {
           })
         }
       >
-        <Avatar uri={item.partner.avatar_url} name={name} size={54} online={item.partner.is_online} />
+        {hasStory ? (
+          <Pressable
+            onPress={() =>
+              navigation.navigate('StoryViewer', { authorId: item.partner.id })
+            }
+            style={[
+              styles.storyRing,
+              { borderColor: storyUnseen ? c.primary : c.border },
+            ]}
+          >
+            <Avatar
+              uri={item.partner.avatar_url}
+              name={name}
+              size={48}
+              online={item.partner.is_online}
+            />
+          </Pressable>
+        ) : (
+          <Avatar uri={item.partner.avatar_url} name={name} size={54} online={item.partner.is_online} />
+        )}
         <View style={styles.rowBody}>
           <View style={styles.rowTop}>
             <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
@@ -461,6 +491,14 @@ const styles = StyleSheet.create({
   sectionState: { fontSize: 12.5, fontWeight: '700', flexShrink: 1 },
 
   row: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 12, alignItems: 'center' },
+  storyRing: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   rowBody: { flex: 1, justifyContent: 'center' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   rowBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 },
