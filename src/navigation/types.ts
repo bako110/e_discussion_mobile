@@ -7,7 +7,7 @@ import type { UploadedMedia } from '@/services';
 export type AuthStackParamList = {
   Welcome: undefined;
   Phone: undefined;
-  Otp: { e164: string; pretty: string; resendIn: number };
+  Otp: { e164: string; pretty: string; resendIn: number; devCode?: string | null };
 };
 
 export type OnboardingStackParamList = {

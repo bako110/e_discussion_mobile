@@ -12,7 +12,7 @@ import { authService } from '@/services';
 const CELLS = 6;
 
 export const OtpScreen: React.FC<AuthScreenProps<'Otp'>> = ({ route, navigation }) => {
-  const { e164, pretty, resendIn } = route.params;
+  const { e164, pretty, resendIn, devCode: initialDevCode } = route.params;
   const { t } = useTranslation();
   const { theme } = useTheme();
   const { setSession } = useAuth();
@@ -23,6 +23,8 @@ export const OtpScreen: React.FC<AuthScreenProps<'Otp'>> = ({ route, navigation 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [seconds, setSeconds] = useState(resendIn);
+  // MODE TEST : code renvoyé par le serveur (OTP_DEV_ECHO). Absent en prod.
+  const [devCode, setDevCode] = useState<string | null>(initialDevCode ?? null);
 
   useEffect(() => {
     if (seconds <= 0) return;
@@ -57,9 +59,18 @@ export const OtpScreen: React.FC<AuthScreenProps<'Otp'>> = ({ route, navigation 
     try {
       const res = await authService.phoneStart(e164);
       setSeconds(res.resend_in);
+      setDevCode(res.dev_code ?? null);
+      setCode('');
     } catch {
       setSeconds(30);
     }
+  };
+
+  /** MODE TEST : remplit le champ avec le code du serveur et valide direct. */
+  const useDevCode = () => {
+    if (!devCode) return;
+    setCode(devCode);
+    void submit(devCode);
   };
 
   return (
@@ -110,6 +121,22 @@ export const OtpScreen: React.FC<AuthScreenProps<'Otp'>> = ({ route, navigation 
 
       {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
 
+      {devCode ? (
+        <Pressable
+          onPress={useDevCode}
+          style={[styles.devBox, { backgroundColor: c.primary + '14', borderColor: c.primary + '55' }]}
+        >
+          <Icon name="flask-outline" size={16} color={c.primary} />
+          <Text style={[styles.devLabel, { color: c.textMuted }]}>
+            Mode test — code :
+          </Text>
+          <Text style={[styles.devCode, { color: c.primary }]}>{devCode}</Text>
+          <View style={[styles.devBtn, { backgroundColor: c.primary }]}>
+            <Text style={styles.devBtnTxt}>Valider</Text>
+          </View>
+        </Pressable>
+      ) : null}
+
       <Button
         label={t('auth.verify')}
         onPress={() => submit(code)}
@@ -145,4 +172,18 @@ const styles = StyleSheet.create({
   hidden: { position: 'absolute', opacity: 0, height: 1, width: 1 },
   error: { marginTop: 14, textAlign: 'center' },
   resend: { alignItems: 'center', marginTop: 18 },
+  devBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  devLabel: { fontSize: 12.5, fontWeight: '600' },
+  devCode: { fontSize: 18, fontWeight: '800', letterSpacing: 3, flex: 1 },
+  devBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  devBtnTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
 });

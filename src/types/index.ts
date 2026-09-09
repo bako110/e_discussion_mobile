@@ -56,6 +56,9 @@ export interface PhoneStartOut {
   phone: string; // E.164 normalise cote serveur
   sent: boolean;
   resend_in: number;
+  /** DEV UNIQUEMENT : code OTP en clair renvoyé par le serveur (OTP_DEV_ECHO).
+   * Toujours absent/null en production. */
+  dev_code?: string | null;
 }
 
 export type MessageType = 'text' | 'voice' | 'image' | 'video' | 'file' | 'sticker' | 'location';

@@ -57,6 +57,7 @@ export const PhoneScreen: React.FC<AuthScreenProps<'Phone'>> = ({ navigation }) 
         e164: res.phone,
         pretty,
         resendIn: res.resend_in,
+        devCode: res.dev_code ?? null,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('auth.invalidPhone'));
