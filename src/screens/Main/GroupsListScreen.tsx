@@ -4,7 +4,6 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -162,10 +161,36 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, justifyContent: 'center' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   rowBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 },
-  name: { fontSize: 16, fontWeight: '700', flex: 1, marginRight: 8 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1, marginRight: 8 },
+  name: { fontSize: 16, fontWeight: '700', flexShrink: 1 },
   time: { fontSize: 12, fontWeight: '600' },
   preview: { fontSize: 14, flex: 1, marginRight: 8 },
   badge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  metaTxt: { fontSize: 11.5, fontWeight: '600' },
+  rolePill: {
+    marginLeft: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 7,
+    borderWidth: 1,
+  },
+  rolePillTxt: { fontSize: 10, fontWeight: '800' },
+  segmentWrap: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 },
+  segment: { flexDirection: 'row', borderRadius: 12, padding: 3, gap: 2 },
+  segBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  segTxt: { fontSize: 13 },
+  segCount: { minWidth: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: 'center' },
+  segCountTxt: { fontSize: 11, fontWeight: '800' },
+  segDot: { width: 6, height: 6, borderRadius: 3 },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   sep: { height: StyleSheet.hairlineWidth, marginLeft: 80 },
   emptyWrap: { flexGrow: 1 },
@@ -276,81 +301,6 @@ const styles = StyleSheet.create({
 // ─────────────────────────────────────────────────────────────────────────────
 type GroupFilter = 'all' | 'group' | 'channel';
 
-/** Bulle ronde d'un groupe / chaîne actif (carrousel haut, façon « moments »). */
-const GroupBubble: React.FC<{
-  group: Group;
-  channel: boolean;
-  newLabel: string;
-  onPress: () => void;
-}> = ({ group, channel, newLabel, onPress }) => {
-  const { theme } = useTheme();
-  const c = theme.colors;
-  const accent = channel ? c.primary : c.success;
-  const hasUnread = group.unread_count > 0;
-  return (
-    <Pressable style={styles.bubble} onPress={onPress} android_ripple={{ color: c.surfaceAlt, borderless: true }}>
-      <View
-        style={[
-          styles.bubbleRing,
-          { borderColor: hasUnread ? accent : c.border, borderStyle: hasUnread ? 'solid' : 'dashed' },
-        ]}
-      >
-        <Avatar uri={group.avatar_url} name={group.name} size={58} />
-        <View style={[styles.bubbleKind, { backgroundColor: accent, borderColor: c.background }]}>
-          <Icon name={channel ? 'bullhorn' : 'account-group'} size={11} color="#fff" />
-        </View>
-        {hasUnread ? (
-          <View style={[styles.bubbleCount, { backgroundColor: c.primary, borderColor: c.background }]}>
-            <Text style={styles.bubbleCountText}>
-              {group.unread_count > 99 ? '99+' : group.unread_count}
-            </Text>
-          </View>
-        ) : null}
-      </View>
-      <Text style={[styles.bubbleName, { color: c.text }]} numberOfLines={1}>
-        {group.name}
-      </Text>
-      <Text style={[styles.bubbleTime, { color: c.textFaint }]} numberOfLines={1}>
-        {group.last_message_at ? relativeTime(group.last_message_at) : newLabel}
-      </Text>
-    </Pressable>
-  );
-};
-
-/** Carte-filtre Groupes / Chaînes (2 cartes façon Statut). */
-const FilterCard: React.FC<{
-  selected: boolean;
-  icon: string;
-  tint: string;
-  title: string;
-  sub: string;
-  badge: number;
-  onPress: () => void;
-}> = ({ selected, icon, tint, title, sub, badge, onPress }) => {
-  const { theme } = useTheme();
-  const c = theme.colors;
-  return (
-    <Pressable
-      style={[
-        styles.filterCard,
-        { backgroundColor: c.surfaceAlt, borderColor: selected ? tint : 'transparent' },
-      ]}
-      onPress={onPress}
-      android_ripple={{ color: c.surface }}
-    >
-      <View style={[styles.filterCardIcon, { backgroundColor: tint }]}>
-        <Icon name={icon} size={20} color="#fff" />
-        {badge > 0 ? (
-          <View style={[styles.filterCardBadge, { borderColor: c.surfaceAlt }]}>
-            <Text style={styles.filterCardBadgeText}>{badge > 99 ? '99+' : badge}</Text>
-          </View>
-        ) : null}
-      </View>
-      <Text style={[styles.filterCardTitle, { color: c.text }]}>{title}</Text>
-      <Text style={[styles.filterCardSub, { color: c.textMuted }]}>{sub}</Text>
-    </Pressable>
-  );
-};
 
 /**
  * Onglet « Groupes » de la tab bar — design façon Statut :
@@ -385,16 +335,6 @@ export const GroupsTabScreen: React.FC = () => {
     [groups, channels],
   );
 
-  // carrousel : ceux qui ont eu de l'activité (dernier message), non-lus d'abord
-  const active = useMemo(
-    () =>
-      all
-        .filter((x) => x.g.last_message_at || x.g.unread_count > 0)
-        .sort((a, b) => b.g.unread_count - a.g.unread_count)
-        .slice(0, 12),
-    [all],
-  );
-
   const list = useMemo(
     () => (filter === 'all' ? all : all.filter((x) => (filter === 'channel') === x.channel)),
     [all, filter],
@@ -426,19 +366,23 @@ export const GroupsTabScreen: React.FC = () => {
         </View>
         <View style={styles.rowBody}>
           <View style={styles.rowTop}>
-            <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
-              {g.name}
-            </Text>
+            <View style={styles.nameRow}>
+              <Icon
+                name={item.channel ? 'bullhorn' : 'account-group'}
+                size={13}
+                color={item.channel ? c.primary : c.success}
+              />
+              <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+                {g.name}
+              </Text>
+            </View>
             <Text style={[styles.time, { color: g.unread_count ? c.primary : c.textFaint }]}>
               {relativeTime(g.last_message_at)}
             </Text>
           </View>
           <View style={styles.rowBottom}>
             <Text style={[styles.preview, { color: c.textMuted }]} numberOfLines={1}>
-              {g.last_message_preview ??
-                (item.channel
-                  ? t('groups.subscribersCount', { count: g.member_count })
-                  : t('groups.membersCount', { count: g.member_count }))}
+              {g.last_message_preview || t('groups.noMessages')}
             </Text>
             {g.unread_count > 0 ? (
               <View style={[styles.badge, { backgroundColor: c.primary }]}>
@@ -448,70 +392,62 @@ export const GroupsTabScreen: React.FC = () => {
               </View>
             ) : null}
           </View>
+          <View style={styles.metaRow}>
+            <Icon name="account-multiple-outline" size={12} color={c.textFaint} />
+            <Text style={[styles.metaTxt, { color: c.textFaint }]}>
+              {item.channel
+                ? t('groups.subscribersCount', { count: g.member_count })
+                : t('groups.membersCount', { count: g.member_count })}
+            </Text>
+            {g.my_role === 'owner' || g.my_role === 'admin' ? (
+              <View style={[styles.rolePill, { borderColor: c.primary }]}>
+                <Text style={[styles.rolePillTxt, { color: c.primary }]}>
+                  {t(g.my_role === 'owner' ? 'groups.roleOwner' : 'groups.roleAdmin')}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
       </Pressable>
     );
   };
 
+  const SEGMENTS: { key: GroupFilter; label: string; count: number }[] = [
+    { key: 'all', label: t('groups.allTitle'), count: groups.length + channels.length },
+    { key: 'group', label: t('groups.groups'), count: groups.length },
+    { key: 'channel', label: t('groups.channels'), count: channels.length },
+  ];
+
   const header = (
-    <View>
-      {active.length > 0 ? (
-        <>
-          <View style={styles.sectionHead}>
-            <Text style={[styles.tabSectionTitle, { color: c.text }]}>{t('groups.active')}</Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.hList}
-          >
-            {active.map((x) => (
-              <GroupBubble
-                key={x.g.id}
-                group={x.g}
-                channel={x.channel}
-                newLabel={t('groups.new')}
-                onPress={() => openChat(x.g)}
-              />
-            ))}
-          </ScrollView>
-        </>
-      ) : null}
-
-      <View style={styles.twoCards}>
-        <FilterCard
-          selected={filter === 'group' || filter === 'all'}
-          icon="account-group"
-          tint={c.success}
-          title={t('groups.groups')}
-          sub={t('groups.membersShort', { count: groups.length })}
-          badge={groupsUnread}
-          onPress={() => setFilter((f) => (f === 'group' ? 'all' : 'group'))}
-        />
-        <FilterCard
-          selected={filter === 'channel' || filter === 'all'}
-          icon="bullhorn"
-          tint={c.primary}
-          title={t('groups.channels')}
-          sub={t('groups.channelsShort', { count: channels.length })}
-          badge={channelsUnread}
-          onPress={() => setFilter((f) => (f === 'channel' ? 'all' : 'channel'))}
-        />
-      </View>
-
-      <View style={styles.sectionHead}>
-        <Text style={[styles.tabSectionTitle, { color: c.text }]}>
-          {filter === 'channel'
-            ? t('groups.channels')
-            : filter === 'group'
-              ? t('groups.groups')
-              : t('groups.allTitle')}
-        </Text>
-        {filter !== 'all' ? (
-          <Pressable onPress={() => setFilter('all')} hitSlop={8}>
-            <Text style={[styles.clearFilter, { color: c.primary }]}>{t('common.seeAll')}</Text>
-          </Pressable>
-        ) : null}
+    <View style={styles.segmentWrap}>
+      <View style={[styles.segment, { backgroundColor: c.surfaceAlt }]}>
+        {SEGMENTS.map((s) => {
+          const on = filter === s.key;
+          const unread =
+            s.key === 'group' ? groupsUnread : s.key === 'channel' ? channelsUnread : 0;
+          return (
+            <Pressable
+              key={s.key}
+              onPress={() => setFilter(s.key)}
+              style={[styles.segBtn, on && { backgroundColor: c.card }]}
+            >
+              <Text
+                style={[
+                  styles.segTxt,
+                  { color: on ? c.text : c.textMuted, fontWeight: on ? '800' : '600' },
+                ]}
+              >
+                {s.label}
+              </Text>
+              <View style={[styles.segCount, { backgroundColor: on ? c.primary + '22' : 'transparent' }]}>
+                <Text style={[styles.segCountTxt, { color: on ? c.primary : c.textFaint }]}>
+                  {s.count}
+                </Text>
+              </View>
+              {unread > 0 ? <View style={[styles.segDot, { backgroundColor: c.primary }]} /> : null}
+            </Pressable>
+          );
+        })}
       </View>
     </View>
   );

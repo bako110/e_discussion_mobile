@@ -14,11 +14,10 @@ import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
-import { useGroups } from '@/context/GroupsContext';
 import { useStories } from '@/context/StoriesContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
-import type { Group, Story, StoryFeedItem } from '@/types';
+import type { Story, StoryFeedItem } from '@/types';
 import { relativeTime } from '@/utils/time';
 
 /** Libellé « activité » selon le type du dernier média publié. */
@@ -44,13 +43,6 @@ export const StatusScreen: React.FC = () => {
   const { theme } = useTheme();
   const { me } = useAuth();
   const { feed, mine, loading, myViews, reload } = useStories();
-  const {
-    groups,
-    channels,
-    groupsUnread,
-    channelsUnread,
-    reload: reloadGroups,
-  } = useGroups();
   const navigation = useNavigation<MainNav>();
   const c = theme.colors;
   const myName = me?.display_name || me?.username || t('stories.myStatus');
@@ -61,33 +53,13 @@ export const StatusScreen: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       void reload();
-      void reloadGroups();
-    }, [reload, reloadGroups]),
+    }, [reload]),
   );
 
   const openComposer = () => navigation.navigate('StoryComposer');
   const openViewer = (authorId: string) => navigation.navigate('StoryViewer', { authorId });
   const openMyStatus = () => navigation.navigate('MyStatus');
   const openScanner = () => navigation.navigate('Scanner');
-  const openGroups = (kind: 'group' | 'channel') =>
-    navigation.navigate('GroupsList', { kind });
-  const openGroupChat = (g: Group) =>
-    navigation.navigate('GroupChat', { groupId: g.id, name: g.name });
-  const newGroup = (kind: 'group' | 'channel') =>
-    navigation.navigate('CreateGroup', { kind });
-
-  // groupes + chaînes fusionnés pour la liste courte « populaires », plus récents d'abord
-  const popularGroups = useMemo(
-    () =>
-      [...groups, ...channels]
-        .sort(
-          (a, b) =>
-            +new Date(b.last_message_at ?? b.created_at) -
-            +new Date(a.last_message_at ?? a.created_at),
-        )
-        .slice(0, 4),
-    [groups, channels],
-  );
 
   const myLatest = mine[0];
 
@@ -278,146 +250,6 @@ export const StatusScreen: React.FC = () => {
               </View>
             ) : null}
           </ScrollView>
-
-          {/* ── GROUPES & CHAÎNES ────────────────────────────────────── */}
-          <View style={styles.sectionHead}>
-            <View style={styles.sectionTitleRow}>
-              <Icon name="account-multiple-outline" size={19} color={c.primary} />
-              <Text style={[styles.sectionTitle, { color: c.text }]}>
-                {t('stories.groupsTitle')}
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => newGroup('group')}
-              hitSlop={8}
-              style={styles.seeAll}
-            >
-              <Icon name="plus" size={16} color={c.primary} />
-              <Text style={[styles.seeAllText, { color: c.primary }]}>
-                {t('groups.new')}
-              </Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.twoCards}>
-            <Pressable
-              style={[styles.bigCard, { backgroundColor: c.surfaceAlt }]}
-              onPress={() => openGroups('group')}
-              onLongPress={() => newGroup('group')}
-              android_ripple={{ color: c.surface }}
-            >
-              <View style={[styles.bigCardIcon, { backgroundColor: c.primary }]}>
-                <Icon name="account-multiple" size={22} color="#fff" />
-                {groupsUnread > 0 ? (
-                  <View style={[styles.bigCardBadge, { borderColor: c.surfaceAlt }]}>
-                    <Text style={styles.bigCardBadgeText}>
-                      {groupsUnread > 99 ? '99+' : groupsUnread}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-              <View style={styles.bigCardBody}>
-                <Text style={[styles.bigCardTitle, { color: c.text }]}>
-                  {t('stories.groups')}
-                </Text>
-                <Text style={[styles.bigCardSub, { color: c.textMuted }]}>
-                  {t('stories.groupsCount', { count: groups.length })}
-                </Text>
-              </View>
-              <View style={styles.bigCardLink}>
-                <Text style={[styles.bigCardLinkText, { color: c.primary }]}>
-                  {t('common.seeAll')}
-                </Text>
-                <Icon name="arrow-right" size={14} color={c.primary} />
-              </View>
-            </Pressable>
-
-            <Pressable
-              style={[styles.bigCard, { backgroundColor: c.surfaceAlt }]}
-              onPress={() => openGroups('channel')}
-              onLongPress={() => newGroup('channel')}
-              android_ripple={{ color: c.surface }}
-            >
-              <View style={[styles.bigCardIcon, { backgroundColor: '#7B61FF' }]}>
-                <Icon name="bullhorn" size={20} color="#fff" />
-                {channelsUnread > 0 ? (
-                  <View style={[styles.bigCardBadge, { borderColor: c.surfaceAlt }]}>
-                    <Text style={styles.bigCardBadgeText}>
-                      {channelsUnread > 99 ? '99+' : channelsUnread}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-              <View style={styles.bigCardBody}>
-                <Text style={[styles.bigCardTitle, { color: c.text }]}>
-                  {t('stories.channels')}
-                </Text>
-                <Text style={[styles.bigCardSub, { color: c.textMuted }]}>
-                  {t('stories.channelsCount', { count: channels.length })}
-                </Text>
-              </View>
-              <View style={styles.bigCardLink}>
-                <Text style={[styles.bigCardLinkText, { color: '#7B61FF' }]}>
-                  {t('common.seeAll')}
-                </Text>
-                <Icon name="arrow-right" size={14} color="#7B61FF" />
-              </View>
-            </Pressable>
-          </View>
-
-          {popularGroups.length > 0
-            ? popularGroups.map((g, i) => (
-                <Pressable
-                  key={g.id}
-                  onPress={() => openGroupChat(g)}
-                  android_ripple={{ color: c.surfaceAlt }}
-                  style={[
-                    styles.groupRow,
-                    i < popularGroups.length - 1 && {
-                      borderBottomColor: c.divider,
-                      borderBottomWidth: StyleSheet.hairlineWidth,
-                    },
-                  ]}
-                >
-                  <Avatar uri={g.avatar_url} name={g.name} size={46} />
-                  <View style={styles.groupBody}>
-                    <Text style={[styles.groupName, { color: c.text }]} numberOfLines={1}>
-                      {g.name}
-                      {g.kind === 'channel' ? '  📢' : ''}
-                    </Text>
-                    <Text style={[styles.groupLast, { color: c.textMuted }]} numberOfLines={1}>
-                      {g.last_message_preview ??
-                        (g.kind === 'channel'
-                          ? t('groups.subscribersCount', { count: g.member_count })
-                          : t('groups.membersCount', { count: g.member_count }))}
-                    </Text>
-                  </View>
-                  <View style={styles.groupMeta}>
-                    <Text style={[styles.groupTime, { color: c.textFaint }]}>
-                      {relativeTime(g.last_message_at)}
-                    </Text>
-                    {g.unread_count > 0 ? (
-                      <View style={[styles.groupBadge, { backgroundColor: c.primary }]}>
-                        <Text style={styles.groupBadgeText}>
-                          {g.unread_count > 99 ? '99+' : g.unread_count}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                </Pressable>
-              ))
-            : (
-              <Pressable
-                onPress={() => newGroup('group')}
-                style={styles.groupsEmpty}
-                android_ripple={{ color: c.surfaceAlt }}
-              >
-                <Icon name="account-multiple-plus-outline" size={20} color={c.primary} />
-                <Text style={[styles.groupsEmptyText, { color: c.primary }]}>
-                  {t('groups.createFirst')}
-                </Text>
-              </Pressable>
-            )}
 
           {/* ── ACTIVITÉ RÉCENTE ────────────────────────────────────── */}
           {activity.length > 0 ? (
