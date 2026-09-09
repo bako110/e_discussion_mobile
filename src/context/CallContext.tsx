@@ -90,7 +90,7 @@ interface CallContextValue {
   minimized: boolean;
 
   startCall: (callee: UserPublic, type: CallType) => Promise<void>;
-  acceptCall: () => Promise<void>;
+  acceptCall: (opts?: { asAudio?: boolean }) => Promise<void>;
   rejectCall: () => Promise<void>;
   hangUp: () => Promise<void>;
   toggleMute: () => Promise<void>;
@@ -378,19 +378,26 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [connectRoom, teardown, resetToIdle],
   );
 
-  const acceptCall = useCallback(async () => {
+  const acceptCall = useCallback(async (opts?: { asAudio?: boolean }) => {
     const c = callRef.current;
     if (!c || phaseRef.current !== 'incoming') return;
     void clearIncomingCall();
     setPhase('connecting');
     try {
       const res = await callService.accept(c.callId);
+      // « répondre en audio » à un appel vidéo : on rejoint en voix (pas de
+      // caméra), l'autre peut toujours envoyer sa vidéo.
+      const callType = opts?.asAudio ? 'voice' : res.call_type;
       await connectRoom({
         livekitUrl: res.livekit_url,
         token: res.token,
         e2eeKey: c.e2eeKey ?? res.e2ee_key,
-        callType: res.call_type,
+        callType,
       });
+      if (opts?.asAudio && res.call_type === 'video') {
+        // reflète « vidéo » côté état (l'autre est en vidéo) sans publier la nôtre
+        setCall((prev) => (prev ? { ...prev, callType: 'video' } : prev));
+      }
     } catch (e) {
       await teardown();
       resetToIdle();

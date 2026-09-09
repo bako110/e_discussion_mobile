@@ -268,7 +268,8 @@
     "declined": "Call declined",
     "noAnswer": "No answer",
     "failed": "Call failed",
-    "flip": "Flip"
+    "flip": "Flip",
+    "answerAudio": "Audio"
   },
   "settings": {
     "title": "Settings",

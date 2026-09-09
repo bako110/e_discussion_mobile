@@ -268,7 +268,8 @@
     "declined": "Appel refusé",
     "noAnswer": "Pas de réponse",
     "failed": "Échec de l'appel",
-    "flip": "Retourner"
+    "flip": "Retourner",
+    "answerAudio": "Audio"
   },
   "settings": {
     "title": "Réglages",
