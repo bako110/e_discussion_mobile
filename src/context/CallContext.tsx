@@ -21,7 +21,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import {
   AndroidAudioTypePresets,
   AudioSession,
@@ -123,23 +123,38 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   phaseRef.current = phase;
 
   // ── disponibilité (config serveur) + setup notifications ─────────────
+  // On réessaie quelques fois (réseau lent au lancement) et on revérifie
+  // quand l'app repasse au premier plan : un premier échec ne doit pas
+  // désactiver les appels pour toute la session.
   useEffect(() => {
-    let alive = true;
     if (!me) {
       setAvailable(false);
       return;
     }
+    let alive = true;
     void ensureNotificationSetup();
-    callService
-      .config()
-      .then((cfg) => {
+
+    const check = async (attempt = 0): Promise<void> => {
+      try {
+        const cfg = await callService.config();
         if (alive) setAvailable(cfg.enabled);
-      })
-      .catch(() => {
-        if (alive) setAvailable(false);
-      });
+      } catch {
+        if (!alive) return;
+        if (attempt < 4) {
+          setTimeout(() => void check(attempt + 1), 2 ** attempt * 1500);
+        } else {
+          setAvailable(false);
+        }
+      }
+    };
+    void check();
+
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') void check();
+    });
     return () => {
       alive = false;
+      sub.remove();
     };
   }, [me]);
 

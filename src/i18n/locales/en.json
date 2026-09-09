@@ -245,7 +245,7 @@
     "e2eeNotice": "End-to-end encrypted",
     "unknown": "Unknown",
     "unavailableTitle": "Calls unavailable",
-    "unavailableBody": "The call server is not configured. Try again later.",
+    "unavailableBody": "The call service is temporarily unavailable. Please try again shortly.",
     "startFailed": "Could not start the call",
     "statusMissed": "Missed call",
     "statusRejected": "Declined",

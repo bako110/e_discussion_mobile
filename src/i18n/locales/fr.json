@@ -245,7 +245,7 @@
     "e2eeNotice": "Chiffré de bout en bout",
     "unknown": "Inconnu",
     "unavailableTitle": "Appels indisponibles",
-    "unavailableBody": "Le serveur d'appels n'est pas configuré. Réessayez plus tard.",
+    "unavailableBody": "Le service d'appels est momentanément indisponible. Réessayez dans un instant.",
     "startFailed": "Impossible de démarrer l'appel",
     "statusMissed": "Appel manqué",
     "statusRejected": "Refusé",
