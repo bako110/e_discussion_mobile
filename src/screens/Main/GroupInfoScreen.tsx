@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   Share,
@@ -12,7 +11,7 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
@@ -79,7 +78,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
 
   const changeAvatar = () => {
     if (!canEdit) return;
-    Alert.alert(t('settings.changePhoto'), undefined, [
+    showAlert(t('settings.changePhoto'), undefined, [
       { text: t('stories.fromGallery'), onPress: () => void pickAvatar(false) },
       { text: t('stories.fromCamera'), onPress: () => void pickAvatar(true) },
       { text: t('common.cancel'), style: 'cancel' },
@@ -94,7 +93,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
       setGroup(g);
       await reloadGroups();
     } catch {
-      Alert.alert(t('errors.generic'));
+      showAlert(t('errors.generic'));
     }
   };
 
@@ -108,7 +107,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
       setEditingDesc(false);
       await reloadGroups();
     } catch {
-      Alert.alert(t('errors.generic'));
+      showAlert(t('errors.generic'));
     } finally {
       setSavingDesc(false);
     }
@@ -129,7 +128,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
   };
 
   const confirmLeave = () => {
-    Alert.alert(
+    showAlert(
       isChannel ? t('groups.leaveChannelTitle') : t('groups.leaveGroupTitle'),
       t('groups.leaveConfirm'),
       [
@@ -143,7 +142,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
               await reloadGroups();
               navigation.navigate('Tabs', { screen: 'StatusTab' });
             } catch {
-              Alert.alert(t('errors.generic'));
+              showAlert(t('errors.generic'));
             }
           },
         },

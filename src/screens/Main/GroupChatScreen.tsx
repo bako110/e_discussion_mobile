@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -16,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
@@ -182,14 +181,14 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     } catch (e) {
       console.warn('[group] media send failed:', e);
       setMessages((prev) => prev.filter((m) => m.id !== clientId));
-      Alert.alert(t('errors.generic'));
+      showAlert(t('errors.generic'));
     } finally {
       setSending(false);
     }
   };
 
   const pickAttachment = () => {
-    Alert.alert(t('groups.attach'), undefined, [
+    showAlert(t('groups.attach'), undefined, [
       { text: t('groups.attachPhoto'), onPress: () => void sendMedia('photo') },
       { text: t('groups.attachVideo'), onPress: () => void sendMedia('video') },
       { text: t('common.cancel'), style: 'cancel' },

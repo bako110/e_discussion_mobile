@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-import { Alert, PermissionsAndroid, Platform } from 'react-native';
+import { PermissionsAndroid, Platform } from 'react-native';
+import { alertError, showAlert } from '@/components/common';
 import {
   launchCamera,
   launchImageLibrary,
@@ -85,7 +86,7 @@ export function useMediaPicker(): MediaPicker {
   const runPick = useCallback(
     async (kind: 'photo' | 'video', camera: boolean): Promise<UploadedMedia | null> => {
       if (camera && !(await ensureAndroidCameraPermission())) {
-        Alert.alert('Caméra', 'Autorisez la caméra dans les réglages pour continuer.');
+        showAlert('Caméra', 'Autorisez la caméra dans les réglages pour continuer.');
         return null;
       }
       setBusy(true);
@@ -104,7 +105,7 @@ export function useMediaPicker(): MediaPicker {
 
         if (res.didCancel) return null;
         if (res.errorCode) {
-          Alert.alert('Erreur', res.errorMessage || res.errorCode);
+          alertError('Erreur', res.errorMessage || res.errorCode);
           return null;
         }
         const file = assetToFile(
@@ -115,7 +116,7 @@ export function useMediaPicker(): MediaPicker {
         return await mediaService.upload(file);
       } catch (e) {
         console.warn('[media] pick failed:', e);
-        Alert.alert('Erreur', "L'envoi du média a échoué.");
+        alertError('Erreur', "L'envoi du média a échoué.");
         return null;
       } finally {
         setBusy(false);
@@ -136,7 +137,7 @@ export function useMediaPicker(): MediaPicker {
   const startRecording = useCallback(async () => {
     if (activeRecording.current) return true;
     if (!(await ensureAndroidAudioPermission())) {
-      Alert.alert('Micro', "L'accès au micro est nécessaire pour enregistrer.");
+      showAlert('Micro', "L'accès au micro est nécessaire pour enregistrer.");
       return false;
     }
     try {
@@ -149,7 +150,7 @@ export function useMediaPicker(): MediaPicker {
       return true;
     } catch (e) {
       console.warn('[media] record start failed:', e);
-      Alert.alert('Erreur', "Impossible de démarrer l'enregistrement.");
+      alertError('Erreur', "Impossible de démarrer l'enregistrement.");
       return false;
     }
   }, []);
@@ -180,7 +181,7 @@ export function useMediaPicker(): MediaPicker {
       return await mediaService.upload({ uri, name, type: 'audio/mp4' });
     } catch (e) {
       console.warn('[media] record upload failed:', e);
-      Alert.alert('Erreur', "L'envoi de la note vocale a échoué.");
+      alertError('Erreur', "L'envoi de la note vocale a échoué.");
       return null;
     } finally {
       setBusy(false);

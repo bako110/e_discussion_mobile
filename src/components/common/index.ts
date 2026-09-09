@@ -1,4 +1,13 @@
 export { AppHeader } from './AppHeader';
+export {
+  AppAlertHost,
+  showAlert,
+  alertSuccess,
+  alertError,
+  confirmAlert,
+  type AlertButton,
+  type AlertOptions,
+} from './AppAlert';
 export { Avatar } from './Avatar';
 export { BrandLogo } from './BrandLogo';
 export { Button } from './Button';

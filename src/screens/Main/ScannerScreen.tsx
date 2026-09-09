@@ -1,7 +1,6 @@
 import React, { Suspense, useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Linking,
   Pressable,
   StyleSheet,
@@ -13,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { groupService } from '@/services';
@@ -82,7 +81,7 @@ export const ScannerScreen: React.FC<MainScreenProps<'Scanner'>> = ({ navigation
       if (handled.current || busy) return;
       const code = parseInviteCode(raw);
       if (!code) {
-        Alert.alert(t('groups.invalidCode'));
+        showAlert(t('groups.invalidCode'));
         return;
       }
       handled.current = true;
@@ -92,7 +91,7 @@ export const ScannerScreen: React.FC<MainScreenProps<'Scanner'>> = ({ navigation
         navigation.replace('JoinPreview', { code, preview });
       } catch (e) {
         console.warn('[scan] preview failed:', e);
-        Alert.alert(t('groups.codeNotFound'));
+        showAlert(t('groups.codeNotFound'));
         handled.current = false;
       } finally {
         setBusy(false);

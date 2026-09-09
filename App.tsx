@@ -4,7 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import '@/i18n';
-import { ThemedStatusBar } from '@/components/common';
+import { AppAlertHost, ThemedStatusBar } from '@/components/common';
 import { AuthProvider } from '@/context/AuthContext';
 import { ChatPrefsProvider } from '@/context/ChatPrefsContext';
 import { SyncProvider } from '@/context/SyncContext';
@@ -23,6 +23,8 @@ const App: React.FC = () => (
             </ChatPrefsProvider>
           </SyncProvider>
         </AuthProvider>
+        {/* Alertes maison — au-dessus de toute la navigation */}
+        <AppAlertHost />
       </ThemeProvider>
     </SafeAreaProvider>
   </GestureHandlerRootView>

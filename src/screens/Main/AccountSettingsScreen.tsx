@@ -1,9 +1,16 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { Avatar, AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -34,21 +41,21 @@ export const AccountSettingsScreen: React.FC = () => {
         title: t('settings.exportTitle'),
       });
     } catch {
-      Alert.alert(t('errors.generic'));
+      showAlert(t('errors.generic'));
     } finally {
       setBusy(null);
     }
   };
 
   const confirmDelete = () => {
-    Alert.alert(t('settings.deleteAccount'), t('settings.deleteAccountWarn'), [
+    showAlert(t('settings.deleteAccount'), t('settings.deleteAccountWarn'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('common.continue'),
         style: 'destructive',
         onPress: () => {
           // 2e confirmation
-          Alert.alert(t('settings.deleteAccountConfirmTitle'), t('settings.deleteAccountConfirmBody'), [
+          showAlert(t('settings.deleteAccountConfirmTitle'), t('settings.deleteAccountConfirmBody'), [
             { text: t('common.cancel'), style: 'cancel' },
             {
               text: t('settings.deleteAccount'),
@@ -60,7 +67,7 @@ export const AccountSettingsScreen: React.FC = () => {
                   await signOut();
                 } catch {
                   setBusy(null);
-                  Alert.alert(t('errors.generic'));
+                  showAlert(t('errors.generic'));
                 }
               },
             },

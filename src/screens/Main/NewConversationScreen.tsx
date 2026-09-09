@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -11,7 +10,7 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { Avatar, AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
 import { useSync } from '@/context/SyncContext';
@@ -154,11 +153,11 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
   const startCall = useCallback(
     (user: UserPublic) => {
       if (!callsAvailable) {
-        Alert.alert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
+        showAlert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
         return;
       }
       if (callPhase !== 'idle') return;
-      Alert.alert(user.display_name || user.username || '—', undefined, [
+      showAlert(user.display_name || user.username || '—', undefined, [
         { text: t('common.cancel'), style: 'cancel' },
         {
           text: t('calls.voice'),

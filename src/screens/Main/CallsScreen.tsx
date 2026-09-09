@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -12,7 +11,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -58,19 +57,19 @@ export const CallsScreen: React.FC = () => {
   const redial = (log: CallLog) => {
     if (!log.peer) return;
     if (!available) {
-      Alert.alert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
+      showAlert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
       return;
     }
     if (phase !== 'idle') return;
     startCall(log.peer, log.call_type).catch((e: unknown) => {
       const msg = e instanceof Error ? e.message : t('calls.startFailed');
-      Alert.alert(t('calls.startFailed'), msg);
+      showAlert(t('calls.startFailed'), msg);
     });
   };
 
   const clearAll = () => {
     if (items.length === 0) return;
-    Alert.alert(t('calls.clearTitle'), t('calls.clearBody'), [
+    showAlert(t('calls.clearTitle'), t('calls.clearBody'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('common.delete'),

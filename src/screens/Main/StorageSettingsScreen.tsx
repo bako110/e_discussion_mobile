@@ -1,9 +1,14 @@
 import React from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
 import { SettingsRow, SettingsSection, ToggleRow } from '@/components/settings';
 import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -19,7 +24,7 @@ export const StorageSettingsScreen: React.FC = () => {
   const c = theme.colors;
 
   const clearLocal = () => {
-    Alert.alert(t('settings.clearLocal'), t('settings.clearLocalConfirm'), [
+    showAlert(t('settings.clearLocal'), t('settings.clearLocalConfirm'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('common.delete'),

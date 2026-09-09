@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -12,7 +11,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
@@ -56,13 +55,13 @@ export const ContactSyncScreen: React.FC = () => {
       setGranted(r.permission === 'granted');
       setLastAt(lastContactsSyncAt());
       if (r.permission === 'blocked') {
-        Alert.alert(t('contacts.permBlockedTitle'), t('contacts.permBlockedBody'), [
+        showAlert(t('contacts.permBlockedTitle'), t('contacts.permBlockedBody'), [
           { text: t('common.cancel'), style: 'cancel' },
           { text: t('settings.openSettings'), onPress: () => Linking.openSettings() },
         ]);
       }
     } catch {
-      Alert.alert(t('errors.generic'));
+      showAlert(t('errors.generic'));
     } finally {
       setRunning(false);
     }
@@ -81,7 +80,7 @@ export const ContactSyncScreen: React.FC = () => {
         partnerAvatar: m.user.avatar_url,
       });
     } catch {
-      Alert.alert(t('errors.generic'));
+      showAlert(t('errors.generic'));
     } finally {
       setOpening(null);
     }

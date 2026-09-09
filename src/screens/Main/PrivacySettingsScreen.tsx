@@ -1,9 +1,16 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -35,7 +42,7 @@ export const PrivacySettingsScreen: React.FC = () => {
     current: PrivacyLevel,
     title: string,
   ) => {
-    Alert.alert(title, undefined, [
+    showAlert(title, undefined, [
       ...LEVELS.map((lvl) => ({
         text: levelLabel(lvl) + (lvl === current ? '  ✓' : ''),
         onPress: async () => {
@@ -45,7 +52,7 @@ export const PrivacySettingsScreen: React.FC = () => {
             await userService.setPrivacy(key, lvl);
             await refreshMe();
           } catch {
-            Alert.alert(t('errors.generic'));
+            showAlert(t('errors.generic'));
           } finally {
             setBusy(null);
           }
@@ -61,7 +68,7 @@ export const PrivacySettingsScreen: React.FC = () => {
       await userService.updateMe({ read_receipts: next });
       await refreshMe();
     } catch {
-      Alert.alert(t('errors.generic'));
+      showAlert(t('errors.generic'));
     } finally {
       setBusy(null);
     }

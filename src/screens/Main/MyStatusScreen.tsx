@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   RefreshControl,
@@ -13,7 +12,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
 import { fontStyle, paletteBySeed } from '@/components/story/storyConfig';
 import { useAuth } from '@/context/AuthContext';
 import { useStories } from '@/context/StoriesContext';
@@ -84,7 +83,7 @@ export const MyStatusScreen: React.FC = () => {
     navigation.navigate('StoryViewers', { storyId });
 
   const confirmDelete = (story: Story) => {
-    Alert.alert(t('stories.deleteTitle'), t('stories.deleteConfirm'), [
+    showAlert(t('stories.deleteTitle'), t('stories.deleteConfirm'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('common.delete'),
@@ -94,7 +93,7 @@ export const MyStatusScreen: React.FC = () => {
             await storyService.remove(story.id);
             await reload();
           } catch {
-            Alert.alert(t('errors.generic'));
+            showAlert(t('errors.generic'));
           }
         },
       },

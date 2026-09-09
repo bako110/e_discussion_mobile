@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,7 +11,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { deviceService } from '@/services';
@@ -49,7 +48,7 @@ export const DevicesScreen: React.FC<MainScreenProps<'Devices'>> = ({ navigation
   );
 
   const confirmRevoke = (d: LinkedDevice) => {
-    Alert.alert(t('settings.revokeDeviceTitle'), t('settings.revokeDeviceConfirm'), [
+    showAlert(t('settings.revokeDeviceTitle'), t('settings.revokeDeviceConfirm'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('settings.revoke'),
@@ -59,7 +58,7 @@ export const DevicesScreen: React.FC<MainScreenProps<'Devices'>> = ({ navigation
             await deviceService.revoke(d.device_id);
             await load();
           } catch {
-            Alert.alert(t('errors.generic'));
+            showAlert(t('errors.generic'));
           }
         },
       },

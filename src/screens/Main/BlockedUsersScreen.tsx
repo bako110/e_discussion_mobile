@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -11,7 +10,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
 import { userService } from '@/services';
@@ -46,7 +45,7 @@ export const BlockedUsersScreen: React.FC = () => {
 
   const confirmUnblock = (u: UserPublic) => {
     const name = u.display_name || u.username || '—';
-    Alert.alert(t('settings.unblockTitle', { name }), t('settings.unblockConfirm'), [
+    showAlert(t('settings.unblockTitle', { name }), t('settings.unblockConfirm'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('settings.unblock'),
@@ -56,7 +55,7 @@ export const BlockedUsersScreen: React.FC = () => {
             await userService.unblock(u.id);
             setUsers((prev) => prev.filter((x) => x.id !== u.id));
           } catch {
-            Alert.alert(t('errors.generic'));
+            showAlert(t('errors.generic'));
           } finally {
             setPendingId(null);
           }

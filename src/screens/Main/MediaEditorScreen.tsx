@@ -1,7 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   PanResponder,
   Pressable,
@@ -17,7 +16,7 @@ import { captureRef } from 'react-native-view-shot';
 import ViewShot from 'react-native-view-shot';
 import ImagePicker from 'react-native-image-crop-picker';
 
-import { Icon } from '@/components/common';
+import { Icon, showAlert } from '@/components/common';
 import {
   DRAW_COLORS,
   STICKER_EMOJIS,
@@ -212,7 +211,7 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
       navigation.navigate('Tabs', { screen: 'StatusTab' });
     } catch (e) {
       console.warn('[editor] publish failed:', e);
-      Alert.alert(t('errors.generic'));
+      showAlert(t('errors.generic'));
       setPublishing(false);
     }
   };

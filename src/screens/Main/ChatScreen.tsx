@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -15,7 +14,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner } from '@/components/common';
+import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner, showAlert } from '@/components/common';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
@@ -221,7 +220,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       });
     }
     options.push({ text: t('common.cancel'), style: 'cancel' });
-    Alert.alert(t('chat.messageActions'), undefined, options);
+    showAlert(t('chat.messageActions'), undefined, options);
   };
 
   const retry = async (m: LocalMessage) => {
@@ -251,7 +250,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const placeCall = (kind: 'voice' | 'video') => {
     if (callPhase !== 'idle') return;
     if (!callsAvailable) {
-      Alert.alert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
+      showAlert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
       return;
     }
     startCall(
@@ -267,7 +266,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       kind,
     ).catch((e: unknown) => {
       const msg = e instanceof Error ? e.message : t('calls.startFailed');
-      Alert.alert(t('calls.startFailed'), msg);
+      showAlert(t('calls.startFailed'), msg);
     });
   };
 
