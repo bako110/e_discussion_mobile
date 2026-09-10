@@ -354,7 +354,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
     <Screen edges={[]}>
       <AppHeader
         variant="plain"
-        title={t('groups.info')}
+        title={isChannel ? t('groups.channelInfo') : t('groups.groupInfo')}
         left={
           <Pressable onPress={() => navigation.goBack()} hitSlop={10}>
             <Icon name="chevron-left" size={28} color={c.primary} />
@@ -407,18 +407,26 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
               {canEdit ? <Icon name="pencil-outline" size={15} color={c.textFaint} /> : null}
             </Pressable>
           )}
-          <View style={styles.kindTag}>
-            <Icon
-              name={isChannel ? 'bullhorn' : 'account-multiple'}
-              size={13}
-              color={c.textMuted}
-            />
-            <Text style={[styles.kindText, { color: c.textMuted }]}>
-              {isChannel
-                ? t('groups.subscribersCount', { count: group?.member_count ?? 0 })
-                : t('groups.membersCount', { count: group?.member_count ?? 0 })}
-            </Text>
-          </View>
+          {isChannel ? (
+            <View style={styles.channelMetaRow}>
+              <View style={styles.channelBadge}>
+                <Icon name="bullhorn-variant" size={13} color={c.primary} />
+                <Text style={[styles.channelBadgeTxt, { color: c.primary }]}>
+                  {group?.is_public ? t('groups.publicChannel') : t('groups.privateChannel')}
+                </Text>
+              </View>
+              <Text style={[styles.channelSubCount, { color: c.text }]}>
+                {t('groups.subscribersCount', { count: group?.member_count ?? 0 })}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.kindTag}>
+              <Icon name="account-multiple" size={13} color={c.textMuted} />
+              <Text style={[styles.kindText, { color: c.textMuted }]}>
+                {t('groups.membersCount', { count: group?.member_count ?? 0 })}
+              </Text>
+            </View>
+          )}
 
           {editingDesc ? (
             <View style={styles.descEdit}>
@@ -467,7 +475,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
               color={c.textMuted}
             />
             <Text style={[styles.toggleLabel, { color: c.text }]}>
-              {t('chat.mute')}
+              {isChannel ? t('groups.muteChannel') : t('chat.mute')}
             </Text>
             <View
               style={[
@@ -504,95 +512,193 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
           ) : null}
         </View>
 
-        {/* invitation : QR à scanner */}
-        <Pressable
-          onPress={() => navigation.navigate('GroupQr', { groupId })}
-          style={[styles.action, { backgroundColor: c.surfaceAlt }]}
-          android_ripple={{ color: c.surface }}
-        >
-          <View style={[styles.actionIcon, { backgroundColor: c.primary }]}>
-            <Icon name="qrcode" size={18} color="#fff" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.actionTitle, { color: c.text }]}>
-              {t('groups.inviteQr')}
-            </Text>
-            <Text style={[styles.actionSub, { color: c.textMuted }]} numberOfLines={1}>
-              {t('groups.qrHint')}
-            </Text>
-          </View>
-          <Icon name="chevron-right" size={18} color={c.textMuted} />
-        </Pressable>
-
-        {/* invitation : partage du lien */}
-        <Pressable
-          onPress={shareInvite}
-          style={[styles.action, { backgroundColor: c.surfaceAlt, marginTop: 6 }]}
-          android_ripple={{ color: c.surface }}
-        >
-          <View style={[styles.actionIcon, { backgroundColor: c.accent }]}>
-            <Icon name="link-variant" size={18} color="#fff" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.actionTitle, { color: c.text }]}>
-              {t('groups.inviteViaLink')}
-            </Text>
-            <Text style={[styles.actionSub, { color: c.textMuted }]} numberOfLines={1}>
-              {inviteLink(group?.invite_code ?? '')}
-            </Text>
-          </View>
-          <Icon name="share-variant" size={18} color={c.primary} />
-        </Pressable>
-
-        {/* Membres : une seule ligne -> bottom sheet avec la liste */}
-        <Pressable
-          onPress={openMembersSheet}
-          style={styles.linkRow}
-          android_ripple={{ color: c.surfaceAlt }}
-        >
-          <Icon name="account-multiple-outline" size={20} color={c.primary} />
-          <Text style={[styles.linkTxt, { color: c.text, flex: 1, fontWeight: '600' }]}>
-            {isChannel ? t('groups.subscribers') : t('groups.members')} ·{' '}
-            {group?.member_count ?? members.length}
-          </Text>
-          <Icon name="chevron-right" size={22} color={c.textFaint} />
-        </Pressable>
-
-        {canEdit ? (
-          <Pressable onPress={addMembers} style={styles.linkRow} android_ripple={{ color: c.surfaceAlt }}>
-            <Icon name="account-plus-outline" size={20} color={c.primary} />
-            <Text style={[styles.linkTxt, { color: c.primary }]}>{t('groups.addMembers')}</Text>
-          </Pressable>
-        ) : null}
-
-        {/* Paramètres du groupe (admins) */}
-        {canEdit ? (
-          <Pressable
-            onPress={() => navigation.navigate('GroupSettings', { groupId })}
-            style={styles.linkRow}
-            android_ripple={{ color: c.surfaceAlt }}
-          >
-            <Icon name="cog-outline" size={20} color={c.primary} />
-            <Text style={[styles.linkTxt, { color: c.text, flex: 1, fontWeight: '600' }]}>
-              {isChannel ? t('groupSettings.channelTitle') : t('groupSettings.title')}
-            </Text>
-            {(group?.pending_requests ?? 0) > 0 ? (
-              <View style={[styles.reqBadge, { backgroundColor: c.primary }]}>
-                <Text style={styles.reqBadgeTxt}>{group?.pending_requests}</Text>
+        {isChannel ? (
+          /* ─────────── PROFIL DE CHAÎNE ─────────── */
+          <>
+            {/* Partager la chaîne — action mise en avant */}
+            <Pressable
+              onPress={shareInvite}
+              style={[styles.action, { backgroundColor: c.primary, marginTop: 10 }]}
+              android_ripple={{ color: c.surface }}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                <Icon name="share-variant" size={18} color="#fff" />
               </View>
-            ) : null}
-            <Icon name="chevron-right" size={22} color={c.textFaint} />
-          </Pressable>
-        ) : null}
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.actionTitle, { color: '#fff' }]}>
+                  {t('groups.shareChannel')}
+                </Text>
+                <Text style={[styles.actionSub, { color: 'rgba(255,255,255,0.85)' }]} numberOfLines={1}>
+                  {inviteLink(group?.invite_code ?? '')}
+                </Text>
+              </View>
+            </Pressable>
 
-        {canEdit ? (
-          <Pressable onPress={resetInvite} style={styles.linkRow}>
-            <Icon name="refresh" size={17} color={c.textMuted} />
-            <Text style={[styles.linkTxt, { color: c.textMuted }]}>
-              {t('groups.resetInvite')}
-            </Text>
-          </Pressable>
-        ) : null}
+            {/* QR */}
+            <Pressable
+              onPress={() => navigation.navigate('GroupQr', { groupId })}
+              style={[styles.action, { backgroundColor: c.surfaceAlt, marginTop: 6 }]}
+              android_ripple={{ color: c.surface }}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: c.accent }]}>
+                <Icon name="qrcode" size={18} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.actionTitle, { color: c.text }]}>{t('groups.inviteQr')}</Text>
+                <Text style={[styles.actionSub, { color: c.textMuted }]} numberOfLines={1}>
+                  {t('groups.qrHint')}
+                </Text>
+              </View>
+              <Icon name="chevron-right" size={18} color={c.textMuted} />
+            </Pressable>
+
+            {/* Bloc admin : gérer la chaîne */}
+            {canEdit ? (
+              <>
+                <Text style={[styles.section, { color: c.textFaint }]}>
+                  {t('groups.manageChannel')}
+                </Text>
+                <View style={[styles.toggleCard, { backgroundColor: c.surfaceAlt, marginTop: 0 }]}>
+                  <Pressable
+                    onPress={() => navigation.navigate('GroupSettings', { groupId })}
+                    style={styles.manageRow}
+                    android_ripple={{ color: c.surface }}
+                  >
+                    <Icon name="cog-outline" size={20} color={c.primary} />
+                    <Text style={[styles.manageTxt, { color: c.text }]}>
+                      {t('groupSettings.channelTitle')}
+                    </Text>
+                    {(group?.pending_requests ?? 0) > 0 ? (
+                      <View style={[styles.reqBadge, { backgroundColor: c.primary }]}>
+                        <Text style={styles.reqBadgeTxt}>{group?.pending_requests}</Text>
+                      </View>
+                    ) : null}
+                    <Icon name="chevron-right" size={20} color={c.textFaint} />
+                  </Pressable>
+                  <Pressable
+                    onPress={openMembersSheet}
+                    style={[styles.manageRow, { borderTopColor: c.divider, borderTopWidth: StyleSheet.hairlineWidth }]}
+                    android_ripple={{ color: c.surface }}
+                  >
+                    <Icon name="account-group-outline" size={20} color={c.primary} />
+                    <Text style={[styles.manageTxt, { color: c.text }]}>
+                      {t('groups.subscribers')} · {group?.member_count ?? members.length}
+                    </Text>
+                    <Icon name="chevron-right" size={20} color={c.textFaint} />
+                  </Pressable>
+                  <Pressable
+                    onPress={addMembers}
+                    style={[styles.manageRow, { borderTopColor: c.divider, borderTopWidth: StyleSheet.hairlineWidth }]}
+                    android_ripple={{ color: c.surface }}
+                  >
+                    <Icon name="account-plus-outline" size={20} color={c.primary} />
+                    <Text style={[styles.manageTxt, { color: c.text }]}>{t('groups.addSubscribers')}</Text>
+                    <Icon name="chevron-right" size={20} color={c.textFaint} />
+                  </Pressable>
+                  <Pressable
+                    onPress={resetInvite}
+                    style={[styles.manageRow, { borderTopColor: c.divider, borderTopWidth: StyleSheet.hairlineWidth }]}
+                    android_ripple={{ color: c.surface }}
+                  >
+                    <Icon name="refresh" size={19} color={c.textMuted} />
+                    <Text style={[styles.manageTxt, { color: c.textMuted }]}>
+                      {t('groups.resetInvite')}
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+          </>
+        ) : (
+          /* ─────────── PROFIL DE GROUPE ─────────── */
+          <>
+            {/* invitation : QR à scanner */}
+            <Pressable
+              onPress={() => navigation.navigate('GroupQr', { groupId })}
+              style={[styles.action, { backgroundColor: c.surfaceAlt }]}
+              android_ripple={{ color: c.surface }}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: c.primary }]}>
+                <Icon name="qrcode" size={18} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.actionTitle, { color: c.text }]}>{t('groups.inviteQr')}</Text>
+                <Text style={[styles.actionSub, { color: c.textMuted }]} numberOfLines={1}>
+                  {t('groups.qrHint')}
+                </Text>
+              </View>
+              <Icon name="chevron-right" size={18} color={c.textMuted} />
+            </Pressable>
+
+            {/* invitation : partage du lien */}
+            <Pressable
+              onPress={shareInvite}
+              style={[styles.action, { backgroundColor: c.surfaceAlt, marginTop: 6 }]}
+              android_ripple={{ color: c.surface }}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: c.accent }]}>
+                <Icon name="link-variant" size={18} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.actionTitle, { color: c.text }]}>
+                  {t('groups.inviteViaLink')}
+                </Text>
+                <Text style={[styles.actionSub, { color: c.textMuted }]} numberOfLines={1}>
+                  {inviteLink(group?.invite_code ?? '')}
+                </Text>
+              </View>
+              <Icon name="share-variant" size={18} color={c.primary} />
+            </Pressable>
+
+            {/* Membres : une seule ligne -> bottom sheet avec la liste */}
+            <Pressable
+              onPress={openMembersSheet}
+              style={styles.linkRow}
+              android_ripple={{ color: c.surfaceAlt }}
+            >
+              <Icon name="account-multiple-outline" size={20} color={c.primary} />
+              <Text style={[styles.linkTxt, { color: c.text, flex: 1, fontWeight: '600' }]}>
+                {t('groups.members')} · {group?.member_count ?? members.length}
+              </Text>
+              <Icon name="chevron-right" size={22} color={c.textFaint} />
+            </Pressable>
+
+            {canEdit ? (
+              <Pressable onPress={addMembers} style={styles.linkRow} android_ripple={{ color: c.surfaceAlt }}>
+                <Icon name="account-plus-outline" size={20} color={c.primary} />
+                <Text style={[styles.linkTxt, { color: c.primary }]}>{t('groups.addMembers')}</Text>
+              </Pressable>
+            ) : null}
+
+            {canEdit ? (
+              <Pressable
+                onPress={() => navigation.navigate('GroupSettings', { groupId })}
+                style={styles.linkRow}
+                android_ripple={{ color: c.surfaceAlt }}
+              >
+                <Icon name="cog-outline" size={20} color={c.primary} />
+                <Text style={[styles.linkTxt, { color: c.text, flex: 1, fontWeight: '600' }]}>
+                  {t('groupSettings.title')}
+                </Text>
+                {(group?.pending_requests ?? 0) > 0 ? (
+                  <View style={[styles.reqBadge, { backgroundColor: c.primary }]}>
+                    <Text style={styles.reqBadgeTxt}>{group?.pending_requests}</Text>
+                  </View>
+                ) : null}
+                <Icon name="chevron-right" size={22} color={c.textFaint} />
+              </Pressable>
+            ) : null}
+
+            {canEdit ? (
+              <Pressable onPress={resetInvite} style={styles.linkRow}>
+                <Icon name="refresh" size={17} color={c.textMuted} />
+                <Text style={[styles.linkTxt, { color: c.textMuted }]}>
+                  {t('groups.resetInvite')}
+                </Text>
+              </Pressable>
+            ) : null}
+          </>
+        )}
 
         {/* quitter */}
         <Pressable
@@ -650,6 +756,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   kindTag: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  channelMetaRow: { alignItems: 'center', gap: 8, marginTop: 2 },
+  channelBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(46,155,255,0.12)',
+  },
+  channelBadgeTxt: { fontSize: 11.5, fontWeight: '800', letterSpacing: 0.2 },
+  channelSubCount: { fontSize: 15, fontWeight: '700' },
+  manageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  manageTxt: { flex: 1, fontSize: 14.5, fontWeight: '600' },
   toggleCard: { marginHorizontal: 16, marginTop: 14, borderRadius: 14, overflow: 'hidden' },
   toggleRow: {
     flexDirection: 'row',

@@ -12,6 +12,7 @@ import { AppHeader, Icon, Screen, showSheet, showToast } from '@/components/comm
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
+import { groupRepo } from '@/db/repositories/groupRepo';
 import type { MainScreenProps } from '@/navigation/types';
 import { ApiError } from '@/api';
 import { groupService } from '@/services';
@@ -41,6 +42,11 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState(0);
   const [denied, setDenied] = useState(false);
+  const [isChannel, setIsChannel] = useState(false);
+
+  useEffect(() => {
+    void groupRepo.get(groupId).then((g) => setIsChannel(g?.kind === 'channel'));
+  }, [groupId]);
 
   useEffect(() => {
     let alive = true;
@@ -134,7 +140,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
   return (
     <Screen edges={[]}>
       <AppHeader
-        title={t('groupSettings.title')}
+        title={isChannel ? t('groupSettings.channelTitle') : t('groupSettings.title')}
         left={
           <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.hdrBtn}>
             <Icon name="arrow-left" size={24} color={c.onHeader} />
@@ -158,43 +164,54 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
         <ScrollView contentContainerStyle={styles.scroll}>
           <SettingsSection title={t('groupSettings.permissions')}>
             <SettingsRow
-              icon="message-text-outline"
-              label={t('groupSettings.sendMessages')}
+              icon={isChannel ? 'bullhorn-outline' : 'message-text-outline'}
+              label={isChannel ? t('groupSettings.ch_publish') : t('groupSettings.sendMessages')}
               value={policyLabel(s.send_messages_policy)}
               onPress={() =>
-                pickPolicy(t('groupSettings.sendMessages'), s.send_messages_policy, (v) =>
-                  void patch({ send_messages_policy: v }),
+                pickPolicy(
+                  isChannel ? t('groupSettings.ch_publish') : t('groupSettings.sendMessages'),
+                  s.send_messages_policy,
+                  (v) => void patch({ send_messages_policy: v }),
                 )
               }
             />
             <SettingsRow
               icon="pencil-outline"
-              label={t('groupSettings.editInfo')}
+              label={isChannel ? t('groupSettings.ch_editInfo') : t('groupSettings.editInfo')}
               value={policyLabel(s.edit_info_policy)}
               onPress={() =>
-                pickPolicy(t('groupSettings.editInfo'), s.edit_info_policy, (v) =>
-                  void patch({ edit_info_policy: v }),
+                pickPolicy(
+                  isChannel ? t('groupSettings.ch_editInfo') : t('groupSettings.editInfo'),
+                  s.edit_info_policy,
+                  (v) => void patch({ edit_info_policy: v }),
                 )
               }
+              last={isChannel}
             />
-            <SettingsRow
-              icon="account-plus-outline"
-              label={t('groupSettings.addMembers')}
-              value={policyLabel(s.add_members_policy)}
-              onPress={() =>
-                pickPolicy(t('groupSettings.addMembers'), s.add_members_policy, (v) =>
-                  void patch({ add_members_policy: v }),
-                )
-              }
-              last
-            />
+            {!isChannel ? (
+              <SettingsRow
+                icon="account-plus-outline"
+                label={t('groupSettings.addMembers')}
+                value={policyLabel(s.add_members_policy)}
+                onPress={() =>
+                  pickPolicy(t('groupSettings.addMembers'), s.add_members_policy, (v) =>
+                    void patch({ add_members_policy: v }),
+                  )
+                }
+                last
+              />
+            ) : null}
           </SettingsSection>
 
-          <SettingsSection title={t('groupSettings.membership')}>
+          <SettingsSection
+            title={isChannel ? t('groupSettings.ch_membership') : t('groupSettings.membership')}
+          >
             <View style={[styles.toggleRow, { borderBottomColor: c.divider }]}>
               <Icon name="account-check-outline" size={20} color={c.textMuted} />
               <Text style={[styles.toggleLabel, { color: c.text }]}>
-                {t('groupSettings.approveNewMembers')}
+                {isChannel
+                  ? t('groupSettings.ch_approveNewMembers')
+                  : t('groupSettings.approveNewMembers')}
               </Text>
               <Switch
                 value={s.join_approval_required}
@@ -225,21 +242,24 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
             />
           </SettingsSection>
 
-          <SettingsSection title={t('groupSettings.messages')}>
-            <SettingsRow
-              icon="timer-sand"
-              label={t('groupSettings.disappearing')}
-              value={disappearLabel()}
-              onPress={pickDisappear}
-              last
-            />
-          </SettingsSection>
+          {/* Messages éphémères : sans objet pour une chaîne de diffusion. */}
+          {!isChannel ? (
+            <SettingsSection title={t('groupSettings.messages')}>
+              <SettingsRow
+                icon="timer-sand"
+                label={t('groupSettings.disappearing')}
+                value={disappearLabel()}
+                onPress={pickDisappear}
+                last
+              />
+            </SettingsSection>
+          ) : null}
 
           {saving ? (
             <ActivityIndicator style={{ marginTop: 12 }} color={c.primary} />
           ) : null}
           <Text style={[styles.note, { color: c.textFaint }]}>
-            {t('groupSettings.note')}
+            {isChannel ? t('groupSettings.ch_note') : t('groupSettings.note')}
           </Text>
         </ScrollView>
       )}
