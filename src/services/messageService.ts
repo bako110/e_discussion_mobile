@@ -9,6 +9,7 @@
  */
 import { apiClient, Endpoints } from '@/api';
 import { encryptMessageForUser } from '@/crypto';
+import { E2EE_ENABLED } from '@/utils/constants';
 import { messageRepo, type LocalMessage } from '@/db/repositories/messageRepo';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import type { ChatMessage, MessageType, ReplyPreview } from '@/types';
@@ -94,11 +95,11 @@ export const messageService = {
       console.warn('[send] touchLastMessage:', String(e));
     }
 
-    // 2) chiffrement + enqueue FIABLE en arrière-plan
+    // 2) chiffrement (si activé) + enqueue FIABLE en arrière-plan
     void (async () => {
       let cipher: string | null = null;
       let encrypted = false;
-      if (type === 'text' && plain) {
+      if (E2EE_ENABLED && type === 'text' && plain) {
         try {
           const payload = await encryptMessageForUser(p.partnerId, plain);
           cipher = JSON.stringify(payload);
@@ -243,7 +244,7 @@ export const messageService = {
       let body = m.body;
       let encrypted = false;
       // on re-chiffre si possible (le blob local a pu ne jamais être calculé)
-      if (m.type === 'text' && m.body) {
+      if (E2EE_ENABLED && m.type === 'text' && m.body) {
         try {
           // partenaire = l'autre participant : on le déduit via la conv locale
           const conv = await conversationRepo.get(m.conversation_id);

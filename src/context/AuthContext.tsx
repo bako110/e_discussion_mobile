@@ -18,6 +18,7 @@ import React, {
 
 import { ensureDeviceRegistered, refillOneTimePrekeysIfLow } from '@/crypto';
 import { authService } from '@/services';
+import { E2EE_ENABLED } from '@/utils/constants';
 import { unregisterPushToken } from '@/services/pushTokenService';
 import { setSyncUser } from '@/sync/syncEngine';
 import type { UserMe } from '@/types';
@@ -50,6 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [me, setMe] = useState<UserMe | null>(boot);
 
   const registerE2EE = useCallback(() => {
+    if (!E2EE_ENABLED) return; // E2EE désactivé temporairement
     ensureDeviceRegistered()
       .then(() => refillOneTimePrekeysIfLow())
       .catch(() => undefined);

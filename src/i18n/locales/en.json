@@ -78,6 +78,7 @@
     "file": "File",
     "location": "Location",
     "encryptedMessage": "Encrypted message",
+    "messageUnavailable": "Message unavailable",
     "muted": "Muted",
     "accept": "Accept",
     "decline": "Decline",

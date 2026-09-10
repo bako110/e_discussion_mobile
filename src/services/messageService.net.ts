@@ -8,6 +8,7 @@ import {
   type EncryptedPayload,
 } from '@/crypto';
 import type { ChatMessage } from '@/types';
+import { E2EE_ENABLED } from '@/utils/constants';
 
 export const messageService = {
   history(conversationId: string, page = 1, limit = 40): Promise<ChatMessage[]> {
@@ -32,6 +33,7 @@ export const messageService = {
    * Retourne le texte clair, ou null si le déchiffrement échoue encore.
    */
   async tryDecryptCipher(senderId: string, cipher: string): Promise<string | null> {
+    if (!E2EE_ENABLED) return null; // E2EE off : aucune tentative de reprise
     let payload: EncryptedPayload;
     try {
       payload = JSON.parse(cipher) as EncryptedPayload;
@@ -48,6 +50,11 @@ export const messageService = {
   /** Déchiffre si nécessaire — ne lève jamais. */
   async decryptIfNeeded(msg: ChatMessage): Promise<ChatMessage> {
     if (!msg.encrypted || msg.decrypted) return msg;
+    // E2EE désactivé : on ne tente pas — les messages chiffrés (anciens)
+    // deviennent « indisponibles » (pas de clé, pas de tentative).
+    if (!E2EE_ENABLED) {
+      return { ...msg, body: '', decrypted: true, decryptFailed: true };
+    }
     let payload: EncryptedPayload;
     try {
       payload = JSON.parse(msg.body) as EncryptedPayload;

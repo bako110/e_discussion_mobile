@@ -134,7 +134,7 @@ export const ConversationsScreen: React.FC = () => {
   }, [addListener, load]);
 
   const labels = {
-    encrypted: t('conversations.encryptedMessage'),
+    encrypted: t('conversations.messageUnavailable'),
     voice: t('conversations.voiceMessage'),
     photo: t('conversations.photo'),
     video: t('conversations.video'),

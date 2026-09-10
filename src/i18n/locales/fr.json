@@ -78,6 +78,7 @@
     "file": "Fichier",
     "location": "Localisation",
     "encryptedMessage": "Message chiffré",
+    "messageUnavailable": "Message indisponible",
     "muted": "Silencieux",
     "accept": "Accepter",
     "decline": "Refuser",

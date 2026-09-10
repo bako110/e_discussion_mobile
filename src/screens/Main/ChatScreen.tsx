@@ -43,6 +43,7 @@ import {
 import { mediaCache } from '@/services/mediaCache';
 import { retryFailedDecryptions, syncNow } from '@/sync/syncEngine';
 import type { ChatMessage, MessageType, RequestStatus } from '@/types';
+import { E2EE_ENABLED } from '@/utils/constants';
 import { dayLabel, lastSeenLabel } from '@/utils/time';
 import { mediaUrl } from '@/utils/media';
 
@@ -746,7 +747,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               ) : null
             }
             ListFooterComponent={
-              items.length === 0 ? null : (
+              items.length === 0 || !E2EE_ENABLED ? null : (
                 <Pressable style={styles.encBanner} onPress={() => setEncOpen(true)}>
                   <Icon name="lock" size={12} color={c.textMuted} />
                   <Text style={[styles.encBannerTxt, { color: c.textMuted }]}>

@@ -299,7 +299,7 @@ export const MessageBubble: React.FC<Props> = ({
                 { color: fg, fontStyle: 'italic', opacity: 0.85, fontSize: 15 * fontScale },
               ]}
             >
-              {t('conversations.encryptedMessage')}
+              {t('conversations.messageUnavailable')}
             </Text>
           </View>
         ) : message.body ? (

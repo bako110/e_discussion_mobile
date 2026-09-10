@@ -41,3 +41,11 @@ export const API_BASE_URL = LOCAL_OVERRIDE ?? PROD_API_BASE;
 export const WS_URL = `${API_BASE_URL.replace(/^http/, 'ws')}/api/v1/ws`;
 
 export const APP_NAME = 'E-discussion';
+
+/**
+ * Chiffrement E2EE (Signal : X3DH + Double Ratchet). DÉSACTIVÉ temporairement
+ * le temps de fiabiliser l'implémentation : les messages texte partent en
+ * CLAIR. Tout le module `src/crypto/` reste en place — remettre à `true` pour
+ * réactiver (aucun autre changement requis).
+ */
+export const E2EE_ENABLED = false;

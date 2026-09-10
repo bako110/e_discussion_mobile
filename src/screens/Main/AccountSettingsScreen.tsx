@@ -16,6 +16,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
 import { authService } from '@/services';
+import { E2EE_ENABLED } from '@/utils/constants';
 
 /**
  * Sous-ecran "Compte" : profil, identifiants lies (email / telephone),
@@ -154,12 +155,14 @@ export const AccountSettingsScreen: React.FC = () => {
             label={t('contacts.syncTitle')}
             onPress={() => navigation.navigate('ContactSync')}
           />
-          <SettingsRow
-            icon="shield-key-outline"
-            label={t('settings.encryption')}
-            value={t('settings.encryptionOn')}
-            last
-          />
+          {E2EE_ENABLED ? (
+            <SettingsRow
+              icon="shield-key-outline"
+              label={t('settings.encryption')}
+              value={t('settings.encryptionOn')}
+              last
+            />
+          ) : null}
         </SettingsSection>
 
         {/* Données & compte */}
