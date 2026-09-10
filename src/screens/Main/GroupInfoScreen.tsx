@@ -107,7 +107,8 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
   };
 
   const pickAvatar = async (camera: boolean) => {
-    const up = await picker.pickImage({ camera });
+    // recadrage circulaire local AVANT upload
+    const up = await picker.pickAvatar({ camera });
     if (!up) return;
     await groupService.update(groupId, { avatar_url: up.url });
     await reload();

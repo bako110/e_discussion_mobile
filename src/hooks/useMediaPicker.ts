@@ -75,6 +75,11 @@ export interface MediaPicker {
   pickVideoLocal: (opts?: { camera?: boolean }) => Promise<LocalMediaFile | null>;
   pickDocumentLocal: () => Promise<LocalMediaFile | null>;
   stopRecordingLocal: () => Promise<LocalMediaFile | null>;
+  /**
+   * Sélectionne une photo + recadrage CIRCULAIRE (façon avatar), puis
+   * l'uploade UNE fois. Renvoie l'URL serveur. `null` si annulé/échec.
+   */
+  pickAvatar: (opts?: { camera?: boolean }) => Promise<UploadedMedia | null>;
 }
 
 async function ensureAndroidCameraPermission(): Promise<boolean> {
@@ -189,6 +194,73 @@ export function useMediaPicker(): MediaPicker {
   const pickVideo = useCallback(
     (opts?: { camera?: boolean }) => runPick('video', !!opts?.camera),
     [runPick],
+  );
+
+  /**
+   * Photo de profil / avatar de groupe : on sélectionne, on RECADRE en
+   * cercle localement (aucun réseau pendant l'édition), puis on uploade
+   * UNE seule fois le fichier recadré — façon WhatsApp.
+   */
+  const pickAvatar = useCallback(
+    async (opts?: { camera?: boolean }): Promise<UploadedMedia | null> => {
+      const camera = !!opts?.camera;
+      if (camera && !(await ensureAndroidCameraPermission())) {
+        showAlert('Caméra', 'Autorisez la caméra dans les réglages pour continuer.');
+        return null;
+      }
+      setBusy(true);
+      try {
+        const common: CameraOptions & ImageLibraryOptions = {
+          mediaType: 'photo',
+          quality: 0.9 as PhotoQuality,
+          selectionLimit: 1,
+          includeExtra: false,
+          saveToPhotos: false,
+        };
+        const res = camera ? await launchCamera(common) : await launchImageLibrary(common);
+        if (res.didCancel) return null;
+        if (res.errorCode) {
+          alertError('Erreur', res.errorMessage || res.errorCode);
+          return null;
+        }
+        const rawUri = res.assets?.[0]?.uri;
+        if (!rawUri) return null;
+
+        // Recadrage circulaire local (éditeur natif, hors ligne)
+        const ImagePicker = (await import('react-native-image-crop-picker')).default;
+        let cropped: { path: string; mime?: string };
+        try {
+          cropped = (await ImagePicker.openCropper({
+            path: /^(content:|file:|http|data:)/.test(rawUri) ? rawUri : `file://${rawUri}`,
+            mediaType: 'photo',
+            width: 512,
+            height: 512,
+            cropperCircleOverlay: true,
+            cropperToolbarTitle: 'Photo de profil',
+            cropperActiveWidgetColor: '#1E6FE0',
+            cropperToolbarColor: '#000000',
+            cropperToolbarWidgetColor: '#FFFFFF',
+            compressImageQuality: 0.9,
+            forceJpg: true,
+          })) as { path: string; mime?: string };
+        } catch (e) {
+          const msg = String((e as Error)?.message ?? e);
+          if (/cancel/i.test(msg)) return null;
+          throw e;
+        }
+        const path = cropped.path;
+        const uri = path.startsWith('file://') || path.startsWith('http') ? path : `file://${path}`;
+        const name = uri.split('/').pop() || `avatar_${Date.now()}.jpg`;
+        return await mediaService.upload({ uri, name, type: cropped.mime || 'image/jpeg' });
+      } catch (e) {
+        console.warn('[media] pickAvatar failed:', e);
+        alertError('Erreur', "L'envoi de la photo a échoué.");
+        return null;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
   );
 
   // ── offline-first : sélectionne le fichier SANS l'uploader ──────────────
@@ -453,5 +525,6 @@ export function useMediaPicker(): MediaPicker {
     pickVideoLocal,
     pickDocumentLocal,
     stopRecordingLocal,
+    pickAvatar,
   };
 }

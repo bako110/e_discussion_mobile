@@ -46,7 +46,8 @@ export const EditProfileScreen: React.FC<MainScreenProps<'EditProfile'>> = ({ na
   };
 
   const pickAvatar = async (camera: boolean) => {
-    const up = await picker.pickImage({ camera });
+    // recadrage circulaire local AVANT upload (façon WhatsApp)
+    const up = await picker.pickAvatar({ camera });
     if (!up) return;
     setAvatarUrl(up.url);
     // enregistrement immédiat de l'avatar

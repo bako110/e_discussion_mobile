@@ -93,9 +93,10 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   const mediaType: StoryMediaType =
     local.kind === 'image' ? 'image' : local.kind === 'video' ? 'video' : 'audio';
   const isImage = mediaType === 'image';
-  const [imageUri, setImageUri] = useState<string>(
-    local.file.uri.startsWith('file://') ? local.file.uri : `file://${local.file.uri}`,
-  );
+  // ne préfixe `file://` QUE sur un chemin absolu nu (pas content://, http, data:)
+  const asUri = (p: string) =>
+    /^(content:|file:|http|data:)/.test(p) ? p : `file://${p}`;
+  const [imageUri, setImageUri] = useState<string>(asUri(local.file.uri));
   const [tool, setTool] = useState<Tool>('none');
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [current, setCurrent] = useState<Stroke | null>(null);
@@ -155,7 +156,7 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
         height: 1350,
       });
       const uri = (res as { path?: string }).path;
-      if (uri) setImageUri(uri.startsWith('file://') ? uri : `file://${uri}`);
+      if (uri) setImageUri(asUri(uri));
     } catch (e) {
       // l'utilisateur a annulé -> pas d'erreur
       const msg = String((e as Error)?.message ?? e);
@@ -190,7 +191,7 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
         // grave dessin + stickers sur l'image locale -> capture -> UPLOAD unique
         const shotUri = await captureRef(shotRef, { format: 'jpg', quality: 0.9 });
         const up = await mediaService.upload({
-          uri: shotUri.startsWith('file://') ? shotUri : `file://${shotUri}`,
+          uri: asUri(shotUri),
           name: `story_${Date.now()}.jpg`,
           type: 'image/jpeg',
         });

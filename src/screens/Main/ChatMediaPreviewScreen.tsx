@@ -44,7 +44,12 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
   const [sending, setSending] = useState(false);
   const [cropping, setCropping] = useState(false);
 
-  const uri = local.file.uri.startsWith('file://') ? local.file.uri : `file://${local.file.uri}`;
+  // `local.file.uri` peut être `content://…` (galerie Android), `file://…`,
+  // un chemin absolu nu, ou `http…`. On ne préfixe `file://` QUE sur un
+  // chemin absolu nu — sinon on casse l'URI (ex: `file://content://…`).
+  const uri = /^(content:|file:|http|data:)/.test(local.file.uri)
+    ? local.file.uri
+    : `file://${local.file.uri}`;
   const isImage = local.kind === 'image';
   const isVideo = local.kind === 'video';
 
@@ -121,12 +126,19 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
       </View>
 
       <View style={styles.stage}>
-        <Image source={{ uri }} style={styles.media} resizeMode="contain" />
         {isVideo ? (
-          <View style={styles.playBadge}>
-            <Icon name="play-circle" size={64} color="#ffffffdd" />
+          // pas de rendu vidéo dans l'aperçu — vignette sombre + badge lecture
+          <View style={[styles.media, styles.videoStage]}>
+            <Icon name="play-circle" size={72} color="#ffffffcc" />
           </View>
-        ) : null}
+        ) : (
+          <Image
+            source={{ uri }}
+            style={styles.media}
+            resizeMode="contain"
+            onError={(e) => console.warn('[chat-preview] image error:', e.nativeEvent)}
+          />
+        )}
       </View>
 
       <KeyboardAvoidingView
@@ -172,7 +184,7 @@ const styles = StyleSheet.create({
   iconBtn: { padding: 10 },
   stage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   media: { width: '100%', height: '100%' },
-  playBadge: { position: 'absolute' },
+  videoStage: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' },
   bottom: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, paddingHorizontal: 12 },
   captionRow: {
     flex: 1,

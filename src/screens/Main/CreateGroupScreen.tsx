@@ -85,7 +85,8 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
     });
 
   const pickAvatar = async () => {
-    const up = await picker.pickImage();
+    // recadrage circulaire local AVANT upload
+    const up = await picker.pickAvatar();
     if (up) setAvatarUrl(up.url);
   };
 
