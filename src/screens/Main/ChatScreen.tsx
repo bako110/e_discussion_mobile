@@ -369,9 +369,12 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         thumbnailUrl: mediaUrl(
           (m.attachment_meta?.thumbnail_url as string | undefined) ?? undefined,
         ),
+        // vidéo reçue -> horodate « ouvert » pour l'expéditeur (écran Infos)
+        messageId:
+          m.type === 'video' && m.sender_id !== myId && !m.pending ? m.id : undefined,
       });
     },
-    [navigation],
+    [navigation, myId],
   );
 
   const onOpenFile = useCallback(
@@ -955,6 +958,10 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         onCopy={doCopy}
         onEdit={doEditFromSheet}
         onForward={doForward}
+        onInfo={() => {
+          const m = actionMsg;
+          if (m) navigation.navigate('MessageInfo', { messageId: m.id, type: m.type });
+        }}
         onDeleteForMe={doDeleteForMe}
         onDeleteForEveryone={doDeleteForEveryone}
         onClose={() => setActionMsg(null)}

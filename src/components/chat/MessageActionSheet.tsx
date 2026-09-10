@@ -35,6 +35,7 @@ interface Props {
   onCopy: () => void;
   onEdit: () => void;
   onForward: () => void;
+  onInfo: () => void;
   onDeleteForMe: () => void;
   onDeleteForEveryone: () => void;
   onClose: () => void;
@@ -48,6 +49,7 @@ export const MessageActionSheet: React.FC<Props> = ({
   onCopy,
   onEdit,
   onForward,
+  onInfo,
   onDeleteForMe,
   onDeleteForEveryone,
   onClose,
@@ -79,6 +81,7 @@ export const MessageActionSheet: React.FC<Props> = ({
     { key: 'copy', icon: 'content-copy', label: t('chat.copy'), show: !!ctx?.hasText, fn: () => run(onCopy) },
     { key: 'edit', icon: 'pencil-outline', label: t('common.edit'), show: !!ctx?.mine && !!ctx?.hasText && !ctx?.encrypted, fn: () => run(onEdit) },
     { key: 'forward', icon: 'share-outline', label: t('chat.forward'), show: !!ctx?.hasText, fn: () => run(onForward) },
+    { key: 'info', icon: 'information-outline', label: t('messageInfo.action'), show: !!ctx?.mine, fn: () => run(onInfo) },
     { key: 'delme', icon: 'trash-can-outline', label: t('chat.deleteForMe'), show: true, fn: () => run(onDeleteForMe) },
     { key: 'delall', icon: 'trash-can', label: t('chat.deleteForEveryone'), danger: true, show: !!ctx?.mine, fn: () => run(onDeleteForEveryone) },
   ];

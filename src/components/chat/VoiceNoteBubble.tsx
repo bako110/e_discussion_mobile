@@ -12,6 +12,7 @@ import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 import { Icon } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import { useCachedMedia } from '@/hooks/useCachedMedia';
+import { messageService } from '@/services';
 import { mediaUrl } from '@/utils/media';
 
 const player = new AudioRecorderPlayer();
@@ -88,6 +89,8 @@ interface Props {
   sizeBytes?: number | null;
   mine: boolean;
   fg: string;
+  /** id du message — si fourni + reçu, on notifie « écouté » au 1er play. */
+  messageId?: string;
 }
 
 function humanSize(bytes: number | null | undefined): string {
@@ -102,7 +105,14 @@ function humanSize(bytes: number | null | undefined): string {
   return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
 }
 
-export const VoiceNoteBubble: React.FC<Props> = ({ url, durationSec, sizeBytes, mine, fg }) => {
+export const VoiceNoteBubble: React.FC<Props> = ({
+  url,
+  durationSec,
+  sizeBytes,
+  mine,
+  fg,
+  messageId,
+}) => {
   const { theme } = useTheme();
   const c = theme.colors;
   const [, force] = useState(0);
@@ -143,8 +153,10 @@ export const VoiceNoteBubble: React.FC<Props> = ({ url, durationSec, sizeBytes, 
       playUri = await cached.download();
       if (!playUri) return;
     }
+    // vocal reçu -> notifie « écouté » à l'expéditeur (écran Infos)
+    if (!mine && messageId) messageService.markPlayed(messageId);
     void toggleShared(playUri);
-  }, [cached]);
+  }, [cached, mine, messageId]);
 
   const track = mine ? 'rgba(255,255,255,0.35)' : c.border;
   const fill = mine ? '#fff' : c.primary;

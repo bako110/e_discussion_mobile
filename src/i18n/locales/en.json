@@ -505,6 +505,16 @@
   "media": {
     "openExternal": "Open in player"
   },
+  "messageInfo": {
+    "action": "Info",
+    "title": "Message info",
+    "sent": "Sent",
+    "delivered": "Delivered",
+    "read": "Read",
+    "listened": "Played",
+    "opened": "Video opened",
+    "pending": "Pending"
+  },
   "chat": {
     "messageActions": "Message",
     "copy": "Copy",

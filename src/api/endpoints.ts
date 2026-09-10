@@ -49,6 +49,8 @@ export const Endpoints = {
     edit: (id: string) => `${V1}/messages/${id}`,
     react: (id: string) => `${V1}/messages/${id}/react`,
     delivered: (id: string) => `${V1}/messages/${id}/delivered`,
+    played: (id: string) => `${V1}/messages/${id}/played`,
+    info: (id: string) => `${V1}/messages/${id}/info`,
   },
   stories: {
     feed: `${V1}/stories/feed`,

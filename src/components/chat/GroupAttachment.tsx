@@ -141,6 +141,7 @@ export const GroupAttachment: React.FC<Props> = ({ message, mine, onOpenMedia })
         sizeBytes={size}
         mine={mine}
         fg={fg}
+        messageId={message.id}
       />
     );
   }

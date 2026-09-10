@@ -98,7 +98,15 @@ export type MainStackParamList = {
   /** Aperçu avant d'accepter de rejoindre. */
   JoinPreview: { code: string; preview?: GroupPreview };
   /** Visionneuse plein écran d'un média (pièce jointe de groupe, etc.). */
-  MediaViewer: { url: string; type: 'image' | 'video'; thumbnailUrl?: string };
+  MediaViewer: {
+    url: string;
+    type: 'image' | 'video';
+    thumbnailUrl?: string;
+    /** si fourni + média reçu -> on marque « ouvert » (écran Infos). */
+    messageId?: string;
+  };
+  /** « Infos » d'un message envoyé : horodatages distribué / lu / écouté. */
+  MessageInfo: { messageId: string; type: string };
   /** Recadrage d'image (cadre ajustable). `token` relie l'appel à sa réponse. */
   ImageCrop: { token: string; uri: string; circle?: boolean; aspect?: number; title?: string };
 };

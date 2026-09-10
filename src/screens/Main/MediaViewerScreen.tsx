@@ -1,32 +1,46 @@
-import React from 'react';
-import {
-  Linking,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import Video, { type VideoRef } from 'react-native-video';
 
 import { CachedImage, Icon } from '@/components/common';
 import type { MainScreenProps } from '@/navigation/types';
+import { messageService } from '@/services';
+import { mediaCache } from '@/services/mediaCache';
 import { mediaUrl } from '@/utils/media';
 
 /**
- * Visionneuse plein écran d'un média (image ou vidéo).
- *
- * Image : affichée en `contain`. Vidéo : miniature + bouton « lire » qui ouvre
- * le lecteur système (un lecteur intégré `react-native-video` pourra être
- * branché plus tard).
+ * Visionneuse plein écran d'un média.
+ *  - Image : `contain`.
+ *  - Vidéo : lecteur `react-native-video` intégré (lecture DANS l'app, comme
+ *    WhatsApp), contrôles natifs. Si `messageId` est fourni (média reçu),
+ *    l'ouverture du lecteur marque le message « ouvert » (écran Infos).
  */
 export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
   route,
   navigation,
 }) => {
-  const { url, type, thumbnailUrl } = route.params;
+  const { url, type, thumbnailUrl, messageId } = route.params;
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+
+  const videoRef = useRef<VideoRef>(null);
+  const [loading, setLoading] = useState(type === 'video');
+  const [failed, setFailed] = useState(false);
+  // vidéo : le fichier local si déjà téléchargé, sinon l'URL distante
+  const [videoUri, setVideoUri] = useState<string>(
+    () => mediaCache.localFor(url) ?? mediaUrl(url) ?? url,
+  );
+
+  useEffect(() => {
+    if (type !== 'video') return;
+    if (messageId) messageService.markPlayed(messageId); // « ouvert à … »
+    // télécharge + garde en local pour les prochaines fois / hors-ligne
+    void mediaCache.fetchNow(url).then((local) => {
+      if (local) setVideoUri(local);
+    });
+  }, [type, url, messageId]);
 
   return (
     <View style={styles.root}>
@@ -42,13 +56,41 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
         <CachedImage uri={url} forceDownload style={styles.image} resizeMode="contain" />
       ) : (
         <View style={styles.videoWrap}>
-          {thumbnailUrl ? (
-            <CachedImage uri={thumbnailUrl} forceDownload style={styles.image} resizeMode="contain" />
-          ) : null}
-          <Pressable style={styles.playBtn} onPress={() => Linking.openURL(mediaUrl(url) ?? url)}>
-            <Icon name="play" size={34} color="#fff" />
-          </Pressable>
-          <Text style={styles.hint}>{t('media.openExternal')}</Text>
+          {failed ? (
+            <View style={styles.center}>
+              <Icon name="alert-circle-outline" size={40} color="#ffffffaa" />
+              <Text style={styles.hint}>{t('errors.generic')}</Text>
+            </View>
+          ) : (
+            <>
+              <Video
+                ref={videoRef}
+                source={{ uri: videoUri }}
+                style={StyleSheet.absoluteFill}
+                resizeMode="contain"
+                controls
+                paused={false}
+                onLoad={() => setLoading(false)}
+                onError={() => {
+                  setFailed(true);
+                  setLoading(false);
+                }}
+                onEnd={() => videoRef.current?.seek(0)}
+              />
+              {loading ? (
+                <View style={styles.center} pointerEvents="none">
+                  {thumbnailUrl ? (
+                    <CachedImage
+                      uri={thumbnailUrl}
+                      style={StyleSheet.absoluteFill}
+                      resizeMode="contain"
+                    />
+                  ) : null}
+                  <ActivityIndicator color="#fff" size="large" />
+                </View>
+              ) : null}
+            </>
+          )}
         </View>
       )}
     </View>
@@ -70,14 +112,6 @@ const styles = StyleSheet.create({
   },
   image: { width: '100%', height: '100%' },
   videoWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  playBtn: {
-    position: 'absolute',
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  hint: { position: 'absolute', bottom: 60, color: '#ffffffcc', fontSize: 13 },
+  center: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  hint: { color: '#ffffffcc', fontSize: 13, marginTop: 8 },
 });

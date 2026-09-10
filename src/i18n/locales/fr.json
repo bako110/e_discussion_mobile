@@ -505,6 +505,16 @@
   "media": {
     "openExternal": "Ouvrir dans le lecteur"
   },
+  "messageInfo": {
+    "action": "Infos",
+    "title": "Infos du message",
+    "sent": "Envoyé",
+    "delivered": "Distribué",
+    "read": "Lu",
+    "listened": "Écouté",
+    "opened": "Vidéo ouverte",
+    "pending": "En attente"
+  },
   "chat": {
     "messageActions": "Message",
     "copy": "Copier",

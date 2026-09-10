@@ -23,6 +23,7 @@ import { HelpSettingsScreen } from '@/screens/Main/HelpSettingsScreen';
 import { JoinPreviewScreen } from '@/screens/Main/JoinPreviewScreen';
 import { LinkIdentifierScreen } from '@/screens/Main/LinkIdentifierScreen';
 import { MediaViewerScreen } from '@/screens/Main/MediaViewerScreen';
+import { MessageInfoScreen } from '@/screens/Main/MessageInfoScreen';
 import { NewConversationScreen } from '@/screens/Main/NewConversationScreen';
 import { NotificationsSettingsScreen } from '@/screens/Main/NotificationsSettingsScreen';
 import { PrivacySettingsScreen } from '@/screens/Main/PrivacySettingsScreen';
@@ -120,6 +121,7 @@ export const MainNavigator: React.FC = () => (
       component={MediaViewerScreen}
       options={{ animation: 'fade', presentation: 'transparentModal' }}
     />
+    <Stack.Screen name="MessageInfo" component={MessageInfoScreen} />
     <Stack.Screen
       name="ImageCrop"
       component={ImageCropScreen}

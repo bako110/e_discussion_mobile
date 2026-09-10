@@ -7,11 +7,15 @@
  * l'insertion locale : `body` reste en clair localement, `body_cipher` (le
  * blob à transmettre) part dans le payload de l'outbox.
  */
+import { apiClient, Endpoints } from '@/api';
 import { encryptMessageForUser } from '@/crypto';
 import { messageRepo, type LocalMessage } from '@/db/repositories/messageRepo';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import type { ChatMessage, MessageType, ReplyPreview } from '@/types';
 import { newClientId, notifyMutationApplied, outbox } from '@/sync/outbox';
+
+// mémo local : évite de re-notifier « joué » à chaque render
+const _playedSent = new Set<string>();
 import { messageService as netMessageService } from './messageService.net';
 
 /** Libellé court pour l'aperçu d'une conversation quand le message n'a pas de texte. */
@@ -153,6 +157,28 @@ export const messageService = {
     await messageRepo.markConversationRead(conversationId, myId);
     await conversationRepo.setUnread(conversationId, 0);
     await outbox.enqueue('mark_read', newClientId(), { conversationId });
+  },
+
+  /** Le destinataire a ÉCOUTÉ un vocal / OUVERT une vidéo — best-effort en
+   * ligne (l'écran « Infos » de l'expéditeur en a besoin). Silencieux hors-ligne. */
+  markPlayed(messageId: string): void {
+    const seen = _playedSent;
+    if (seen.has(messageId)) return;
+    seen.add(messageId);
+    void apiClient
+      .post(Endpoints.messages.played(messageId))
+      .catch(() => seen.delete(messageId));
+  },
+
+  /** « Infos » d'un message envoyé : horodatages distribué / lu / écouté. */
+  info(messageId: string): Promise<{
+    type: string;
+    sent_at: string;
+    delivered_at: string | null;
+    read_at: string | null;
+    played_at: string | null;
+  }> {
+    return apiClient.get(Endpoints.messages.info(messageId));
   },
 
   /**

@@ -200,6 +200,7 @@ export const MessageBubble: React.FC<Props> = ({
           sizeBytes={attSize}
           mine={mine}
           fg={fg}
+          messageId={message.id}
         />
       );
     }
