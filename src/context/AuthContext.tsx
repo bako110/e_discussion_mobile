@@ -32,6 +32,8 @@ interface AuthContextValue {
   /** Appele apres completion du profil. */
   completeOnboarding: (me: UserMe) => void;
   refreshMe: () => Promise<void>;
+  /** Relit le cache local du profil (après une mutation optimiste). */
+  refreshMeLocal: () => void;
   signOut: () => Promise<void>;
 }
 
@@ -113,8 +115,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   const refreshMe = useCallback(async () => {
-    const user = await authService.getMe(true);
-    setMe(user);
+    // hors-ligne : on relit simplement le cache (mis à jour de façon optimiste
+    // par userService.updateMe) — pas d'erreur bloquante.
+    try {
+      const user = await authService.getMe(true);
+      setMe(user);
+    } catch {
+      const cached = authService.getCachedMe();
+      if (cached) setMe(cached);
+    }
+  }, []);
+
+  /** Relit UNIQUEMENT le cache local (après une mutation optimiste `updateMe`). */
+  const refreshMeLocal = useCallback(() => {
+    const cached = authService.getCachedMe();
+    if (cached) setMe(cached);
   }, []);
 
   const signOut = useCallback(async () => {
@@ -126,8 +141,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const value = useMemo(
-    () => ({ status, me, setSession, completeOnboarding, refreshMe, signOut }),
-    [status, me, setSession, completeOnboarding, refreshMe, signOut],
+    () => ({ status, me, setSession, completeOnboarding, refreshMe, refreshMeLocal, signOut }),
+    [status, me, setSession, completeOnboarding, refreshMe, refreshMeLocal, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -187,6 +187,23 @@ export const authService = {
     return cachedMe ?? storage.getJSON<UserMe>(StorageKeys.CACHED_ME);
   },
 
+  /** Fusionne `patch` dans le profil en cache (mise à jour optimiste locale,
+   * hors-ligne OK). Le serveur est mis à jour à part (outbox `update_me`). */
+  patchCachedMe(patch: Partial<UserMe>): UserMe | null {
+    const cur = cachedMe ?? storage.getJSON<UserMe>(StorageKeys.CACHED_ME);
+    if (!cur) return null;
+    const next = { ...cur, ...patch } as UserMe;
+    cachedMe = next;
+    storage.setJSON(StorageKeys.CACHED_ME, next);
+    return next;
+  },
+
+  /** Remplace le profil en cache par la version serveur. */
+  setCachedMe(me: UserMe): void {
+    cachedMe = me;
+    storage.setJSON(StorageKeys.CACHED_ME, me);
+  },
+
   profileComplete(me: UserMe | null): boolean {
     return !!(me && me.display_name && me.username);
   },

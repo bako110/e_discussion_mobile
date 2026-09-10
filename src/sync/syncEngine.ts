@@ -179,6 +179,28 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
     case 'mark_read':
       await apiClient.put(Endpoints.conversations.read(p.conversationId as string));
       break;
+
+    case 'update_me': {
+      // fusionne les patchs `update_me` en attente en UN seul PATCH (dernier
+      // gagne par clé), puis adopte la version serveur dans le cache.
+      const merged: Record<string, unknown> = {};
+      const dueList = await outbox.due();
+      for (const e of dueList) {
+        if (e.kind === 'update_me') {
+          Object.assign(merged, (e.payload.patch as Record<string, unknown>) ?? {});
+        }
+      }
+      const me = await apiClient.patch<import('@/types').UserMe>(
+        Endpoints.users.updateMe,
+        merged,
+      );
+      await import('@/services/authService').then((m) => m.authService.setCachedMe(me));
+      // retire les AUTRES entrées update_me déjà couvertes par ce PATCH
+      for (const e of dueList) {
+        if (e.kind === 'update_me' && e.id !== entry.id) await outbox.remove(e.id);
+      }
+      break;
+    }
     case 'accept_request':
       await apiClient.post(Endpoints.conversations.accept(p.conversationId as string));
       await conversationRepo.markSynced(p.conversationId as string);

@@ -126,12 +126,11 @@ export const CallPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         writeCache(nextPrefs);
         return nextPrefs;
       });
-      userService
-        .updateMe({ [FIELD[key]]: value } as Record<string, unknown>)
-        .catch(() => {
-          // échec réseau : on garde la valeur locale (elle repartira à la
-          // prochaine ouverture via updateMe si l'utilisateur re-touche).
-        });
+      // updateMe est local-first : optimiste + outbox `update_me` -> rejoué
+      // automatiquement au retour du réseau.
+      void userService.updateMe({ [FIELD[key]]: value } as Record<string, unknown>).catch(
+        () => undefined,
+      );
     },
     [],
   );

@@ -16,6 +16,7 @@ export type OutboxKind =
   | 'accept_request'
   | 'decline_request'
   | 'mute'
+  | 'update_me' // réglages users.* (confidentialité, appels, langue, profil)
   // ── groupes ──
   | 'send_group_message'
   | 'upload_group_message'

@@ -30,7 +30,7 @@ export const PrivacySettingsScreen: React.FC = () => {
   const navigation = useNavigation<MainNav>();
   const { t } = useTranslation();
   const { theme } = useTheme();
-  const { me, refreshMe } = useAuth();
+  const { me, refreshMeLocal } = useAuth();
   const c = theme.colors;
 
   const [busy, setBusy] = useState<string | null>(null);
@@ -57,8 +57,8 @@ export const PrivacySettingsScreen: React.FC = () => {
           if (lvl === current) return;
           setBusy(key);
           try {
-            await userService.setPrivacy(key, lvl);
-            await refreshMe();
+            await userService.setPrivacy(key, lvl); // optimiste local + outbox
+            refreshMeLocal();
           } catch {
             showAlert(t('errors.generic'));
           } finally {
@@ -73,7 +73,7 @@ export const PrivacySettingsScreen: React.FC = () => {
     setBusy('read_receipts');
     try {
       await userService.updateMe({ read_receipts: next });
-      await refreshMe();
+      refreshMeLocal();
     } catch {
       showAlert(t('errors.generic'));
     } finally {

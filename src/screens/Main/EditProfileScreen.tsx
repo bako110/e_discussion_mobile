@@ -62,17 +62,22 @@ export const EditProfileScreen: React.FC<MainScreenProps<'EditProfile'>> = ({ na
     setError(null);
     setSaving(true);
     try {
-      await userService.updateMe({
+      const patch: Parameters<typeof userService.updateMe>[0] = {
         display_name: displayName.trim() || undefined,
-        username: username.trim() || undefined,
         about: about.trim() || undefined,
         avatar_url: avatarUrl ?? undefined,
-      });
+      };
+      // le username n'est envoyé QUE s'il a changé (validation serveur -> en ligne)
+      if (username.trim() && username.trim() !== me?.username) {
+        patch.username = username.trim();
+      }
+      await userService.updateMe(patch);
       await refreshMe();
       setSaved(true);
       setTimeout(() => navigation.goBack(), 400);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t('errors.generic'));
+      const offline = e instanceof ApiError && e.status === 0;
+      setError(offline ? t('sync.onlineRequiredBody') : e instanceof ApiError ? e.message : t('errors.generic'));
     } finally {
       setSaving(false);
     }
