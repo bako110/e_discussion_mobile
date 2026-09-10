@@ -255,9 +255,18 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     ];
 
     if (isAdmin) {
+      // Diffusion vidéo en direct — propre aux chaînes, pas encore livré.
+      if (chan) {
+        actions.push({
+          label: t('groupSettings.ch_liveStream'),
+          icon: 'video-wireless-outline',
+          onPress: () =>
+            showAlert(t('groupSettings.ch_liveStream'), t('common.comingSoonBody')),
+        });
+      }
       actions.push(
         {
-          label: t('groups.addMembers'),
+          label: chan ? t('groups.addSubscribers') : t('groups.addMembers'),
           icon: 'account-plus-outline',
           onPress: () => navigation.navigate('AddGroupMembers', { groupId }),
         },

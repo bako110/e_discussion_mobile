@@ -17,6 +17,8 @@
     "yesterday": "Hier",
     "seeAll": "Voir tout",
     "comingSoon": "Bientôt disponible.",
+    "comingSoonBody": "Cette fonctionnalité arrive prochainement.",
+    "soon": "À venir",
     "edit": "Modifier"
   },
   "auth": {
@@ -345,7 +347,14 @@
     "ch_editInfo": "Modifier les infos de la chaîne",
     "ch_membership": "Abonnés",
     "ch_approveNewMembers": "Approuver les nouveaux abonnés",
-    "ch_note": "Ces réglages s'appliquent à toute la chaîne. Seuls le créateur et les administrateurs peuvent les modifier."
+    "ch_note": "Ces réglages s'appliquent à toute la chaîne. Seuls le créateur et les administrateurs peuvent les modifier.",
+    "ch_features": "Fonctionnalités de la chaîne",
+    "ch_liveStream": "Diffusion vidéo en direct",
+    "ch_discussion": "Groupe de discussion lié",
+    "ch_reactions": "Réactions aux publications",
+    "ch_stats": "Statistiques de la chaîne",
+    "ch_signMessages": "Signer les publications",
+    "ch_subscription": "Abonnement payant"
   },
   "calls": {
     "title": "Appels",

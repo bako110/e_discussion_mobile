@@ -8,7 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, showSheet, showToast } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert, showSheet, showToast } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -137,6 +137,21 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
     return t(`groupSettings.disappear_${d.key}`);
   };
 
+  /** Fonctionnalité de chaîne pas encore livrée -> alerte « À venir ». */
+  const soon = (labelKey: string) =>
+    showAlert(t(labelKey), t('common.comingSoonBody'));
+
+  /** Fonctionnalités propres à une chaîne (façon Telegram). `soon: true`
+   *  -> pas encore implémenté, alerte « À venir » au tap. */
+  const CHANNEL_FEATURES: { icon: string; key: string; soon: boolean }[] = [
+    { icon: 'video-wireless-outline', key: 'ch_liveStream', soon: true },
+    { icon: 'message-reply-text-outline', key: 'ch_discussion', soon: true },
+    { icon: 'emoticon-outline', key: 'ch_reactions', soon: true },
+    { icon: 'chart-box-outline', key: 'ch_stats', soon: true },
+    { icon: 'draw-pen', key: 'ch_signMessages', soon: true },
+    { icon: 'star-circle-outline', key: 'ch_subscription', soon: true },
+  ];
+
   return (
     <Screen edges={[]}>
       <AppHeader
@@ -241,6 +256,22 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
               last
             />
           </SettingsSection>
+
+          {/* Fonctionnalités propres à une chaîne (Telegram-like). */}
+          {isChannel ? (
+            <SettingsSection title={t('groupSettings.ch_features')}>
+              {CHANNEL_FEATURES.map((f, i) => (
+                <SettingsRow
+                  key={f.key}
+                  icon={f.icon}
+                  label={t(`groupSettings.${f.key}`)}
+                  value={f.soon ? t('common.soon') : undefined}
+                  onPress={() => (f.soon ? soon(`groupSettings.${f.key}`) : undefined)}
+                  last={i === CHANNEL_FEATURES.length - 1}
+                />
+              ))}
+            </SettingsSection>
+          ) : null}
 
           {/* Messages éphémères : sans objet pour une chaîne de diffusion. */}
           {!isChannel ? (

@@ -17,6 +17,8 @@
     "yesterday": "Yesterday",
     "seeAll": "See all",
     "comingSoon": "Coming soon.",
+    "comingSoonBody": "This feature is coming soon.",
+    "soon": "Soon",
     "edit": "Edit"
   },
   "auth": {
@@ -345,7 +347,14 @@
     "ch_editInfo": "Edit channel info",
     "ch_membership": "Subscribers",
     "ch_approveNewMembers": "Approve new subscribers",
-    "ch_note": "These settings apply to the whole channel. Only the owner and admins can change them."
+    "ch_note": "These settings apply to the whole channel. Only the owner and admins can change them.",
+    "ch_features": "Channel features",
+    "ch_liveStream": "Live video broadcast",
+    "ch_discussion": "Linked discussion group",
+    "ch_reactions": "Reactions on posts",
+    "ch_stats": "Channel statistics",
+    "ch_signMessages": "Sign posts",
+    "ch_subscription": "Paid subscription"
   },
   "calls": {
     "title": "Calls",
