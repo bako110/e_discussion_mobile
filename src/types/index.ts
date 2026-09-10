@@ -202,6 +202,30 @@ export interface Group {
   my_role: GroupRole | null;
   last_message_preview: string | null;
   can_post: boolean;
+  can_edit_info: boolean;
+  can_add_members: boolean;
+  pending_requests: number;
+  // paramètres (miroir serveur)
+  send_messages_policy: 'all' | 'admins';
+  edit_info_policy: 'all' | 'admins';
+  add_members_policy: 'all' | 'admins';
+  join_approval_required: boolean;
+  invite_visibility: 'both' | 'link' | 'code';
+  disappearing_seconds: number;
+}
+
+export interface GroupSettings {
+  send_messages_policy: 'all' | 'admins';
+  edit_info_policy: 'all' | 'admins';
+  add_members_policy: 'all' | 'admins';
+  join_approval_required: boolean;
+  invite_visibility: 'both' | 'link' | 'code';
+  disappearing_seconds: number;
+}
+
+export interface GroupJoinRequest {
+  user: UserPublic;
+  requested_at: string;
 }
 
 export interface GroupMember {

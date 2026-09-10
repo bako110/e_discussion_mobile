@@ -91,6 +91,10 @@ export type MainStackParamList = {
   /** Détail : membres, invitation, quitter. */
   GroupInfo: { groupId: string };
   AddGroupMembers: { groupId: string };
+  /** Paramètres d'un groupe / d'une chaîne (admins). */
+  GroupSettings: { groupId: string };
+  /** File des demandes d'adhésion à approuver (admins). */
+  GroupJoinRequests: { groupId: string };
   /** QR code d'invitation d'un groupe / chaîne (à faire scanner). */
   GroupQr: { groupId: string };
   /** Scanner QR d'invitation (ou saisie manuelle du code). */

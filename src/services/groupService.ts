@@ -16,10 +16,12 @@ import { groupRepo, type LocalGroup, type LocalGroupMessage } from '@/db/reposit
 import type {
   CreateGroupInput,
   Group,
+  GroupJoinRequest,
   GroupKind,
   GroupMember,
   GroupMessage,
   GroupPreview,
+  GroupSettings,
 } from '@/types';
 import { newClientId, outbox } from '@/sync/outbox';
 
@@ -222,5 +224,24 @@ export const groupService = {
     const g = await apiClient.post<Group>(Endpoints.groups.inviteReset(id));
     await groupRepo.upsertFromServer(g);
     return g;
+  },
+
+  // ── Paramètres du groupe (admin, EN LIGNE) ────────────────────────────
+  getSettings(id: string): Promise<GroupSettings> {
+    return apiClient.get<GroupSettings>(Endpoints.groups.settings(id));
+  },
+  async setSettings(id: string, patch: Partial<GroupSettings>): Promise<Group> {
+    const g = await apiClient.put<Group>(Endpoints.groups.settings(id), patch);
+    await groupRepo.upsertFromServer(g);
+    return g;
+  },
+  joinRequests(id: string): Promise<GroupJoinRequest[]> {
+    return apiClient.get<GroupJoinRequest[]>(Endpoints.groups.joinRequests(id));
+  },
+  approveJoin(id: string, userId: string): Promise<void> {
+    return apiClient.post(Endpoints.groups.approveJoin(id, userId)).then(() => undefined);
+  },
+  rejectJoin(id: string, userId: string): Promise<void> {
+    return apiClient.post(Endpoints.groups.rejectJoin(id, userId)).then(() => undefined);
   },
 };

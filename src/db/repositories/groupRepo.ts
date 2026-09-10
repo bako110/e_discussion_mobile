@@ -70,6 +70,17 @@ function toGroup(r: GroupRow): LocalGroup {
     unread_count: r.unread_count,
     my_role: (r.my_role as GroupRole | null) ?? null,
     can_post: !!r.can_post,
+    // paramètres : non persistés en local — valeurs par défaut ; les vraies
+    // arrivent via `groupService.get()` (refresh serveur) / `getSettings()`.
+    can_edit_info: (r.my_role as GroupRole | null) === 'owner' || r.my_role === 'admin',
+    can_add_members: true,
+    pending_requests: 0,
+    send_messages_policy: 'all',
+    edit_info_policy: 'admins',
+    add_members_policy: 'all',
+    join_approval_required: false,
+    invite_visibility: 'both',
+    disappearing_seconds: 0,
     muted: !!r.muted,
     sync_state: r.sync_state as 'synced' | 'pending',
   };

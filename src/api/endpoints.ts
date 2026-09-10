@@ -82,6 +82,12 @@ export const Endpoints = {
     unmute: (id: string) => `${V1}/groups/${id}/unmute`,
     messages: (id: string) => `${V1}/groups/${id}/messages`,
     read: (id: string) => `${V1}/groups/${id}/read`,
+    settings: (id: string) => `${V1}/groups/${id}/settings`,
+    joinRequests: (id: string) => `${V1}/groups/${id}/join-requests`,
+    approveJoin: (id: string, userId: string) =>
+      `${V1}/groups/${id}/join-requests/${userId}/approve`,
+    rejectJoin: (id: string, userId: string) =>
+      `${V1}/groups/${id}/join-requests/${userId}/reject`,
   },
   calls: {
     config: `${V1}/calls/config`,

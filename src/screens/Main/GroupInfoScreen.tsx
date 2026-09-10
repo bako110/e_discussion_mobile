@@ -34,13 +34,6 @@ import type { GroupMember } from '@/types';
 /** Deep-link d'invitation encodé dans le QR / partagé par lien. */
 export const inviteLink = (code: string) => `gofolyx://join/${code}`;
 
-const ROLE_LABEL: Record<string, string> = {
-  owner: 'groups.roleOwner',
-  admin: 'groups.roleAdmin',
-  member: 'groups.roleMember',
-  subscriber: 'groups.roleSubscriber',
-};
-
 export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
   route,
   navigation,
@@ -230,6 +223,40 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
 
   const addMembers = () => {
     navigation.navigate('AddGroupMembers', { groupId });
+  };
+
+  /** Liste complète des membres dans un bottom sheet. Un tap sur un membre
+   * (si admin) ré-ouvre le sheet d'actions le concernant. */
+  const openMembersSheet = () => {
+    const sorted = [...members].sort((a, b) => {
+      const order: Record<string, number> = { owner: 0, admin: 1, member: 2, subscriber: 2 };
+      return (order[a.role] ?? 3) - (order[b.role] ?? 3);
+    });
+    showSheet({
+      title:
+        (isChannel ? t('groups.subscribers') : t('groups.members')) +
+        ` (${sorted.length})`,
+      actions: sorted.map((m) => {
+        const nm = m.user.display_name || m.user.username || '—';
+        const roleTag =
+          m.role === 'owner'
+            ? ` · ${t('groups.roleOwner')}`
+            : m.role === 'admin'
+              ? ` · ${t('groups.roleAdmin')}`
+              : m.user.id === me?.id
+                ? ` (${t('common.you')})`
+                : '';
+        return {
+          label: nm + roleTag,
+          icon: m.role === 'owner' || m.role === 'admin' ? 'shield-account-outline' : 'account-outline',
+          onPress: () => {
+            if (canEdit && m.user.id !== me?.id && m.role !== 'owner') {
+              setTimeout(() => onMemberPress(m), 250);
+            }
+          },
+        };
+      }),
+    });
   };
 
   const shareInvite = async () => {
@@ -483,47 +510,46 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
           <Icon name="share-variant" size={18} color={c.primary} />
         </Pressable>
 
-        {/* membres */}
-        <View style={styles.sectionRow}>
-          <Text style={[styles.section, { color: c.textMuted }]}>
-            {isChannel ? t('groups.subscribers') : t('groups.members')}
+        {/* Membres : une seule ligne -> bottom sheet avec la liste */}
+        <Pressable
+          onPress={openMembersSheet}
+          style={styles.linkRow}
+          android_ripple={{ color: c.surfaceAlt }}
+        >
+          <Icon name="account-multiple-outline" size={20} color={c.primary} />
+          <Text style={[styles.linkTxt, { color: c.text, flex: 1, fontWeight: '600' }]}>
+            {isChannel ? t('groups.subscribers') : t('groups.members')} ·{' '}
+            {group?.member_count ?? members.length}
           </Text>
-          {canEdit ? (
-            <Pressable onPress={addMembers} hitSlop={8} style={styles.addBtn}>
-              <Icon name="account-plus-outline" size={18} color={c.primary} />
-              <Text style={[styles.addBtnTxt, { color: c.primary }]}>{t('groups.add')}</Text>
-            </Pressable>
-          ) : null}
-        </View>
-        {members.map((m) => {
-          const nm = m.user.display_name || m.user.username || '—';
-          const actionable = canEdit && m.user.id !== me?.id && m.role !== 'owner';
-          return (
-            <Pressable
-              key={m.user.id}
-              style={styles.memberRow}
-              onPress={() => actionable && onMemberPress(m)}
-              onLongPress={() => actionable && onMemberPress(m)}
-              android_ripple={actionable ? { color: c.surfaceAlt } : undefined}
-            >
-              <Avatar uri={m.user.avatar_url} name={nm} size={42} online={m.user.is_online} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.memberName, { color: c.text }]} numberOfLines={1}>
-                  {nm}
-                  {m.user.id === me?.id ? ` (${t('common.you')})` : ''}
-                </Text>
-                {m.role !== 'member' && m.role !== 'subscriber' ? (
-                  <Text style={[styles.memberRole, { color: c.primary }]}>
-                    {t(ROLE_LABEL[m.role] ?? 'groups.roleMember')}
-                  </Text>
-                ) : null}
+          <Icon name="chevron-right" size={22} color={c.textFaint} />
+        </Pressable>
+
+        {canEdit ? (
+          <Pressable onPress={addMembers} style={styles.linkRow} android_ripple={{ color: c.surfaceAlt }}>
+            <Icon name="account-plus-outline" size={20} color={c.primary} />
+            <Text style={[styles.linkTxt, { color: c.primary }]}>{t('groups.addMembers')}</Text>
+          </Pressable>
+        ) : null}
+
+        {/* Paramètres du groupe (admins) */}
+        {canEdit ? (
+          <Pressable
+            onPress={() => navigation.navigate('GroupSettings', { groupId })}
+            style={styles.linkRow}
+            android_ripple={{ color: c.surfaceAlt }}
+          >
+            <Icon name="cog-outline" size={20} color={c.primary} />
+            <Text style={[styles.linkTxt, { color: c.text, flex: 1, fontWeight: '600' }]}>
+              {isChannel ? t('groupSettings.channelTitle') : t('groupSettings.title')}
+            </Text>
+            {(group?.pending_requests ?? 0) > 0 ? (
+              <View style={[styles.reqBadge, { backgroundColor: c.primary }]}>
+                <Text style={styles.reqBadgeTxt}>{group?.pending_requests}</Text>
               </View>
-              {actionable ? (
-                <Icon name="dots-vertical" size={18} color={c.textFaint} />
-              ) : null}
-            </Pressable>
-          );
-        })}
+            ) : null}
+            <Icon name="chevron-right" size={22} color={c.textFaint} />
+          </Pressable>
+        ) : null}
 
         {canEdit ? (
           <Pressable onPress={resetInvite} style={styles.linkRow}>
@@ -619,6 +645,15 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   linkTxt: { fontSize: 13, fontWeight: '600' },
+  reqBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reqBadgeTxt: { color: '#fff', fontSize: 11, fontWeight: '800' },
   kindText: { fontSize: 13, fontWeight: '600' },
   desc: { fontSize: 14, textAlign: 'center', marginTop: 6, lineHeight: 20 },
   descRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
