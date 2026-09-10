@@ -456,6 +456,15 @@ export const GroupsTabScreen: React.FC = () => {
     <Screen edges={[]}>
       <AppHeader
         title={t('tabs.groups')}
+        left={
+          <Pressable
+            onPress={() => navigation.navigate('Tabs', { screen: 'ChatsTab' })}
+            hitSlop={12}
+            style={styles.hdrBtn}
+          >
+            <Icon name="arrow-left" size={24} color={c.onHeader} />
+          </Pressable>
+        }
         right={
           <View style={styles.tabHdrActions}>
             <Pressable onPress={() => navigation.navigate('Scanner')} hitSlop={10} style={styles.hdrBtn}>
