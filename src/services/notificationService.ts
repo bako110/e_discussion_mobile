@@ -111,6 +111,12 @@ export async function ensureNotificationSetup(): Promise<void> {
   _channelsReady = true;
 }
 
+/** notifee refuse une chaîne vide / non-URL pour largeIcon & person.icon.
+ *  On ne garde que les URL http(s) ; sinon `undefined`. */
+function iconUri(v: string | null | undefined): string | undefined {
+  return v && /^https?:\/\//i.test(v) ? v : undefined;
+}
+
 // ── Appel entrant ────────────────────────────────────────────────────────
 export interface IncomingCallNotifData {
   callId: string;
@@ -250,7 +256,7 @@ export async function displayMissedCall(d: MissedCallNotifData): Promise<void> {
         channelId: messageChannelId(prefs.sound, prefs.vibrate),
         category: AndroidCategory.CALL,
         importance: AndroidImportance.DEFAULT,
-        largeIcon: d.peerAvatar ?? undefined,
+        largeIcon: iconUri(d.peerAvatar),
         pressAction: { id: 'open-missed-call', launchActivity: 'default' },
         actions: [{ title: 'Rappeler', pressAction: { id: 'call-back', launchActivity: 'default' } }],
         timestamp: Date.now(),
@@ -327,7 +333,7 @@ export async function displayMessageNotification(d: MessageNotifData): Promise<v
           : AndroidImportance.DEFAULT,
       pressAction: { id: 'open-chat', launchActivity: 'default' },
       groupId: GROUP_KEY,
-      largeIcon: d.senderAvatar ?? undefined,
+      largeIcon: iconUri(d.senderAvatar),
       style: {
         type: AndroidStyle.MESSAGING,
         // « person » = le destinataire (moi) ; chaque message porte son émetteur.
