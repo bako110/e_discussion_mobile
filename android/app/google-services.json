@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "896036786432",
+    "project_id": "e-discussion-f9332",
+    "storage_bucket": "e-discussion-f9332.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:896036786432:android:fed412eab7d73d48bee3e5",
+        "android_client_info": {
+          "package_name": "com.ediscussion"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpjOCoYcbVfAmPhbAWKZCAbMx9XcluB2Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

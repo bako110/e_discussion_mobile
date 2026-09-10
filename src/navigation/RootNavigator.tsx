@@ -13,6 +13,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { WebSocketProvider } from '@/context/WebSocketContext';
 import { navigateToChat, navigationRef } from '@/navigation/navigationRef';
 import { registerPushToken } from '@/services/pushTokenService';
+import { subscribeFcmForeground } from '@/services/fcm';
 import { CallOverlay } from '@/screens/Main/CallOverlay';
 
 import { AuthNavigator } from './AuthNavigator';
@@ -26,7 +27,11 @@ export const RootNavigator: React.FC = () => {
 
   // enregistre le jeton de push natif dès qu'on est authentifié
   useEffect(() => {
-    if (status === 'authenticated') void registerPushToken();
+    if (status !== 'authenticated') return;
+    void registerPushToken();
+    // course réseau : un push peut arriver alors que l'app est active
+    const off = subscribeFcmForeground();
+    return off;
   }, [status]);
 
   // ouverture d'une conversation / de l'historique quand on tape une notif

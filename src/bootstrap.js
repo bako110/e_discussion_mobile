@@ -37,3 +37,10 @@ registerLiveKitGlobals();
 import { registerBackgroundNotificationHandler } from './services/notificationBackground';
 
 registerBackgroundNotificationHandler();
+
+// 6. Handler FCM en arrière-plan / app tuée — construit la notif à partir du
+//    message data-only du backend (sonnerie d'appel, bulle de message).
+//    DOIT être au scope module, sinon pas de réveil app tuée.
+import { registerFcmBackgroundHandler } from './services/fcm';
+
+registerFcmBackgroundHandler();
