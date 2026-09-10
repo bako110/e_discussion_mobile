@@ -1,19 +1,18 @@
 /**
- * Recadrage d'image EN JS — style éditeur Android natif :
+ * Recadrage d'image — style éditeur Android natif :
  *  - l'image reste FIXE (affichée en entier),
- *  - un cadre de recadrage ajustable par-dessus : 4 poignées de coin + glisser
- *    le centre ; par défaut il couvre TOUTE l'image,
+ *  - un cadre ajustable par-dessus : 4 poignées de coin + glisser le centre ;
+ *    par défaut il couvre TOUTE l'image,
  *  - au valider, on découpe EXACTEMENT la zone du cadre. L'original est intact.
  *
- * Découpage pixel via `@react-native-community/image-editor`. Aucun Reanimated
- * (PanResponder + state) -> pas de souci de worklet.
+ * C'est un ÉCRAN de navigation (`ImageCrop`) — pas un overlay racine : sinon,
+ * sous un native-stack, il passe derrière l'écran courant et ne reçoit aucun
+ * geste.
  *
  * API impérative :
  *   import { openCrop } from '@/components/common/CropModal';
- *   const res = await openCrop(uri, { circle: true });   // circle => cadre carré
+ *   const res = await openCrop(uri, { circle: true });
  *   if (res) upload(res.uri);
- *
- * `<CropModalHost />` doit être monté une fois au sommet de l'app.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -28,6 +27,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ImageEditor from '@react-native-community/image-editor';
+
+import type { MainScreenProps } from '@/navigation/types';
+import { navigationRef } from '@/navigation/navigationRef';
 
 import { Icon } from './Icon';
 
@@ -45,41 +47,70 @@ export interface CropModalOpts {
   title?: string;
 }
 
-interface Job {
-  uri: string;
-  opts: CropModalOpts;
-  resolve: (r: CropModalResult | null) => void;
-}
+// ── pont impératif <-> écran de navigation ──────────────────────────────
+const _pending = new Map<string, (r: CropModalResult | null) => void>();
+let _seq = 0;
 
-let _emit: ((job: Job) => void) | null = null;
-
-/** Ouvre l'éditeur de recadrage. Résout `null` si l'utilisateur annule. */
+/** Ouvre l'écran de recadrage. Résout `null` si l'utilisateur annule. */
 export function openCrop(uri: string, opts: CropModalOpts = {}): Promise<CropModalResult | null> {
   return new Promise((resolve) => {
-    if (_emit) _emit({ uri, opts, resolve });
-    else resolve(null);
+    if (!navigationRef.isReady()) {
+      resolve(null);
+      return;
+    }
+    const token = `crop_${Date.now()}_${_seq++}`;
+    _pending.set(token, resolve);
+    navigationRef.navigate('ImageCrop', {
+      token,
+      uri,
+      circle: opts.circle,
+      aspect: opts.aspect,
+      title: opts.title,
+    });
   });
 }
 
+function resolveCrop(token: string, r: CropModalResult | null): void {
+  const fn = _pending.get(token);
+  if (fn) {
+    _pending.delete(token);
+    fn(r);
+  }
+}
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-const MIN = 56; // taille mini du cadre à l'écran (px)
+const MIN = 56;
+const HANDLE = 44;
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Handle = 'tl' | 'tr' | 'bl' | 'br' | 'move';
 
-const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => void }> = ({
-  job,
-  onDone,
-}) => {
+export const ImageCropScreen: React.FC<MainScreenProps<'ImageCrop'>> = ({ route, navigation }) => {
+  const { token, uri, circle, title } = route.params;
+  const aspect = circle ? 1 : route.params.aspect;
   const insets = useSafeAreaInsets();
-  const aspect = job.opts.circle ? 1 : job.opts.aspect;
 
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   const [stage, setStage] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(false);
 
-  const dispUri = /^(content:|file:|http|data:)/.test(job.uri) ? job.uri : `file://${job.uri}`;
+  const dispUri = /^(content:|file:|http|data:)/.test(uri) ? uri : `file://${uri}`;
+
+  // renvoi vers l'appelant : une seule fois, y compris si on quitte par le back
+  const answered = useRef(false);
+  const answer = useCallback(
+    (r: CropModalResult | null) => {
+      if (answered.current) return;
+      answered.current = true;
+      resolveCrop(token, r);
+    },
+    [token],
+  );
+  useEffect(() => {
+    // back matériel / geste : on répond `null`
+    return navigation.addListener('beforeRemove', () => answer(null));
+  }, [navigation, answer]);
 
   useEffect(() => {
     let alive = true;
@@ -93,7 +124,6 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
     };
   }, [dispUri]);
 
-  // Rectangle occupé par l'image affichée (contain) dans le stage.
   const imgBox = useMemo<Rect | null>(() => {
     if (!natural || stage.w <= 0 || stage.h <= 0) return null;
     const s = Math.min(stage.w / natural.w, stage.h / natural.h);
@@ -102,8 +132,6 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
     return { x: (stage.w - w) / 2, y: (stage.h - h) / 2, w, h };
   }, [natural, stage]);
 
-  // Cadre de recadrage (coords écran). Par défaut = TOUTE l'image (ou le plus
-  // grand rectangle du ratio demandé centré dans l'image).
   const [crop, setCrop] = useState<Rect | null>(null);
   const cropRef = useRef<Rect | null>(null);
   const setCropBoth = useCallback((r: Rect) => {
@@ -127,8 +155,6 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
     });
   }, [imgBox, aspect, setCropBoth]);
 
-  // rect au départ du drag + poignée active (ref : la closure du PanResponder
-  // est figée à la création, on passe TOUT par des refs).
   const dragStart = useRef<{ rect: Rect; handle: Handle } | null>(null);
   const imgBoxRef = useRef<Rect | null>(null);
   imgBoxRef.current = imgBox;
@@ -174,7 +200,6 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
 
       let w = right - left;
       let h = bottom - top;
-
       if (aspect && aspect > 0) {
         h = w / aspect;
         if (st.handle === 'tl' || st.handle === 'tr') top = bottom - h;
@@ -197,7 +222,6 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
           }
         }
       }
-
       setCropBoth({ x: left, y: top, w: right - left, h: bottom - top });
     },
     [aspect, setCropBoth],
@@ -235,7 +259,10 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
     setStage({ w: width, h: height });
   };
 
-  const cancel = () => onDone(null);
+  const finish = (r: CropModalResult | null) => {
+    answer(r);
+    navigation.goBack();
+  };
 
   const confirm = async () => {
     const c = cropRef.current;
@@ -252,22 +279,22 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
         width: clamp(c.w * kx, 1, natural.w - offset.x),
         height: clamp(c.h * ky, 1, natural.h - offset.y),
       };
-      const outW = job.opts.circle ? 512 : Math.round(size.width);
-      const outH = job.opts.circle ? 512 : Math.round(size.height);
+      const outW = circle ? 512 : Math.round(size.width);
+      const outH = circle ? 512 : Math.round(size.height);
       const res = await ImageEditor.cropImage(dispUri, {
         offset,
         size,
-        displaySize: job.opts.circle ? { width: 512, height: 512 } : undefined,
+        displaySize: circle ? { width: 512, height: 512 } : undefined,
         format: 'jpeg',
         quality: 0.9,
       });
       const path = res.uri || res.path;
-      const uri =
+      const outUri =
         path.startsWith('file://') || path.startsWith('content://') ? path : `file://${path}`;
-      onDone({ uri, width: outW, height: outH });
+      finish({ uri: outUri, width: outW, height: outH });
     } catch (e) {
-      console.warn('[CropModal] crop failed:', e);
-      onDone(null);
+      console.warn('[ImageCrop] crop failed:', e);
+      finish(null);
     } finally {
       setBusy(false);
     }
@@ -278,10 +305,10 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
   return (
     <View style={styles.root}>
       <View style={[styles.bar, { paddingTop: insets.top + 6 }]}>
-        <Pressable onPress={cancel} hitSlop={12} style={styles.barBtn}>
+        <Pressable onPress={() => finish(null)} hitSlop={12} style={styles.barBtn}>
           <Icon name="close" size={26} color="#fff" />
         </Pressable>
-        <Text style={styles.barTitle}>{job.opts.title ?? 'Recadrer'}</Text>
+        <Text style={styles.barTitle}>{title ?? 'Recadrer'}</Text>
         <Pressable onPress={confirm} hitSlop={12} style={styles.barBtn} disabled={busy || !ready}>
           {busy ? (
             <ActivityIndicator color="#fff" size="small" />
@@ -298,10 +325,8 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
           <ActivityIndicator color="#fff" size="large" />
         ) : (
           <>
-            {/* Image FIXE, en entier */}
             <Image source={{ uri: dispUri }} resizeMode="contain" style={StyleSheet.absoluteFill} />
 
-            {/* Voile sombre autour du cadre */}
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
               <View style={[styles.veil, { left: 0, right: 0, top: 0, height: crop!.y }]} />
               <View style={[styles.veil, { left: 0, right: 0, top: crop!.y + crop!.h, bottom: 0 }]} />
@@ -311,7 +336,6 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
               />
             </View>
 
-            {/* Cadre déplaçable */}
             <View
               {...moveResp.panHandlers}
               style={[
@@ -321,7 +345,7 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
                   top: crop!.y,
                   width: crop!.w,
                   height: crop!.h,
-                  borderRadius: job.opts.circle ? crop!.w / 2 : 0,
+                  borderRadius: circle ? crop!.w / 2 : 0,
                 },
               ]}
             >
@@ -331,7 +355,6 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
               <View style={[styles.grid, styles.gridH, { top: '66.66%' }]} />
             </View>
 
-            {/* Poignées de coin — grandes zones tapables, au-dessus du cadre */}
             <View {...tlResp.panHandlers} style={[styles.handle, { left: crop!.x - 20, top: crop!.y - 20 }]}>
               <View style={[styles.corner, styles.cornerTL]} />
             </View>
@@ -367,38 +390,7 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
   );
 };
 
-export const CropModalHost: React.FC = () => {
-  const [job, setJob] = useState<Job | null>(null);
-  const resolver = useRef<((r: CropModalResult | null) => void) | null>(null);
-
-  useEffect(() => {
-    _emit = (j) => {
-      resolver.current = j.resolve;
-      setJob(j);
-    };
-    return () => {
-      _emit = null;
-    };
-  }, []);
-
-  const done = useCallback((r: CropModalResult | null) => {
-    const fn = resolver.current;
-    resolver.current = null;
-    setJob(null);
-    fn?.(r);
-  }, []);
-
-  if (!job) return null;
-  return (
-    <View style={[StyleSheet.absoluteFill, styles.overlay]}>
-      <CropModal job={job} onDone={done} />
-    </View>
-  );
-};
-
-const HANDLE = 44;
 const styles = StyleSheet.create({
-  overlay: { zIndex: 9999, elevation: 9999 },
   root: { flex: 1, backgroundColor: '#000' },
   bar: {
     flexDirection: 'row',

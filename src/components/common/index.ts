@@ -15,8 +15,8 @@ export {
   type SheetOptions,
 } from './ActionSheet';
 export type { CropModalOpts, CropModalResult } from './CropModal';
-// `CropModalHost` / `openCrop` : importer depuis '@/components/common/CropModal'
-// directement (module lourd Reanimated — pas dans le barrel).
+// `openCrop` / `ImageCropScreen` : importer depuis '@/components/common/CropModal'
+// directement (l'écran est enregistré dans MainNavigator).
 export { Avatar } from './Avatar';
 export { BrandLogo } from './BrandLogo';
 export { Button } from './Button';

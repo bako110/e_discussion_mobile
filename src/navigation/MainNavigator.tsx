@@ -34,6 +34,8 @@ import { StoryComposerScreen } from '@/screens/Main/StoryComposerScreen';
 import { StoryViewerScreen } from '@/screens/Main/StoryViewerScreen';
 import { StoryViewersScreen } from '@/screens/Main/StoryViewersScreen';
 
+import { ImageCropScreen } from '@/components/common/CropModal';
+
 import { TabNavigator } from './TabNavigator';
 import type { MainStackParamList } from './types';
 
@@ -111,6 +113,11 @@ export const MainNavigator: React.FC = () => (
       name="MediaViewer"
       component={MediaViewerScreen}
       options={{ animation: 'fade', presentation: 'transparentModal' }}
+    />
+    <Stack.Screen
+      name="ImageCrop"
+      component={ImageCropScreen}
+      options={{ animation: 'fade', presentation: 'fullScreenModal' }}
     />
   </Stack.Navigator>
 );

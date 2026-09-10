@@ -92,6 +92,8 @@ export type MainStackParamList = {
   JoinPreview: { code: string; preview?: GroupPreview };
   /** Visionneuse plein écran d'un média (pièce jointe de groupe, etc.). */
   MediaViewer: { url: string; type: 'image' | 'video'; thumbnailUrl?: string };
+  /** Recadrage d'image (cadre ajustable). `token` relie l'appel à sa réponse. */
+  ImageCrop: { token: string; uri: string; circle?: boolean; aspect?: number; title?: string };
 };
 
 /** Nav du stack principal, accessible depuis un ecran d'onglet. */
