@@ -2,11 +2,11 @@
  * Recadrage d'image EN JS — style éditeur Android natif :
  *  - l'image reste FIXE (affichée en entier),
  *  - un cadre de recadrage ajustable par-dessus : 4 poignées de coin + glisser
- *    le centre,
+ *    le centre ; par défaut il couvre TOUTE l'image,
  *  - au valider, on découpe EXACTEMENT la zone du cadre. L'original est intact.
  *
  * Découpage pixel via `@react-native-community/image-editor`. Aucun Reanimated
- * (PanResponder + state) → pas de souci de worklet.
+ * (PanResponder + state) -> pas de souci de worklet.
  *
  * API impérative :
  *   import { openCrop } from '@/components/common/CropModal';
@@ -62,7 +62,7 @@ export function openCrop(uri: string, opts: CropModalOpts = {}): Promise<CropMod
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-const MIN = 48; // taille mini du cadre à l'écran (px)
+const MIN = 56; // taille mini du cadre à l'écran (px)
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Handle = 'tl' | 'tr' | 'bl' | 'br' | 'move';
@@ -102,31 +102,41 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
     return { x: (stage.w - w) / 2, y: (stage.h - h) / 2, w, h };
   }, [natural, stage]);
 
-  // Cadre de recadrage (coords écran). Initialisé à ~80 % de l'image.
+  // Cadre de recadrage (coords écran). Par défaut = TOUTE l'image (ou le plus
+  // grand rectangle du ratio demandé centré dans l'image).
   const [crop, setCrop] = useState<Rect | null>(null);
+  const cropRef = useRef<Rect | null>(null);
+  const setCropBoth = useCallback((r: Rect) => {
+    cropRef.current = r;
+    setCrop(r);
+  }, []);
+
   useEffect(() => {
     if (!imgBox) return;
-    let w = imgBox.w * 0.8;
-    let h = imgBox.h * 0.8;
+    let w = imgBox.w;
+    let h = imgBox.h;
     if (aspect && aspect > 0) {
       if (w / h > aspect) w = h * aspect;
       else h = w / aspect;
     }
-    setCrop({
+    setCropBoth({
       x: imgBox.x + (imgBox.w - w) / 2,
       y: imgBox.y + (imgBox.h - h) / 2,
       w,
       h,
     });
-  }, [imgBox, aspect]);
+  }, [imgBox, aspect, setCropBoth]);
 
-  // ── gestes : on garde le rect au départ du drag + la poignée active ──
+  // rect au départ du drag + poignée active (ref : la closure du PanResponder
+  // est figée à la création, on passe TOUT par des refs).
   const dragStart = useRef<{ rect: Rect; handle: Handle } | null>(null);
+  const imgBoxRef = useRef<Rect | null>(null);
+  imgBoxRef.current = imgBox;
 
   const applyDrag = useCallback(
     (dx: number, dy: number) => {
       const st = dragStart.current;
-      const box = imgBox;
+      const box = imgBoxRef.current;
       if (!st || !box) return;
       const b = st.rect;
       const minX = box.x;
@@ -135,13 +145,15 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
       const maxY = box.y + box.h;
 
       if (st.handle === 'move') {
-        const nx = clamp(b.x + dx, minX, maxX - b.w);
-        const ny = clamp(b.y + dy, minY, maxY - b.h);
-        setCrop({ x: nx, y: ny, w: b.w, h: b.h });
+        setCropBoth({
+          x: clamp(b.x + dx, minX, maxX - b.w),
+          y: clamp(b.y + dy, minY, maxY - b.h),
+          w: b.w,
+          h: b.h,
+        });
         return;
       }
 
-      // coins : on bouge le coin concerné, l'opposé reste ancré
       let left = b.x;
       let top = b.y;
       let right = b.x + b.w;
@@ -163,19 +175,10 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
       let w = right - left;
       let h = bottom - top;
 
-      // ratio imposé : on ajuste la 2e dimension à partir du coin bougé
       if (aspect && aspect > 0) {
-        const movingX = st.handle === 'tl' || st.handle === 'bl';
-        if (movingX) {
-          h = w / aspect;
-          if (st.handle === 'tl') top = bottom - h;
-          else bottom = top + h;
-        } else {
-          h = w / aspect;
-          if (st.handle === 'tr') top = bottom - h;
-          else bottom = top + h;
-        }
-        // si ça déborde en vertical, on repart de la hauteur
+        h = w / aspect;
+        if (st.handle === 'tl' || st.handle === 'tr') top = bottom - h;
+        else bottom = top + h;
         if (top < minY || bottom > maxY) {
           h = clamp(h, MIN, maxY - minY);
           w = h * aspect;
@@ -195,32 +198,37 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
         }
       }
 
-      setCrop({ x: left, y: top, w: right - left, h: bottom - top });
+      setCropBoth({ x: left, y: top, w: right - left, h: bottom - top });
     },
-    [imgBox, aspect],
+    [aspect, setCropBoth],
   );
 
-  const makeResponder = (handle: Handle) =>
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        if (crop) dragStart.current = { rect: { ...crop }, handle };
-      },
-      onPanResponderMove: (_e, g) => applyDrag(g.dx, g.dy),
-      onPanResponderRelease: () => {
-        dragStart.current = null;
-      },
-      onPanResponderTerminate: () => {
-        dragStart.current = null;
-      },
-    });
+  const makeResponder = useCallback(
+    (handle: Handle) =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          const r = cropRef.current;
+          if (r) dragStart.current = { rect: { ...r }, handle };
+        },
+        onPanResponderMove: (_e, g) => applyDrag(g.dx, g.dy),
+        onPanResponderRelease: () => {
+          dragStart.current = null;
+        },
+        onPanResponderTerminate: () => {
+          dragStart.current = null;
+        },
+      }),
+    [applyDrag],
+  );
 
-  const moveResp = useRef(makeResponder('move')).current;
-  const tlResp = useRef(makeResponder('tl')).current;
-  const trResp = useRef(makeResponder('tr')).current;
-  const blResp = useRef(makeResponder('bl')).current;
-  const brResp = useRef(makeResponder('br')).current;
+  const moveResp = useMemo(() => makeResponder('move'), [makeResponder]);
+  const tlResp = useMemo(() => makeResponder('tl'), [makeResponder]);
+  const trResp = useMemo(() => makeResponder('tr'), [makeResponder]);
+  const blResp = useMemo(() => makeResponder('bl'), [makeResponder]);
+  const brResp = useMemo(() => makeResponder('br'), [makeResponder]);
 
   const onStageLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
@@ -230,19 +238,19 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
   const cancel = () => onDone(null);
 
   const confirm = async () => {
-    if (busy || !natural || !imgBox || !crop) return;
+    const c = cropRef.current;
+    if (busy || !natural || !imgBox || !c) return;
     setBusy(true);
     try {
-      // écran -> pixels image : rapport = natural / taille affichée
       const kx = natural.w / imgBox.w;
       const ky = natural.h / imgBox.h;
       const offset = {
-        x: clamp((crop.x - imgBox.x) * kx, 0, natural.w - 1),
-        y: clamp((crop.y - imgBox.y) * ky, 0, natural.h - 1),
+        x: clamp((c.x - imgBox.x) * kx, 0, natural.w - 1),
+        y: clamp((c.y - imgBox.y) * ky, 0, natural.h - 1),
       };
       const size = {
-        width: clamp(crop.w * kx, 1, natural.w - offset.x),
-        height: clamp(crop.h * ky, 1, natural.h - offset.y),
+        width: clamp(c.w * kx, 1, natural.w - offset.x),
+        height: clamp(c.h * ky, 1, natural.h - offset.y),
       };
       const outW = job.opts.circle ? 512 : Math.round(size.width);
       const outH = job.opts.circle ? 512 : Math.round(size.height);
@@ -290,30 +298,16 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
           <ActivityIndicator color="#fff" size="large" />
         ) : (
           <>
-            {/* Image FIXE, affichée en entier */}
-            <Image
-              source={{ uri: dispUri }}
-              resizeMode="contain"
-              style={StyleSheet.absoluteFill}
-            />
+            {/* Image FIXE, en entier */}
+            <Image source={{ uri: dispUri }} resizeMode="contain" style={StyleSheet.absoluteFill} />
 
-            {/* Voile sombre autour du cadre (4 bandes) */}
+            {/* Voile sombre autour du cadre */}
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
               <View style={[styles.veil, { left: 0, right: 0, top: 0, height: crop!.y }]} />
+              <View style={[styles.veil, { left: 0, right: 0, top: crop!.y + crop!.h, bottom: 0 }]} />
+              <View style={[styles.veil, { left: 0, width: crop!.x, top: crop!.y, height: crop!.h }]} />
               <View
-                style={[
-                  styles.veil,
-                  { left: 0, right: 0, top: crop!.y + crop!.h, bottom: 0 },
-                ]}
-              />
-              <View
-                style={[styles.veil, { left: 0, width: crop!.x, top: crop!.y, height: crop!.h }]}
-              />
-              <View
-                style={[
-                  styles.veil,
-                  { right: 0, left: crop!.x + crop!.w, top: crop!.y, height: crop!.h },
-                ]}
+                style={[styles.veil, { right: 0, left: crop!.x + crop!.w, top: crop!.y, height: crop!.h }]}
               />
             </View>
 
@@ -331,26 +325,25 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
                 },
               ]}
             >
-              {/* règle des tiers */}
               <View style={[styles.grid, styles.gridV, { left: '33.33%' }]} />
               <View style={[styles.grid, styles.gridV, { left: '66.66%' }]} />
               <View style={[styles.grid, styles.gridH, { top: '33.33%' }]} />
               <View style={[styles.grid, styles.gridH, { top: '66.66%' }]} />
             </View>
 
-            {/* Poignées de coin (hors du cadre pour rester tapables) */}
-            <View {...tlResp.panHandlers} style={[styles.handle, { left: crop!.x - 14, top: crop!.y - 14 }]}>
+            {/* Poignées de coin — grandes zones tapables, au-dessus du cadre */}
+            <View {...tlResp.panHandlers} style={[styles.handle, { left: crop!.x - 20, top: crop!.y - 20 }]}>
               <View style={[styles.corner, styles.cornerTL]} />
             </View>
             <View
               {...trResp.panHandlers}
-              style={[styles.handle, { left: crop!.x + crop!.w - 14, top: crop!.y - 14 }]}
+              style={[styles.handle, { left: crop!.x + crop!.w - HANDLE + 20, top: crop!.y - 20 }]}
             >
               <View style={[styles.corner, styles.cornerTR]} />
             </View>
             <View
               {...blResp.panHandlers}
-              style={[styles.handle, { left: crop!.x - 14, top: crop!.y + crop!.h - 14 }]}
+              style={[styles.handle, { left: crop!.x - 20, top: crop!.y + crop!.h - HANDLE + 20 }]}
             >
               <View style={[styles.corner, styles.cornerBL]} />
             </View>
@@ -358,7 +351,7 @@ const CropModal: React.FC<{ job: Job; onDone: (r: CropModalResult | null) => voi
               {...brResp.panHandlers}
               style={[
                 styles.handle,
-                { left: crop!.x + crop!.w - 14, top: crop!.y + crop!.h - 14 },
+                { left: crop!.x + crop!.w - HANDLE + 20, top: crop!.y + crop!.h - HANDLE + 20 },
               ]}
             >
               <View style={[styles.corner, styles.cornerBR]} />
@@ -403,7 +396,7 @@ export const CropModalHost: React.FC = () => {
   );
 };
 
-const HANDLE = 28;
+const HANDLE = 44;
 const styles = StyleSheet.create({
   overlay: { zIndex: 9999, elevation: 9999 },
   root: { flex: 1, backgroundColor: '#000' },
@@ -418,11 +411,7 @@ const styles = StyleSheet.create({
   barTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
   stage: { flex: 1, overflow: 'hidden' },
   veil: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.6)' },
-  frame: {
-    position: 'absolute',
-    borderWidth: 1.5,
-    borderColor: '#fff',
-  },
+  frame: { position: 'absolute', borderWidth: 1.5, borderColor: '#fff' },
   grid: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.35)' },
   gridV: { top: 0, bottom: 0, width: StyleSheet.hairlineWidth },
   gridH: { left: 0, right: 0, height: StyleSheet.hairlineWidth },
@@ -433,7 +422,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  corner: { width: 20, height: 20, borderColor: '#fff' },
+  corner: { width: 22, height: 22, borderColor: '#fff' },
   cornerTL: { borderLeftWidth: 3, borderTopWidth: 3 },
   cornerTR: { borderRightWidth: 3, borderTopWidth: 3 },
   cornerBL: { borderLeftWidth: 3, borderBottomWidth: 3 },
