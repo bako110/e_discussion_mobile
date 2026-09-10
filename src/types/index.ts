@@ -301,6 +301,8 @@ export interface CallStart extends CallLog {
   livekit_url: string;
   token: string;
   e2ee_key: string | null;
+  /** le destinataire a-t-il un WS actif ? (tonalité de retour d'appel). */
+  callee_online: boolean;
 }
 
 /** Réponse de POST /calls/{id}/accept : accès LiveKit du destinataire. */

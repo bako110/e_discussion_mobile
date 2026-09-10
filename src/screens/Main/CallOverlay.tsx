@@ -14,6 +14,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { ActiveCallScreen } from './ActiveCallScreen';
 import { CallPill } from './CallPill';
 import { IncomingCallScreen } from './IncomingCallScreen';
+import { OutgoingRingback } from './OutgoingRingback';
 
 /** Petite carte affichée ~1,6 s après la fin d'un appel non abouti
  *  (occupé, refusé, manqué…) quand il n'y a plus d'écran d'appel à montrer. */
@@ -90,6 +91,7 @@ export const CallOverlay: React.FC = () => {
   if (minimized) {
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        <OutgoingRingback />
         <CallPill />
       </View>
     );
@@ -97,6 +99,7 @@ export const CallOverlay: React.FC = () => {
 
   return (
     <View style={StyleSheet.absoluteFill}>
+      <OutgoingRingback />
       <ActiveCallScreen />
     </View>
   );

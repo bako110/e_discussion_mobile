@@ -67,6 +67,7 @@ const CallStage: React.FC = () => {
     muted,
     speaker,
     cameraEnabled,
+    calleeOnline,
     hangUp,
     toggleMute,
     toggleSpeaker,
@@ -151,7 +152,9 @@ const CallStage: React.FC = () => {
 
   const statusText =
     phase === 'outgoing'
-      ? t('calls.ringing')
+      ? calleeOnline
+        ? t('calls.ringing')
+        : t('calls.calleeOffline')
       : phase === 'connecting'
         ? t('calls.connecting')
         : phase === 'ended'

@@ -89,6 +89,8 @@ interface CallContextValue {
   cameraEnabled: boolean;
   /** true si le SFU est configuré côté serveur. */
   available: boolean;
+  /** appel sortant : le destinataire est-il joignable (WS actif) ? */
+  calleeOnline: boolean;
   /** true = écran d'appel réduit (pilule flottante), l'appel continue. */
   minimized: boolean;
 
@@ -127,6 +129,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [muted, setMuted] = useState(false);
   const [speaker, setSpeaker] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
+  // appel sortant : le destinataire a-t-il un WS actif ? -> tonalité de
+  // retour d'appel « normale » vs « indisponible ».
+  const [calleeOnline, setCalleeOnline] = useState(true);
 
   const roomRef = useRef<Room | null>(null);
   const e2eeMgrRef = useRef<RNE2EEManager | null>(null);
@@ -368,6 +373,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async (callee: UserPublic, type: CallType) => {
       if (phaseRef.current !== 'idle') return;
       const e2eeKey = callService.generateE2eeKey();
+      setCalleeOnline(true); // optimiste : ajusté par la réponse serveur
       setPhase('outgoing');
       setCall({
         callId: 'pending',
@@ -381,6 +387,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const res = await callService.start(callee.id, type, e2eeKey);
         createdId = res.id;
+        setCalleeOnline(res.callee_online !== false);
         setCall({
           callId: res.id,
           roomName: res.room_name,
@@ -736,6 +743,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       speaker,
       cameraEnabled,
       available,
+      calleeOnline,
       minimized,
       startCall,
       acceptCall,
@@ -759,6 +767,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       speaker,
       cameraEnabled,
       available,
+      calleeOnline,
       minimized,
       startCall,
       acceptCall,

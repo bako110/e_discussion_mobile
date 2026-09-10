@@ -349,6 +349,7 @@
     "incomingVoice": "Appel audio entrant",
     "incomingVideo": "Appel vidéo entrant",
     "ringing": "Sonnerie…",
+    "calleeOffline": "Indisponible, appel en cours…",
     "connecting": "Connexion…",
     "ended": "Appel terminé",
     "active": "En cours",

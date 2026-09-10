@@ -349,6 +349,7 @@
     "incomingVoice": "Incoming voice call",
     "incomingVideo": "Incoming video call",
     "ringing": "Ringing…",
+    "calleeOffline": "Unavailable, still trying…",
     "connecting": "Connecting…",
     "ended": "Call ended",
     "active": "Ongoing",
