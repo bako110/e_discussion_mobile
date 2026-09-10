@@ -11,7 +11,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert, showToast } from '@/components/common';
 import { resetLocalE2EE } from '@/crypto';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
@@ -60,8 +60,9 @@ export const DevicesScreen: React.FC<MainScreenProps<'Devices'>> = ({ navigation
           try {
             await deviceService.revoke(d.device_id);
             await load();
+            showToast(t('settings.deviceRevoked'));
           } catch {
-            showAlert(t('errors.generic'));
+            showToast(t('errors.generic'), { type: 'error' });
           }
         },
       },
@@ -80,9 +81,9 @@ export const DevicesScreen: React.FC<MainScreenProps<'Devices'>> = ({ navigation
             await resetLocalE2EE();
             await retryFailedDecryptions();
             await load();
-            showAlert(t('settings.e2eeResetDone'));
+            showToast(t('settings.e2eeResetDone'));
           } catch {
-            showAlert(t('errors.generic'));
+            showToast(t('errors.generic'), { type: 'error' });
           } finally {
             setResetting(false);
           }

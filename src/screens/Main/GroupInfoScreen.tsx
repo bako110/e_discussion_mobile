@@ -19,6 +19,7 @@ import {
   confirmAlert,
   showAlert,
   showSheet,
+  showToast,
 } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
@@ -103,10 +104,15 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
     // recadrage circulaire local AVANT upload
     const up = await picker.pickAvatar({ camera });
     if (!up) return;
-    await groupService.update(groupId, { avatar_url: up.url });
-    await reload();
-    await reloadGroups();
-    void syncNow({ force: true });
+    try {
+      await groupService.update(groupId, { avatar_url: up.url });
+      await reload();
+      await reloadGroups();
+      void syncNow({ force: true });
+      showToast(t('groups.photoUpdated'));
+    } catch {
+      showToast(t('errors.generic'), { type: 'error' });
+    }
   };
 
   const saveName = async () => {
@@ -115,11 +121,16 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
       setEditingName(false);
       return;
     }
-    await groupService.update(groupId, { name: v });
-    setEditingName(false);
-    await reload();
-    await reloadGroups();
-    void syncNow({ force: true });
+    try {
+      await groupService.update(groupId, { name: v });
+      setEditingName(false);
+      await reload();
+      await reloadGroups();
+      void syncNow({ force: true });
+      showToast(t('groups.infoUpdated'));
+    } catch {
+      showToast(t('errors.generic'), { type: 'error' });
+    }
   };
 
   const saveDesc = async () => {
@@ -130,6 +141,9 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
       await reload();
       await reloadGroups();
       void syncNow({ force: true });
+      showToast(t('groups.infoUpdated'));
+    } catch {
+      showToast(t('errors.generic'), { type: 'error' });
     } finally {
       setSavingDesc(false);
     }
@@ -137,17 +151,29 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
 
   const togglePublic = async () => {
     if (!group) return;
-    await groupService.update(groupId, { is_public: !group.is_public });
-    await reload();
-    void syncNow({ force: true });
+    const next = !group.is_public;
+    try {
+      await groupService.update(groupId, { is_public: next });
+      await reload();
+      void syncNow({ force: true });
+      showToast(next ? t('groups.nowPublic') : t('groups.nowPrivate'));
+    } catch {
+      showToast(t('errors.generic'), { type: 'error' });
+    }
   };
 
   const toggleMute = async () => {
     if (!group) return;
-    await groupService.setMuted(groupId, !group.muted);
-    await reload();
-    await reloadGroups();
-    void syncNow({ force: true });
+    const next = !group.muted;
+    try {
+      await groupService.setMuted(groupId, next);
+      await reload();
+      await reloadGroups();
+      void syncNow({ force: true });
+      showToast(next ? t('groups.muted') : t('groups.unmuted'));
+    } catch {
+      showToast(t('errors.generic'), { type: 'error' });
+    }
   };
 
   const resetInvite = () =>
@@ -158,7 +184,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
         const ok = await withOnline(() => groupService.resetInvite(groupId));
         if (ok) {
           await reload();
-          showAlert(t('groups.inviteReset'));
+          showToast(t('groups.inviteReset'));
         }
       },
       { confirmText: t('groups.regenerate') },
@@ -182,26 +208,37 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
     if (!canEdit || m.user.id === me?.id || m.role === 'owner') return;
     const actions: { label: string; icon: string; destructive?: boolean; onPress: () => void }[] =
       [];
+    const runMember = (p: Promise<unknown>, okKey: string) =>
+      void p
+        .then(() => syncNow({ force: true }))
+        .then(reload)
+        .then(() => showToast(t(okKey)))
+        .catch(() => showToast(t('errors.generic'), { type: 'error' }));
+
     if (isOwner) {
       if (m.role === 'admin') {
         actions.push({
           label: t('groups.demoteAdmin'),
           icon: 'shield-off-outline',
           onPress: () =>
-            void groupService
-              .setMemberRole(groupId, m.user.id, isChannel ? 'subscriber' : 'member')
-              .then(() => syncNow({ force: true }))
-              .then(reload),
+            runMember(
+              groupService.setMemberRole(
+                groupId,
+                m.user.id,
+                isChannel ? 'subscriber' : 'member',
+              ),
+              'groups.adminRemoved',
+            ),
         });
       } else {
         actions.push({
           label: t('groups.promoteAdmin'),
           icon: 'shield-account-outline',
           onPress: () =>
-            void groupService
-              .setMemberRole(groupId, m.user.id, 'admin')
-              .then(() => syncNow({ force: true }))
-              .then(reload),
+            runMember(
+              groupService.setMemberRole(groupId, m.user.id, 'admin'),
+              'groups.adminAdded',
+            ),
         });
       }
     }
@@ -210,10 +247,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
       icon: 'account-remove-outline',
       destructive: true,
       onPress: () =>
-        void groupService
-          .removeMember(groupId, m.user.id)
-          .then(() => syncNow({ force: true }))
-          .then(reload),
+        runMember(groupService.removeMember(groupId, m.user.id), 'groups.memberRemoved'),
     });
     showSheet({
       title: m.user.display_name || m.user.username || '—',

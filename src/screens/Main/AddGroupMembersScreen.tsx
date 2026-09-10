@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Button, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, Avatar, Button, Icon, Screen, showAlert, showToast } from '@/components/common';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
@@ -91,6 +91,7 @@ export const AddGroupMembersScreen: React.FC<MainScreenProps<'AddGroupMembers'>>
         return; // hors-ligne : « connexion requise » déjà affiché
       }
       await reloadGroups();
+      showToast(t('groups.membersAdded', { count: ids.length }));
       navigation.goBack();
     } catch {
       showAlert(t('errors.generic'));

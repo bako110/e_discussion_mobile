@@ -16,7 +16,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner, confirmAlert, showAlert } from '@/components/common';
+import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner, confirmAlert, showAlert, showToast } from '@/components/common';
 import { AttachMenu, type AttachKind } from '@/components/chat/AttachMenu';
 import { ChatMenuSheet, type ChatMenuAction } from '@/components/chat/ChatMenuSheet';
 import { EncryptionInfoModal } from '@/components/chat/EncryptionInfoModal';
@@ -676,8 +676,10 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     setMuted(next);
     try {
       await conversationService.setMuted(conversationId, next);
+      showToast(next ? t('chat.muted') : t('chat.unmuted'));
     } catch {
       setMuted(!next);
+      showToast(t('errors.generic'), { type: 'error' });
     }
   };
 
@@ -689,9 +691,9 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         try {
           await conversationService.clearHistory(conversationId);
           await reload();
-          showAlert(t('chat.cleared'));
+          showToast(t('chat.cleared'));
         } catch {
-          showAlert(t('errors.generic'));
+          showToast(t('errors.generic'), { type: 'error' });
         }
       },
       { destructive: true, confirmText: t('common.delete') },
@@ -705,8 +707,9 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         try {
           await userService.block(partnerId);
           setBlocked(true);
+          showToast(t('chat.userBlocked'));
         } catch {
-          showAlert(t('errors.generic'));
+          showToast(t('errors.generic'), { type: 'error' });
         }
       },
       { destructive: true, confirmText: t('chat.block') },
@@ -717,8 +720,9 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       await userService.unblock(partnerId);
       setBlocked(false);
       void refreshDetail();
+      showToast(t('settings.userUnblocked'));
     } catch {
-      showAlert(t('errors.generic'));
+      showToast(t('errors.generic'), { type: 'error' });
     }
   };
 

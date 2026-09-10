@@ -11,7 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@/api';
-import { AppHeader, Avatar, Button, Icon, Screen, TextField, showSheet } from '@/components/common';
+import { AppHeader, Avatar, Button, Icon, Screen, TextField, showSheet, showToast } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
 import { useSync } from '@/context/SyncContext';
@@ -54,6 +54,7 @@ export const EditProfileScreen: React.FC<MainScreenProps<'EditProfile'>> = ({ na
     try {
       await userService.updateMe({ avatar_url: up.url });
       await refreshMe();
+      showToast(t('settings.photoUpdated'));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : t('errors.generic'));
     }
@@ -75,6 +76,7 @@ export const EditProfileScreen: React.FC<MainScreenProps<'EditProfile'>> = ({ na
       await userService.updateMe(patch);
       await refreshMe();
       setSaved(true);
+      showToast(t('settings.profileUpdated'));
       setTimeout(() => navigation.goBack(), 400);
     } catch (e) {
       const offline = e instanceof ApiError && e.status === 0;

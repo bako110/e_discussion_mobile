@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, confirmAlert, showAlert, showSheet } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
 import { GroupAttachment } from '@/components/chat/GroupAttachment';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
@@ -241,10 +241,15 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
         label: group.muted ? t('chat.menuUnmute') : t('chat.menuMute'),
         icon: group.muted ? 'bell-outline' : 'bell-off-outline',
         onPress: () => {
-          void groupService.setMuted(groupId, !group.muted).then(() => {
-            void reload();
-            void reloadGroups();
-          });
+          const next = !group.muted;
+          void groupService
+            .setMuted(groupId, next)
+            .then(() => {
+              void reload();
+              void reloadGroups();
+              showToast(next ? t('groups.muted') : t('groups.unmuted'));
+            })
+            .catch(() => showToast(t('errors.generic'), { type: 'error' }));
         },
       },
     ];

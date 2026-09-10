@@ -9,7 +9,7 @@
  * Local-first : appliqué au cache tout de suite, PUT rejoué par l'outbox.
  */
 import i18n from '@/i18n';
-import { showSheet, showAlert } from '@/components/common';
+import { showSheet, showToast } from '@/components/common';
 import { selectContacts } from '@/screens/Main/SelectContactsScreen';
 import { userService } from '@/services';
 import type { PrivacyField, PrivacyMode } from '@/services/userService';
@@ -48,8 +48,9 @@ async function save(
   try {
     await userService.setPrivacyField(field, mode, ids);
     onChanged?.();
+    showToast(i18n.t('settings.saved'));
   } catch {
-    showAlert(i18n.t('errors.generic'));
+    showToast(i18n.t('errors.generic'), { type: 'error' });
   }
 }
 

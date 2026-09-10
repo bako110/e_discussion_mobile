@@ -29,6 +29,7 @@ import {
   Screen,
   confirmAlert,
   showAlert,
+  showToast,
 } from '@/components/common';
 import { EncryptionInfoModal } from '@/components/chat/EncryptionInfoModal';
 import { SettingsRow, SettingsSection } from '@/components/settings';
@@ -135,8 +136,10 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
     setBusy('mute');
     try {
       await conversationService.setMuted(conversationId, next);
+      showToast(next ? t('chat.muted') : t('chat.unmuted'));
     } catch {
       setMuted(!next);
+      showToast(t('errors.generic'), { type: 'error' });
     } finally {
       setBusy(null);
     }
@@ -153,10 +156,11 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
           if (next) await userService.block(partnerId);
           else await userService.unblock(partnerId);
           setBlocked(next);
+          showToast(next ? t('chat.userBlocked') : t('settings.userUnblocked'));
           // recharge le profil : bloqué -> photo / infos / présence masquées
           void load();
         } catch {
-          showAlert(t('errors.generic'));
+          showToast(t('errors.generic'), { type: 'error' });
         } finally {
           setBusy(null);
         }
@@ -191,9 +195,9 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
         setBusy('clear');
         try {
           await conversationService.clearHistory(conversationId);
-          showAlert(t('chat.cleared'));
+          showToast(t('chat.cleared'));
         } catch {
-          showAlert(t('errors.generic'));
+          showToast(t('errors.generic'), { type: 'error' });
         } finally {
           setBusy(null);
         }

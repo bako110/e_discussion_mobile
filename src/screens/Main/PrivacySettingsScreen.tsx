@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-nat
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, Icon, Screen, showToast } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -44,8 +44,9 @@ export const PrivacySettingsScreen: React.FC = () => {
     try {
       await userService.updateMe({ read_receipts: next });
       refreshMeLocal();
+      showToast(t('settings.saved'));
     } catch {
-      showAlert(t('errors.generic'));
+      showToast(t('errors.generic'), { type: 'error' });
     } finally {
       setBusy(null);
     }

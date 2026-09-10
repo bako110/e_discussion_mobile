@@ -10,7 +10,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert, showToast } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
 import { userService } from '@/services';
@@ -54,8 +54,9 @@ export const BlockedUsersScreen: React.FC = () => {
           try {
             await userService.unblock(u.id);
             setUsers((prev) => prev.filter((x) => x.id !== u.id));
+            showToast(t('settings.userUnblocked'));
           } catch {
-            showAlert(t('errors.generic'));
+            showToast(t('errors.generic'), { type: 'error' });
           } finally {
             setPendingId(null);
           }

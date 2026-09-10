@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, Icon, Screen, showToast } from '@/components/common';
 import { SettingsSection } from '@/components/settings';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme, type ThemeMode } from '@/context/ThemeContext';
@@ -25,6 +25,12 @@ export const AppearanceSettingsScreen: React.FC = () => {
     if (me && me.locale !== l) {
       void userService.updateMe({ locale: l }).catch(() => undefined);
     }
+    showToast(t('settings.saved'));
+  };
+
+  const changeTheme = (m: ThemeMode) => {
+    setMode(m);
+    showToast(t('settings.saved'));
   };
 
   const themeOpts: { key: ThemeMode; label: string }[] = [
@@ -54,7 +60,7 @@ export const AppearanceSettingsScreen: React.FC = () => {
             {themeOpts.map((o) => (
               <Pressable
                 key={o.key}
-                onPress={() => setMode(o.key)}
+                onPress={() => changeTheme(o.key)}
                 style={[styles.seg, mode === o.key && { backgroundColor: c.primary }]}
               >
                 <Text
