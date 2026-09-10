@@ -31,7 +31,8 @@ function loadMessaging(): MessagingModule['default'] | null {
     // require dynamique : absent du bundle si le module n'est pas installé.
 
     _messaging = require('@react-native-firebase/messaging').default as MessagingModule['default'];
-  } catch {
+  } catch (e) {
+    console.warn('[push] module @react-native-firebase/messaging absent:', String(e));
     _messaging = null;
   }
   return _messaging;
@@ -43,8 +44,9 @@ async function pushToBackend(token: string): Promise<void> {
       token,
       platform: Platform.OS === 'ios' ? 'ios' : 'android',
     });
-  } catch {
-    /* réessai au prochain lancement */
+    console.warn('[push] jeton FCM enregistré côté backend:', token.slice(0, 16) + '…');
+  } catch (e) {
+    console.warn('[push] échec envoi jeton au backend:', String(e));
   }
 }
 
@@ -55,13 +57,15 @@ export async function registerPushToken(): Promise<void> {
   const messaging = loadMessaging();
   if (!messaging) return; // pas de Firebase -> WebSocket seul (app ouverte/bg)
   try {
-    await messaging().requestPermission();
+    const perm = await messaging().requestPermission();
+    console.warn('[push] permission notifications:', String(perm));
     const token = await messaging().getToken();
+    console.warn('[push] getToken ->', token ? token.slice(0, 16) + '…' : '(vide)');
     if (token) await pushToBackend(token);
     _refreshUnsub?.();
     _refreshUnsub = messaging().onTokenRefresh((t) => void pushToBackend(t));
-  } catch {
-    /* silencieux */
+  } catch (e) {
+    console.warn('[push] registerPushToken a échoué:', String(e));
   }
 }
 
