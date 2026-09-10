@@ -10,8 +10,10 @@
  * silencieusement sur l'URL d'origine.
  */
 import ReactNativeBlobUtil from 'react-native-blob-util';
+import NetInfo from '@react-native-community/netinfo';
 
 import { mediaUrl } from '@/utils/media';
+import { storage } from '@/utils/storage';
 
 const DIR = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/media`;
 let dirReady: Promise<void> | null = null;
@@ -49,6 +51,36 @@ const inFlight = new Map<string, Promise<string | null>>();
 // mémoïsation résolue (URL distante -> chemin local file://)
 const resolved = new Map<string, string>();
 
+// type de connexion courant (mis à jour par NetInfo)
+let connectionType: string | null = null;
+NetInfo.addEventListener((s) => {
+  connectionType = s.type;
+});
+void NetInfo.fetch().then((s) => {
+  connectionType = s.type;
+});
+
+function bool(key: string, fallback: boolean): boolean {
+  try {
+    const v = storage.getString(key);
+    return v == null ? fallback : v === '1';
+  } catch {
+    return fallback;
+  }
+}
+
+/** Le téléchargement AUTOMATIQUE est-il autorisé sur le réseau actuel ?
+ * (Réglages → Stockage → « Téléchargement auto »). Un tap explicite
+ * télécharge toujours, quel que soit le réseau. */
+function autoDownloadAllowed(): boolean {
+  if (connectionType === 'cellular') return bool('storage.autoDownloadData', false);
+  if (connectionType === 'wifi' || connectionType === 'ethernet') {
+    return bool('storage.autoDownloadWifi', true);
+  }
+  // type inconnu (au démarrage) : on autorise (le wifi est le cas courant)
+  return true;
+}
+
 async function download(remote: string, localPath: string): Promise<string | null> {
   try {
     await ensureDir();
@@ -78,7 +110,11 @@ export const mediaCache = {
    *
    * `onCached` est appelé quand le fichier local devient disponible.
    */
-  resolve(rawUrl: string | null | undefined, onCached?: (localUri: string) => void): string | undefined {
+  resolve(
+    rawUrl: string | null | undefined,
+    onCached?: (localUri: string) => void,
+    opts?: { force?: boolean },
+  ): string | undefined {
     if (!rawUrl) return undefined;
     if (isLocal(rawUrl)) return rawUrl;
 
@@ -87,11 +123,11 @@ export const mediaCache = {
     if (cached) return cached;
 
     const localPath = `${DIR}/${hash(remote)}${extFromUrl(remote)}`;
+    const mayDownload = opts?.force || autoDownloadAllowed();
 
-    // vérifie l'existence + télécharge si besoin, en arrière-plan.
+    // vérifie l'existence + télécharge si autorisé, en arrière-plan.
     // `onCached` est TOUJOURS rebranché sur le job en cours, même si un
-    // précédent render a déjà lancé le téléchargement (sinon le composant
-    // resté sur l'URL distante ne bascule jamais sur le fichier local).
+    // précédent render a déjà lancé le téléchargement.
     void (async () => {
       try {
         if (await ReactNativeBlobUtil.fs.exists(localPath)) {
@@ -100,6 +136,7 @@ export const mediaCache = {
           onCached?.(uri);
           return;
         }
+        if (!mayDownload) return; // téléchargement auto désactivé sur ce réseau
         let job = inFlight.get(remote);
         if (!job) {
           job = download(remote, localPath);

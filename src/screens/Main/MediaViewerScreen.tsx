@@ -39,11 +39,11 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
       </Pressable>
 
       {type === 'image' ? (
-        <CachedImage uri={url} style={styles.image} resizeMode="contain" />
+        <CachedImage uri={url} forceDownload style={styles.image} resizeMode="contain" />
       ) : (
         <View style={styles.videoWrap}>
           {thumbnailUrl ? (
-            <CachedImage uri={thumbnailUrl} style={styles.image} resizeMode="contain" />
+            <CachedImage uri={thumbnailUrl} forceDownload style={styles.image} resizeMode="contain" />
           ) : null}
           <Pressable style={styles.playBtn} onPress={() => Linking.openURL(mediaUrl(url) ?? url)}>
             <Icon name="play" size={34} color="#fff" />

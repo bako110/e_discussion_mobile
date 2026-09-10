@@ -17,24 +17,38 @@ import { mediaUrl } from '@/utils/media';
 interface Props extends Omit<ImageProps, 'source' | 'style'> {
   uri: string | null | undefined;
   style?: StyleProp<ImageStyle>;
+  /** Force le téléchargement même si l'auto-download est coupé (ex: plein écran). */
+  forceDownload?: boolean;
 }
 
-export const CachedImage: React.FC<Props> = ({ uri, style, onError, ...rest }) => {
+export const CachedImage: React.FC<Props> = ({
+  uri,
+  style,
+  onError,
+  forceDownload,
+  ...rest
+}) => {
   const mounted = useRef(true);
   const triedRemote = useRef(false);
 
   const [src, setSrc] = useState<string | undefined>(() =>
-    mediaCache.resolve(uri, (local) => mounted.current && setSrc(local)),
+    mediaCache.resolve(uri, (local) => mounted.current && setSrc(local), {
+      force: forceDownload,
+    }),
   );
 
   useEffect(() => {
     mounted.current = true;
     triedRemote.current = false;
-    setSrc(mediaCache.resolve(uri, (local) => mounted.current && setSrc(local)));
+    setSrc(
+      mediaCache.resolve(uri, (local) => mounted.current && setSrc(local), {
+        force: forceDownload,
+      }),
+    );
     return () => {
       mounted.current = false;
     };
-  }, [uri]);
+  }, [uri, forceDownload]);
 
   const handleError = useCallback(
     (e: Parameters<NonNullable<ImageProps['onError']>>[0]) => {
