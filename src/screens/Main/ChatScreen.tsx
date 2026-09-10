@@ -91,6 +91,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [menuOpen, setMenuOpen] = useState(false);
   const [encOpen, setEncOpen] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [blocked, setBlocked] = useState(false);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const myId = me?.id ?? '';
@@ -112,15 +113,19 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   // best-effort, l'affichage local reste la source si hors-ligne.
   const refreshDetail = useCallback(async () => {
     try {
-      const d = await conversationService.detail(conversationId);
+      const [d, blk] = await Promise.all([
+        conversationService.detail(conversationId),
+        userService.blockedUsers().catch(() => []),
+      ]);
       setRequestStatus(d.request_status);
       setPartnerOnline(d.partner.is_online);
       setPartnerLastSeen(d.partner.last_seen_at ?? null);
       setMuted(d.muted);
+      setBlocked(blk.some((u) => u.id === partnerId));
     } catch {
       /* hors-ligne — on garde le cache local */
     }
-  }, [conversationId]);
+  }, [conversationId, partnerId]);
 
   useEffect(() => {
     void reload();
@@ -581,13 +586,23 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       async () => {
         try {
           await userService.block(partnerId);
-          showAlert(t('chat.reportDone'));
+          setBlocked(true);
         } catch {
           showAlert(t('errors.generic'));
         }
       },
       { destructive: true, confirmText: t('chat.block') },
     );
+
+  const doUnblock = async () => {
+    try {
+      await userService.unblock(partnerId);
+      setBlocked(false);
+      void refreshDetail();
+    } catch {
+      showAlert(t('errors.generic'));
+    }
+  };
 
   const menuActions: ChatMenuAction[] = [
     { key: 'info', icon: 'account-circle-outline', label: t('chat.menuInfo'), onPress: openInfo },
@@ -624,12 +639,15 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
 
   // si MA connexion est coupée, je ne peux pas savoir si le partenaire est en
   // ligne -> on n'affiche plus le point vert ni « en ligne » (comme WhatsApp).
-  const partnerOnlineEffective = online && partnerOnline;
-  const subtitle = partnerTyping
-    ? t('common.typing')
-    : !online
-      ? lastSeenLabel(partnerLastSeen, false)
-      : lastSeenLabel(partnerLastSeen, partnerOnlineEffective);
+  // bloqué -> aucune présence, aucun « vu à … » (dans les deux sens).
+  const partnerOnlineEffective = !blocked && online && partnerOnline;
+  const subtitle = blocked
+    ? ''
+    : partnerTyping
+      ? t('common.typing')
+      : !online
+        ? lastSeenLabel(partnerLastSeen, false)
+        : lastSeenLabel(partnerLastSeen, partnerOnlineEffective);
 
   // fond de conversation selon la préférence (couleur unie ou dégradé simple)
   const chatBg =
@@ -762,7 +780,23 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             }}
           />
 
-          {requestStatus === 'pending_incoming' ? (
+          {blocked ? (
+            <View
+              style={[
+                styles.requestBar,
+                {
+                  backgroundColor: c.surface,
+                  borderTopColor: c.divider,
+                  paddingBottom: 16 + insets.bottom,
+                },
+              ]}
+            >
+              <Text style={{ color: c.textMuted, marginBottom: 10, textAlign: 'center' }}>
+                {t('chat.blockedBanner')}
+              </Text>
+              <Button label={t('chat.unblock')} variant="secondary" onPress={doUnblock} />
+            </View>
+          ) : requestStatus === 'pending_incoming' ? (
             <View
               style={[
                 styles.requestBar,

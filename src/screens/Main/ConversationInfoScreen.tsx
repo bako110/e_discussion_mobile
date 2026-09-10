@@ -153,6 +153,8 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
           if (next) await userService.block(partnerId);
           else await userService.unblock(partnerId);
           setBlocked(next);
+          // recharge le profil : bloqué -> photo / infos / présence masquées
+          void load();
         } catch {
           showAlert(t('errors.generic'));
         } finally {
