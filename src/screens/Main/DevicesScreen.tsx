@@ -12,9 +12,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
+import { resetLocalE2EE } from '@/crypto';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { deviceService } from '@/services';
+import { retryFailedDecryptions } from '@/sync/syncEngine';
 import type { LinkedDevice } from '@/types';
 import { relativeTime } from '@/utils/time';
 
@@ -30,6 +32,7 @@ export const DevicesScreen: React.FC<MainScreenProps<'Devices'>> = ({ navigation
   const [devices, setDevices] = useState<LinkedDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -59,6 +62,29 @@ export const DevicesScreen: React.FC<MainScreenProps<'Devices'>> = ({ navigation
             await load();
           } catch {
             showAlert(t('errors.generic'));
+          }
+        },
+      },
+    ]);
+  };
+
+  const confirmReset = () => {
+    showAlert(t('settings.e2eeResetTitle'), t('settings.e2eeResetConfirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('settings.e2eeReset'),
+        style: 'destructive',
+        onPress: async () => {
+          setResetting(true);
+          try {
+            await resetLocalE2EE();
+            await retryFailedDecryptions();
+            await load();
+            showAlert(t('settings.e2eeResetDone'));
+          } catch {
+            showAlert(t('errors.generic'));
+          } finally {
+            setResetting(false);
           }
         },
       },
@@ -146,6 +172,31 @@ export const DevicesScreen: React.FC<MainScreenProps<'Devices'>> = ({ navigation
               {t('settings.noDevices')}
             </Text>
           ) : null}
+
+          <View style={styles.dangerZone}>
+            <Text style={[styles.section, { color: c.textMuted }]}>
+              {t('settings.e2eeTrouble')}
+            </Text>
+            <Pressable
+              onPress={confirmReset}
+              disabled={resetting}
+              style={[styles.resetBtn, { borderColor: c.danger }]}
+            >
+              {resetting ? (
+                <ActivityIndicator color={c.danger} size="small" />
+              ) : (
+                <>
+                  <Icon name="key-alert-outline" size={18} color={c.danger} />
+                  <Text style={[styles.resetText, { color: c.danger }]}>
+                    {t('settings.e2eeReset')}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+            <Text style={[styles.hint, { color: c.textFaint, marginTop: 8 }]}>
+              {t('settings.e2eeResetHint')}
+            </Text>
+          </View>
         </ScrollView>
       )}
     </Screen>
@@ -172,4 +223,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   empty: { textAlign: 'center', paddingVertical: 30, fontSize: 14 },
+  dangerZone: { marginTop: 28, paddingTop: 8 },
+  resetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  resetText: { fontSize: 14, fontWeight: '700' },
 });

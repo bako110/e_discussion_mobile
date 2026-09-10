@@ -18,7 +18,9 @@ import { apiClient, Endpoints } from '@/api';
 
 import {
   clearX3dhInit,
+  clearSessionConfirmed,
   deleteOneTimePrekey,
+  deleteSession,
   generateOneTimePrekeys,
   getSignedPrekeyPrivate,
   isSessionConfirmed,
@@ -30,6 +32,7 @@ import {
   peekOneTimePrekeyPrivate,
   saveSession,
   saveX3dhInit,
+  wipeAllE2EE,
   type X3dhInitBlob,
 } from './keyStore';
 import {
@@ -93,6 +96,22 @@ export async function ensureDeviceRegistered(): Promise<void> {
     });
   })();
   return registrationPromise;
+}
+
+/**
+ * Escape hatch : efface toute l'identité E2EE locale de cet appareil et en
+ * publie une neuve (ce qui révoque l'ancien appareil côté serveur, cf.
+ * `register_keys`). À utiliser quand des conversations restent bloquées sur
+ * « message chiffré » malgré les retries. Les messages chiffrés reçus AVANT
+ * ce reset et non encore lus resteront indéchiffrables (pas de sauvegarde de
+ * clés — par design).
+ */
+export async function resetLocalE2EE(): Promise<void> {
+  await wipeAllE2EE();
+  bundleDeviceCache.clear();
+  registrationPromise = null;
+  await ensureDeviceRegistered();
+  await refillOneTimePrekeysIfLow();
 }
 
 /** Réapprovisionne le stock d'OTPK côté serveur si bas — best-effort. */
@@ -162,6 +181,14 @@ export async function encryptMessageForUser(
       throw new Error("E2EE_NO_DEVICE: le destinataire n'a aucun appareil avec chiffrement activé");
     }
     bundle = bundleFromApi(bundles[0]!);
+    // L'appareil actif du pair a CHANGE (reinstall / nouveau tel) -> l'ancienne
+    // session pointe vers des cles qu'il n'a plus. On repart de zero avec le
+    // nouvel appareil.
+    if (cachedDeviceId && cachedDeviceId !== bundle.deviceId) {
+      await deleteSession(recipientUserId, cachedDeviceId);
+      await clearSessionConfirmed(recipientUserId, cachedDeviceId);
+      await clearX3dhInit(recipientUserId, cachedDeviceId);
+    }
     bundleDeviceCache.set(recipientUserId, bundle.deviceId);
     session = await loadSession(recipientUserId, bundle.deviceId);
   }
@@ -227,13 +254,15 @@ export async function decryptMessageFromUser(
     !!payload.x3dhEphemeralPublicKey &&
     !!payload.x3dhSenderIdentityPublicKey;
 
-  const bootstrap = async (): Promise<SessionState> => {
+  // `useOtpk` : au 1er essai on tente AVEC l'OTPK indiquee ; si le bootstrap
+  // echoue (OTPK deja consommee / jamais recue apres un reinstall...), on
+  // retente SANS OTPK (X3DH degrade a 3 DH), ce que le pair aura peut-etre
+  // fait aussi si son bundle a ete servi sans OTPK.
+  const bootstrap = async (useOtpk: boolean): Promise<SessionState> => {
     const signedPrekeyPair = await getSignedPrekeyPrivate();
     if (!signedPrekeyPair) throw new Error('E2EE_NO_LOCAL_SIGNED_PREKEY');
-    // PEEK (pas de suppression) : tant que la session n'est pas confirmee, le
-    // meme message X3DH peut etre rejoue et on doit re-deriver le meme secret.
     const otpkPrivate =
-      payload.x3dhOneTimePrekeyId != null
+      useOtpk && payload.x3dhOneTimePrekeyId != null
         ? await peekOneTimePrekeyPrivate(payload.x3dhOneTimePrekeyId)
         : null;
     const sharedSecret = x3dhReceive(
@@ -250,7 +279,7 @@ export async function decryptMessageFromUser(
     if (!canBootstrap) {
       throw new Error('E2EE_SESSION_MISSING: pas de session et message non exploitable');
     }
-    session = await bootstrap();
+    session = await bootstrap(true);
   }
 
   const encrypted: EncryptedMessage = {
@@ -263,16 +292,42 @@ export async function decryptMessageFromUser(
     ciphertext: fromBase64(payload.ciphertext),
   };
 
-  let plaintextBytes: Uint8Array;
-  try {
-    plaintextBytes = ratchetDecrypt(session, encrypted);
-  } catch (e) {
-    // Echec avec la session actuelle : si le message embarque un X3DH initial,
-    // on retente avec une session receveur reconstruite a partir de lui.
-    if (!canBootstrap) throw e;
-    session = await bootstrap();
-    plaintextBytes = ratchetDecrypt(session, encrypted);
+  // Essais successifs de dechiffrement, du moins destructif au plus destructif.
+  const attempts: (() => Promise<Uint8Array>)[] = [
+    () => Promise.resolve(ratchetDecrypt(session!, encrypted)),
+  ];
+  if (canBootstrap) {
+    // 2) session receveur reconstruite depuis le X3DH du message (avec OTPK)
+    attempts.push(async () => {
+      session = await bootstrap(true);
+      return ratchetDecrypt(session, encrypted);
+    });
+    // 3) idem SANS OTPK (bundle servi degrade / OTPK perdue apres reinstall)
+    attempts.push(async () => {
+      session = await bootstrap(false);
+      return ratchetDecrypt(session, encrypted);
+    });
+    // 4) dernier recours : on efface toute trace de session pour ce device et
+    //    on repart d'un bootstrap propre (cas : ancienne session incoherente)
+    attempts.push(async () => {
+      await deleteSession(senderUserId, payload.senderDeviceId);
+      await clearSessionConfirmed(senderUserId, payload.senderDeviceId);
+      session = await bootstrap(true);
+      return ratchetDecrypt(session, encrypted);
+    });
   }
+
+  let plaintextBytes: Uint8Array | null = null;
+  let lastErr: unknown = null;
+  for (const attempt of attempts) {
+    try {
+      plaintextBytes = await attempt();
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (plaintextBytes == null) throw lastErr ?? new Error('E2EE_DECRYPT_FAILED');
 
   await saveSession(senderUserId, payload.senderDeviceId, session);
   // On a reussi a lire un message de ce pair -> notre propre session

@@ -10,5 +10,6 @@ export {
   ensureDeviceRegistered,
   getDeviceId,
   refillOneTimePrekeysIfLow,
+  resetLocalE2EE,
   type EncryptedPayload,
 } from './sessionManager';
