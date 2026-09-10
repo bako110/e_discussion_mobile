@@ -50,7 +50,14 @@ export const messageService = {
   /** Déchiffre si nécessaire — ne lève jamais. */
   async decryptIfNeeded(msg: ChatMessage): Promise<ChatMessage> {
     if (!msg.encrypted || msg.decrypted) return msg;
-    // E2EE désactivé : on ne tente pas — les messages chiffrés (anciens)
+    // Seul le TEXTE a jamais été chiffré : un vocal / média / position porte
+    // son contenu dans `attachment_url` + `attachment_meta`, jamais dans
+    // `body`. On ne doit donc jamais le marquer « indisponible » même si le
+    // serveur a positionné `encrypted=true` sur la ligne.
+    if (msg.type !== 'text') {
+      return { ...msg, body: '', decrypted: true };
+    }
+    // E2EE désactivé : on ne tente pas — les textes chiffrés (anciens)
     // deviennent « indisponibles » (pas de clé, pas de tentative).
     if (!E2EE_ENABLED) {
       return { ...msg, body: '', decrypted: true, decryptFailed: true };

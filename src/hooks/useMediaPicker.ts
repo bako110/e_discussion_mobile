@@ -20,6 +20,15 @@ import AudioRecorderPlayer, {
 import Geolocation from '@react-native-community/geolocation';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 
+// On gère nous-mêmes la demande de permission (dialogue custom) : on dit au
+// module de ne PAS la redemander, et on autorise le provider Android natif
+// (LocationManager) en secours quand les Play Services ne répondent pas.
+Geolocation.setRNConfiguration({
+  skipPermissionRequests: true,
+  authorizationLevel: 'whenInUse',
+  locationProvider: 'auto',
+});
+
 import type { UploadFile } from '@/api';
 import { mediaService, type UploadedMedia } from '@/services';
 
@@ -451,8 +460,9 @@ export function useMediaPicker(): MediaPicker {
       return null;
     }
     setBusy(true);
-    try {
-      return await new Promise<PickedLocation | null>((resolve) => {
+
+    const once = (opts: Parameters<typeof Geolocation.getCurrentPosition>[2]) =>
+      new Promise<PickedLocation>((resolve, reject) => {
         Geolocation.getCurrentPosition(
           (pos) =>
             resolve({
@@ -460,13 +470,41 @@ export function useMediaPicker(): MediaPicker {
               longitude: pos.coords.longitude,
               accuracy: pos.coords.accuracy ?? null,
             }),
-          (err) => {
-            console.warn('[media] location failed:', err?.message);
-            resolve(null);
-          },
-          { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+          (err) => reject(err),
+          opts,
         );
       });
+
+    try {
+      // 1) tentative rapide : position réseau / dernière connue (marche en
+      //    intérieur, pas besoin d'un fix GPS).
+      try {
+        return await once({
+          enableHighAccuracy: false,
+          timeout: 8000,
+          maximumAge: 60000,
+        });
+      } catch (e1) {
+        console.warn('[media] location (fast) failed:', (e1 as { message?: string })?.message);
+      }
+      // 2) secours : fix GPS précis, délai plus long.
+      try {
+        return await once({
+          enableHighAccuracy: true,
+          timeout: 25000,
+          maximumAge: 0,
+        });
+      } catch (e2) {
+        const code = (e2 as { code?: number })?.code;
+        const msg =
+          code === 1
+            ? 'Autorisez la localisation pour partager votre position.'
+            : code === 2
+              ? "Position indisponible. Activez le GPS et réessayez à l'extérieur."
+              : 'Le repérage a pris trop de temps. Réessayez.';
+        showAlert('Position', msg);
+        return null;
+      }
     } finally {
       setBusy(false);
     }

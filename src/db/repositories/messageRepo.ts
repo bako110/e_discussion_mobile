@@ -51,7 +51,9 @@ function toMsg(r: Row): LocalMessage {
   // pas — on bascule sur l'état « message chiffré » (decryptFailed + body vide).
   const leaked = looksEncrypted(r.body);
   const body = leaked ? '' : r.body;
-  const decryptFailed = leaked ? true : !!r.decrypt_failed;
+  // Seul le texte a pu être chiffré : un vocal / média ne doit jamais tomber
+  // dans l'état « indisponible », même si une ancienne ligne a decrypt_failed=1.
+  const decryptFailed = r.type !== 'text' ? false : leaked ? true : !!r.decrypt_failed;
   return {
     id: r.id,
     client_id: r.client_id,

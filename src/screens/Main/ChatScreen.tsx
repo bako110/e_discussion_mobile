@@ -360,18 +360,17 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       if (kind === 'location') {
         // pas de fichier -> déjà 100% offline via l'outbox send_message
         const loc = await picker.pickLocation();
+        // `pickLocation` affiche déjà un message précis en cas d'échec.
         if (loc) {
           await sendAttachment(
             'location',
             null,
             { latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy },
           );
-        } else {
-          showAlert(t('chat.attachLocation'), t('chat.locationFailed'));
         }
       }
     },
-    [picker, openPreview, sendLocalMedia, sendAttachment, t],
+    [picker, openPreview, sendLocalMedia, sendAttachment],
   );
 
   const onOpenMedia = useCallback(
