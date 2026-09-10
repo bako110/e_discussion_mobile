@@ -261,40 +261,45 @@ export const StatusScreen: React.FC = () => {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.hList}
           >
-            {/* Mon moment : bulle ronde. Tap -> voir ma story (ou composer si
-                aucune). Le badge « + » ouvre le composer. Appui long -> « Mes statuts ». */}
+            {/* Ma carte « statut ». Tap -> voir ma story (ou composer si aucune).
+                Le badge « + » ouvre le composer. Appui long -> « Mes statuts ». */}
             <Pressable
-              style={styles.bubble}
-              android_ripple={{ color: c.surfaceAlt, borderless: true }}
+              style={styles.card}
+              android_ripple={{ color: c.surfaceAlt }}
               onPress={() => (myLatest ? openViewer(me!.id) : openComposer())}
               onLongPress={() => (mine.length > 0 ? openMyStatus() : undefined)}
             >
-              <View
-                style={[
-                  styles.ring,
-                  { borderColor: myLatest ? c.primary : 'transparent' },
-                ]}
-              >
-                <Avatar uri={me?.avatar_url} name={myName} size={58} />
-                <Pressable
-                  onPress={openComposer}
-                  hitSlop={8}
-                  style={[styles.myAddDot, { backgroundColor: c.primary, borderColor: c.background }]}
-                >
-                  <Icon name="plus" size={13} color="#fff" />
-                </Pressable>
+              <View style={[styles.cardMedia, { backgroundColor: c.surfaceAlt }]}>
+                {myLatest?.thumbnail_url || myLatest?.media_url ? (
+                  <CachedImage
+                    uri={myLatest.thumbnail_url || myLatest.media_url}
+                    style={styles.cardImg}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.cardTextPreview}>
+                    <Icon name="camera-plus-outline" size={26} color={c.textFaint} />
+                  </View>
+                )}
+                <View style={styles.cardShade} />
+                <View style={[styles.cardRing, { borderColor: 'rgba(255,255,255,0.85)' }]}>
+                  <Avatar uri={me?.avatar_url} name={myName} size={34} />
+                </View>
+                <View style={[styles.cardAddDot, { backgroundColor: c.primary, borderColor: c.card }]}>
+                  <Icon name="plus" size={12} color="#fff" />
+                </View>
               </View>
-              <Text style={[styles.bubbleName, { color: c.text }]} numberOfLines={1}>
+              <Text style={[styles.cardName, { color: c.text }]} numberOfLines={1}>
                 {t('stories.myMoment')}
               </Text>
-              <Text style={[styles.bubbleTime, { color: c.textMuted }]} numberOfLines={1}>
+              <Text style={[styles.cardTime, { color: c.textMuted }]} numberOfLines={1}>
                 {myLatest
                   ? t('stories.viewsCount', { count: myViews })
                   : t('stories.tapToAdd')}
               </Text>
             </Pressable>
 
-            {moments.map(renderMomentBubble)}
+            {moments.map(renderMomentCard)}
 
             {moments.length === 0 && !myLatest ? (
               <View style={styles.momentsEmptyInline}>
@@ -350,6 +355,69 @@ export const StatusScreen: React.FC = () => {
                     <Text style={[styles.actTime, { color: c.textFaint }]}>
                       {relativeTime(item.latest_at)}
                     </Text>
+                  </Pressable>
+                );
+              })}
+            </>
+          ) : null}
+
+          {/* ── STATUTS POPULAIRES (les plus vus) ───────────────────── */}
+          {popular.length > 0 ? (
+            <>
+              <View style={styles.sectionHead}>
+                <View style={styles.sectionTitleRow}>
+                  <Icon name="fire" size={19} color={c.primary} />
+                  <Text style={[styles.sectionTitle, { color: c.text }]}>
+                    {t('stories.popularTitle')}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.popularHint, { color: c.textMuted }]}>
+                {t('stories.popularHint')}
+              </Text>
+
+              {popular.map((item, i) => {
+                const name = item.author.display_name || item.author.username || '—';
+                const views = totalViews(item);
+                const { icon, label } = activityLabel(item.stories[0], t);
+                return (
+                  <Pressable
+                    key={item.author.id}
+                    onPress={() => openViewer(item.author.id)}
+                    android_ripple={{ color: c.surfaceAlt }}
+                    style={[
+                      styles.actRow,
+                      i < popular.length - 1 && {
+                        borderBottomColor: c.divider,
+                        borderBottomWidth: StyleSheet.hairlineWidth,
+                      },
+                    ]}
+                  >
+                    <View style={[styles.rankWrap, { backgroundColor: c.primary + '18' }]}>
+                      <Text style={[styles.rankTxt, { color: c.primary }]}>{i + 1}</Text>
+                    </View>
+                    <View
+                      style={[styles.actRing, { borderColor: item.has_unseen ? c.primary : c.border }]}
+                    >
+                      <Avatar uri={item.author.avatar_url} name={name} size={40} />
+                    </View>
+                    <View style={styles.actBody}>
+                      <Text style={[styles.actName, { color: c.text }]} numberOfLines={1}>
+                        {name}
+                      </Text>
+                      <View style={styles.actSubRow}>
+                        <Icon name={icon} size={13} color={c.textFaint} />
+                        <Text style={[styles.actSub, { color: c.textMuted }]} numberOfLines={1}>
+                          {label}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.viewsPill}>
+                      <Icon name="eye-outline" size={14} color={c.textMuted} />
+                      <Text style={[styles.viewsTxt, { color: c.textMuted }]}>
+                        {views > 999 ? `${(views / 1000).toFixed(1)}k` : views}
+                      </Text>
+                    </View>
                   </Pressable>
                 );
               })}
@@ -417,47 +485,69 @@ const styles = StyleSheet.create({
   seeAll: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   seeAllText: { fontSize: 13, fontWeight: '700' },
 
-  // barre horizontale — bulles rondes façon WhatsApp
-  hList: { paddingHorizontal: 14, gap: 4, paddingBottom: 4, alignItems: 'flex-start' },
-  bubble: { width: 76, alignItems: 'center', paddingVertical: 4 },
-  ring: {
-    borderWidth: 2.5,
-    borderRadius: 37,
-    padding: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
+  // barre horizontale — cartes verticales avec aperçu façon WhatsApp
+  hList: { paddingHorizontal: 12, gap: 10, paddingBottom: 4, alignItems: 'flex-start' },
+  card: { width: 96, alignItems: 'center' },
+  cardMedia: {
+    width: 96,
+    height: 132,
+    borderRadius: 14,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
   },
-  myAddDot: {
+  cardImg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  cardShade: {
     position: 'absolute',
-    right: -1,
-    bottom: -1,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2.5,
-    alignItems: 'center',
-    justifyContent: 'center',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 44,
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
-  storyCount: {
+  cardTextPreview: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 8 },
+  cardTextPreviewTxt: { color: '#fff', fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  cardRing: {
     position: 'absolute',
-    top: -2,
-    right: -2,
-    minWidth: 18,
+    top: 6,
+    left: 6,
+    borderWidth: 2.5,
+    borderRadius: 22,
+    padding: 2,
+  },
+  cardAddDot: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 18,
     height: 18,
     borderRadius: 9,
     borderWidth: 2,
-    paddingHorizontal: 3,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  storyCountText: { color: '#fff', fontSize: 10, fontWeight: '800' },
-  bubbleName: { fontSize: 12, fontWeight: '700', marginTop: 5, maxWidth: 74 },
-  bubbleTime: { fontSize: 10.5, marginTop: 1 },
+  cardCount: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardCountTxt: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  cardName: { fontSize: 12, fontWeight: '700', marginTop: 6, maxWidth: 92, textAlign: 'center' },
+  cardTime: { fontSize: 10.5, marginTop: 1 },
   momentsEmptyInline: { justifyContent: 'center', paddingHorizontal: 20, maxWidth: 220 },
   momentEmptyText: { fontSize: 12, textAlign: 'center' },
-  thumbTextWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 8 },
-  thumbText: { color: '#fff', fontSize: 10, fontWeight: '700', textAlign: 'center' },
-  thumbIconWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  // statuts populaires
+  popularHint: { fontSize: 12.5, paddingHorizontal: 16, marginTop: -4, marginBottom: 8 },
+  rankWrap: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  rankTxt: { fontSize: 11, fontWeight: '800' },
+  viewsPill: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  viewsTxt: { fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
 
   // groupes & chaînes
   twoCards: { flexDirection: 'row', gap: 12, paddingHorizontal: 16 },
