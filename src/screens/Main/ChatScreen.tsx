@@ -4,6 +4,7 @@ import {
   FlatList,
   Linking,
   KeyboardAvoidingView,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -414,25 +415,89 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     );
   }, []);
 
-  // ── Enregistrement d'une note vocale (appui maintenu sur le bouton micro) ──
+  // ── Enregistrement d'une note vocale (façon WhatsApp) ─────────────────────
+  //   - appui maintenu sur le micro pour démarrer ;
+  //   - glisser VERS LE HAUT  -> verrouille (on peut lâcher le doigt) ;
+  //   - glisser VERS LA GAUCHE -> annule ;
+  //   - une fois verrouillé : barre avec corbeille / pause-reprise / envoyer.
   const recStartedRef = useRef(false);
-  const onMicPressIn = useCallback(async () => {
+  const recLockedRef = useRef(false);
+  const cancelledRef = useRef(false);
+  const [recLocked, setRecLocked] = useState(false);
+
+  const stopTyping = useCallback(() => {
+    sendTyping(conversationId, 'stop', 'audio');
+  }, [sendTyping, conversationId]);
+
+  const beginRecording = useCallback(async () => {
+    cancelledRef.current = false;
+    recLockedRef.current = false;
+    setRecLocked(false);
+    // coupe le timer de « stop typing » du texte pour ne pas effacer
+    // l'indicateur « enregistre un audio… » chez le pair 1,5 s plus tard.
+    if (typingTimeout.current) {
+      clearTimeout(typingTimeout.current);
+      typingTimeout.current = null;
+    }
     recStartedRef.current = await picker.startRecording();
-    // signale au pair « enregistre un audio… »
     if (recStartedRef.current) sendTyping(conversationId, 'start', 'audio');
   }, [picker, sendTyping, conversationId]);
-  const onMicPressOut = useCallback(async () => {
+
+  const finalizeRecording = useCallback(async () => {
     if (!recStartedRef.current) return;
     recStartedRef.current = false;
-    sendTyping(conversationId, 'stop', 'audio');
-    // enregistrement trop court -> on annule
-    if (picker.recordSeconds < 1) {
+    recLockedRef.current = false;
+    setRecLocked(false);
+    stopTyping();
+    if (cancelledRef.current || picker.recordSeconds < 1) {
       await picker.cancelRecording();
       return;
     }
     const local = await picker.stopRecordingLocal();
     if (local) await sendLocalMedia(local);
-  }, [picker, sendLocalMedia, sendTyping, conversationId]);
+  }, [picker, sendLocalMedia, stopTyping]);
+
+  const cancelVoice = useCallback(async () => {
+    cancelledRef.current = true;
+    recStartedRef.current = false;
+    recLockedRef.current = false;
+    setRecLocked(false);
+    stopTyping();
+    await picker.cancelRecording();
+  }, [picker, stopTyping]);
+
+  const lockVoice = useCallback(() => {
+    if (!recStartedRef.current || recLockedRef.current) return;
+    recLockedRef.current = true;
+    setRecLocked(true);
+  }, []);
+
+  // Gestes sur le bouton micro : slide haut = lock, slide gauche = cancel.
+  // Les handlers sont dans des refs (le PanResponder est créé une seule fois
+  // et fige sinon les closures du 1er rendu).
+  const voiceFns = useRef({ beginRecording, finalizeRecording, cancelVoice, lockVoice });
+  voiceFns.current = { beginRecording, finalizeRecording, cancelVoice, lockVoice };
+
+  const micPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        void voiceFns.current.beginRecording();
+      },
+      onPanResponderMove: (_e, g) => {
+        if (recLockedRef.current || !recStartedRef.current) return;
+        if (g.dy < -70) voiceFns.current.lockVoice();
+        else if (g.dx < -90) void voiceFns.current.cancelVoice();
+      },
+      onPanResponderRelease: () => {
+        if (!recLockedRef.current) void voiceFns.current.finalizeRecording();
+      },
+      onPanResponderTerminate: () => {
+        if (!recLockedRef.current) void voiceFns.current.finalizeRecording();
+      },
+    }),
+  ).current;
 
   /** Appui long sur un message -> feuille d'actions. */
   const onMessageLongPress = (m: LocalMessage) => {
@@ -872,15 +937,15 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               {sendError ? (
                 <Text style={[styles.sendError, { color: c.danger }]}>{sendError}</Text>
               ) : null}
-              {picker.recording ? (
+              {picker.recording && !recLocked ? (
                 <View style={[styles.recBar, { backgroundColor: c.danger + '18' }]}>
                   <View style={[styles.recDot, { backgroundColor: c.danger }]} />
                   <Text style={[styles.recText, { color: c.danger }]}>
-                    {t('chat.recording')} {Math.floor(picker.recordSeconds / 60)}:
+                    {Math.floor(picker.recordSeconds / 60)}:
                     {String(picker.recordSeconds % 60).padStart(2, '0')}
                   </Text>
                   <Text style={[styles.recHint, { color: c.textMuted }]}>
-                    {t('chat.voiceHint')}
+                    {t('chat.voiceSlideHint')}
                   </Text>
                 </View>
               ) : null}
@@ -920,50 +985,103 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                   </Pressable>
                 </View>
               ) : null}
-              <View style={[styles.inputWrap, { backgroundColor: c.surface }]}>
-                <Pressable hitSlop={8}>
-                  <Icon name="emoticon-happy-outline" size={22} color={c.textFaint} />
-                </Pressable>
-                <TextInput
-                  value={text}
-                  onChangeText={onChangeText}
-                  placeholder={
-                    picker.recording ? t('chat.recording') : t('conversations.typeMessage')
-                  }
-                  placeholderTextColor={c.textFaint}
-                  editable={!picker.recording}
-                  multiline={!enterToSend}
-                  blurOnSubmit={false}
-                  returnKeyType={enterToSend ? 'send' : 'default'}
-                  onSubmitEditing={enterToSend ? () => void send() : undefined}
-                  style={[styles.input, { color: c.text }]}
-                />
-                <Pressable hitSlop={8} onPress={() => setAttachOpen(true)} disabled={picker.recording}>
-                  <Icon name="paperclip" size={20} color={c.textFaint} />
-                </Pressable>
-              </View>
-              {text.trim() ? (
-                <Pressable
-                  onPress={send}
-                  style={[styles.sendBtn, { backgroundColor: c.primary }]}
-                >
-                  <Icon name="send" size={19} color="#fff" />
-                </Pressable>
+              {picker.recording && recLocked ? (
+                // ── barre d'enregistrement VERROUILLÉ ──────────────────────
+                <View style={styles.lockedRow}>
+                  <Pressable
+                    onPress={() => void cancelVoice()}
+                    hitSlop={10}
+                    style={styles.lockedBtn}
+                  >
+                    <Icon name="trash-can-outline" size={24} color={c.danger} />
+                  </Pressable>
+                  <View style={[styles.lockedCenter, { backgroundColor: c.surface }]}>
+                    {!picker.recordingPaused ? (
+                      <View style={[styles.recDot, { backgroundColor: c.danger }]} />
+                    ) : (
+                      <Icon name="pause" size={14} color={c.textMuted} />
+                    )}
+                    <Text style={[styles.recText, { color: c.text }]}>
+                      {Math.floor(picker.recordSeconds / 60)}:
+                      {String(picker.recordSeconds % 60).padStart(2, '0')}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() =>
+                      void (picker.recordingPaused
+                        ? picker.resumeRecording()
+                        : picker.pauseRecording())
+                    }
+                    hitSlop={10}
+                    style={styles.lockedBtn}
+                  >
+                    <Icon
+                      name={picker.recordingPaused ? 'play' : 'pause'}
+                      size={24}
+                      color={c.primary}
+                    />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void finalizeRecording()}
+                    style={[styles.sendBtn, { backgroundColor: c.primary }]}
+                  >
+                    <Icon name="send" size={19} color="#fff" />
+                  </Pressable>
+                </View>
               ) : (
-                <Pressable
-                  onPressIn={() => void onMicPressIn()}
-                  onPressOut={() => void onMicPressOut()}
-                  delayLongPress={120}
-                  style={[
-                    styles.sendBtn,
-                    {
-                      backgroundColor: picker.recording ? c.danger : c.primary,
-                      transform: [{ scale: picker.recording ? 1.15 : 1 }],
-                    },
-                  ]}
-                >
-                  <Icon name="microphone" size={19} color="#fff" />
-                </Pressable>
+                <>
+                  <View style={[styles.inputWrap, { backgroundColor: c.surface }]}>
+                    <Pressable hitSlop={8}>
+                      <Icon name="emoticon-happy-outline" size={22} color={c.textFaint} />
+                    </Pressable>
+                    <TextInput
+                      value={text}
+                      onChangeText={onChangeText}
+                      placeholder={
+                        picker.recording ? t('chat.recording') : t('conversations.typeMessage')
+                      }
+                      placeholderTextColor={c.textFaint}
+                      editable={!picker.recording}
+                      multiline={!enterToSend}
+                      blurOnSubmit={false}
+                      returnKeyType={enterToSend ? 'send' : 'default'}
+                      onSubmitEditing={enterToSend ? () => void send() : undefined}
+                      style={[styles.input, { color: c.text }]}
+                    />
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => setAttachOpen(true)}
+                      disabled={picker.recording}
+                    >
+                      <Icon name="paperclip" size={20} color={c.textFaint} />
+                    </Pressable>
+                  </View>
+                  {text.trim() ? (
+                    <Pressable
+                      onPress={send}
+                      style={[styles.sendBtn, { backgroundColor: c.primary }]}
+                    >
+                      <Icon name="send" size={19} color="#fff" />
+                    </Pressable>
+                  ) : (
+                    <View
+                      {...micPan.panHandlers}
+                      style={[
+                        styles.sendBtn,
+                        {
+                          backgroundColor: picker.recording ? c.danger : c.primary,
+                          transform: [{ scale: picker.recording ? 1.25 : 1 }],
+                        },
+                      ]}
+                    >
+                      <Icon
+                        name={picker.recording ? 'lock-open-variant-outline' : 'microphone'}
+                        size={19}
+                        color="#fff"
+                      />
+                    </View>
+                  )}
+                </>
               )}
             </View>
           )}
@@ -1070,6 +1188,17 @@ const styles = StyleSheet.create({
   recDot: { width: 9, height: 9, borderRadius: 5 },
   recText: { fontSize: 13, fontWeight: '700' },
   recHint: { fontSize: 11, flex: 1, textAlign: 'right' },
+  lockedRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 },
+  lockedBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  lockedCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    height: 44,
+  },
   inputWrap: {
     flex: 1,
     flexDirection: 'row',

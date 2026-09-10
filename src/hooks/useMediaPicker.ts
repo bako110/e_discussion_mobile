@@ -68,7 +68,10 @@ export interface MediaPicker {
   startRecording: () => Promise<boolean>;
   stopRecording: () => Promise<{ media: UploadedMedia; durationSec: number } | null>;
   cancelRecording: () => Promise<void>;
+  pauseRecording: () => Promise<void>;
+  resumeRecording: () => Promise<void>;
   recording: boolean;
+  recordingPaused: boolean;
   recordSeconds: number;
   // ── offline-first : renvoient le fichier local, aucun réseau ──
   pickImageLocal: (opts?: { camera?: boolean }) => Promise<LocalMediaFile | null>;
@@ -139,11 +142,13 @@ async function ensureAndroidLocationPermission(): Promise<boolean> {
 export function useMediaPicker(): MediaPicker {
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [recordingPaused, setRecordingPaused] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const recordSecondsRef = useRef(0);
   const recordPathRef = useRef<string | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeRecording = useRef(false);
+  const pausedRef = useRef(false);
 
   const runPick = useCallback(
     async (kind: 'photo' | 'video', camera: boolean): Promise<UploadedMedia | null> => {
@@ -412,6 +417,15 @@ export function useMediaPicker(): MediaPicker {
     }
   }, []);
 
+  const startTick = useCallback(() => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = setInterval(() => {
+      if (pausedRef.current) return;
+      recordSecondsRef.current += 1;
+      setRecordSeconds(recordSecondsRef.current);
+    }, 1000);
+  }, []);
+
   const startRecording = useCallback(async () => {
     if (activeRecording.current) return true;
     if (!(await ensureAndroidAudioPermission())) {
@@ -422,18 +436,41 @@ export function useMediaPicker(): MediaPicker {
       const path = await audioRecorder.startRecorder();
       recordPathRef.current = path;
       activeRecording.current = true;
+      pausedRef.current = false;
       setRecording(true);
+      setRecordingPaused(false);
       setRecordSeconds(0);
       recordSecondsRef.current = 0;
-      tickRef.current = setInterval(() => {
-        recordSecondsRef.current += 1;
-        setRecordSeconds(recordSecondsRef.current);
-      }, 1000);
+      startTick();
       return true;
     } catch (e) {
       console.warn('[media] record start failed:', e);
       alertError('Erreur', "Impossible de démarrer l'enregistrement.");
       return false;
+    }
+  }, [startTick]);
+
+  /** Met l'enregistrement en pause (le temps se fige). */
+  const pauseRecording = useCallback(async () => {
+    if (!activeRecording.current || pausedRef.current) return;
+    try {
+      await audioRecorder.pauseRecorder();
+      pausedRef.current = true;
+      setRecordingPaused(true);
+    } catch (e) {
+      console.warn('[media] pause failed:', e);
+    }
+  }, []);
+
+  /** Reprend un enregistrement en pause. */
+  const resumeRecording = useCallback(async () => {
+    if (!activeRecording.current || !pausedRef.current) return;
+    try {
+      await audioRecorder.resumeRecorder();
+      pausedRef.current = false;
+      setRecordingPaused(false);
+    } catch (e) {
+      console.warn('[media] resume failed:', e);
     }
   }, []);
 
@@ -442,9 +479,13 @@ export function useMediaPicker(): MediaPicker {
     if (tickRef.current) clearInterval(tickRef.current);
     tickRef.current = null;
     setRecording(false);
+    setRecordingPaused(false);
+    pausedRef.current = false;
     if (!activeRecording.current) return { path: null, seconds };
     activeRecording.current = false;
     try {
+      // si en pause, il faut reprendre avant de pouvoir stopper proprement
+      await audioRecorder.resumeRecorder().catch(() => undefined);
       const path = await audioRecorder.stopRecorder();
       audioRecorder.removeRecordBackListener?.();
       return { path: path || recordPathRef.current, seconds };
@@ -505,7 +546,10 @@ export function useMediaPicker(): MediaPicker {
     startRecording,
     stopRecording,
     cancelRecording,
+    pauseRecording,
+    resumeRecording,
     recording,
+    recordingPaused,
     recordSeconds,
     pickImageLocal,
     pickVideoLocal,

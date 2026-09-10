@@ -581,6 +581,7 @@
     "openInMaps": "Ouvrir dans Maps",
     "voiceHint": "Maintenez pour enregistrer, relâchez pour envoyer",
     "voiceCancel": "Glissez pour annuler",
+    "voiceSlideHint": "← Glisser pour annuler · ↑ Verrouiller",
     "voiceNote": "Message vocal",
     "recording": "Enregistrement…",
     "recordingAudio": "enregistre un audio…",

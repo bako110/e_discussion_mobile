@@ -581,6 +581,7 @@
     "openInMaps": "Open in Maps",
     "voiceHint": "Hold to record, release to send",
     "voiceCancel": "Slide to cancel",
+    "voiceSlideHint": "← Slide to cancel · ↑ Lock",
     "voiceNote": "Voice message",
     "recording": "Recording…",
     "recordingAudio": "recording audio…",
