@@ -120,7 +120,19 @@ export const ConversationsScreen: React.FC = () => {
   // ordre, non-lus). Les autres events (lecture, présence, suppression) via WS.
   useEffect(() => onLocalMessageEvent(() => void load()), [load]);
 
+  // conv_id -> 'text' | 'audio' pendant que le partenaire écrit / enregistre
+  const [typingByConv, setTypingByConv] = useState<Record<string, 'text' | 'audio'>>({});
+  const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   useEffect(() => {
+    const clearTyping = (cid: string) =>
+      setTypingByConv((m) => {
+        if (!(cid in m)) return m;
+        const next = { ...m };
+        delete next[cid];
+        return next;
+      });
+
     return addListener((e) => {
       if (
         e.type === 'message.deleted' ||
@@ -129,6 +141,23 @@ export const ConversationsScreen: React.FC = () => {
         e.type === 'presence.update'
       ) {
         void load();
+      } else if (e.type === 'typing.start' && e.conversation_id) {
+        const cid = e.conversation_id as string;
+        setTypingByConv((m) => ({ ...m, [cid]: e.activity === 'audio' ? 'audio' : 'text' }));
+        // filet de sécurité : si le `typing.stop` se perd, on efface après 6 s
+        if (typingTimers.current[cid]) clearTimeout(typingTimers.current[cid]);
+        typingTimers.current[cid] = setTimeout(() => clearTyping(cid), 6000);
+      } else if (e.type === 'typing.stop' && e.conversation_id) {
+        const cid = e.conversation_id as string;
+        if (typingTimers.current[cid]) clearTimeout(typingTimers.current[cid]);
+        clearTyping(cid);
+      } else if (e.type === 'message.new') {
+        // un message reçu -> on n'écrit plus
+        const cid = (e as { conversation_id?: string }).conversation_id;
+        if (cid && typingTimers.current[cid]) {
+          clearTimeout(typingTimers.current[cid]);
+          clearTyping(cid);
+        }
       }
     });
   }, [addListener, load]);
@@ -236,6 +265,24 @@ export const ConversationsScreen: React.FC = () => {
                   <Text style={[styles.preview, styles.previewItalic, { color: c.primary }]} numberOfLines={1}>
                     {t('conversations.requestPending')}
                   </Text>
+                );
+              }
+              const activity = typingByConv[item.id];
+              if (activity) {
+                return (
+                  <View style={styles.previewRow}>
+                    <Icon
+                      name={activity === 'audio' ? 'microphone' : 'pencil'}
+                      size={14}
+                      color={c.primary}
+                    />
+                    <Text
+                      style={[styles.preview, styles.previewItalic, { color: c.primary }]}
+                      numberOfLines={1}
+                    >
+                      {activity === 'audio' ? t('chat.recordingAudio') : t('common.typing')}
+                    </Text>
+                  </View>
                 );
               }
               const hasPlain = !!(item.last_message && item.last_message.trim());

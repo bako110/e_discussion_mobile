@@ -83,6 +83,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [partnerOnline, setPartnerOnline] = useState(false);
   const [partnerLastSeen, setPartnerLastSeen] = useState<string | null>(null);
   const [partnerTyping, setPartnerTyping] = useState(false);
+  const [partnerActivity, setPartnerActivity] = useState<'text' | 'audio'>('text');
   const [attachOpen, setAttachOpen] = useState(false);
   const picker = useMediaPicker();
   // message en cours d'édition (null = mode envoi normal)
@@ -94,6 +95,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [muted, setMuted] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const partnerTypingTtl = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const myId = me?.id ?? '';
 
@@ -180,7 +182,17 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         e.conversation_id === conversationId &&
         e.user_id === partnerId
       ) {
-        setPartnerTyping(e.type === 'typing.start');
+        const on = e.type === 'typing.start';
+        setPartnerTyping(on);
+        setPartnerActivity(on && e.activity === 'audio' ? 'audio' : 'text');
+        if (partnerTypingTtl.current) clearTimeout(partnerTypingTtl.current);
+        if (on) {
+          // si le `typing.stop` se perd, on efface au bout de 6 s
+          partnerTypingTtl.current = setTimeout(() => setPartnerTyping(false), 6000);
+        }
+      } else if (e.type === 'message.new' && e.conversation_id === conversationId) {
+        setPartnerTyping(false);
+        if (partnerTypingTtl.current) clearTimeout(partnerTypingTtl.current);
       } else if (e.type === 'presence.update' && e.user_id === partnerId) {
         const on = !!e.online;
         setPartnerOnline(on);
@@ -197,7 +209,10 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         });
       }
     });
-    return off;
+    return () => {
+      off();
+      if (partnerTypingTtl.current) clearTimeout(partnerTypingTtl.current);
+    };
   }, [addListener, conversationId, partnerId, myId, reload]);
 
   const onChangeText = (v: string) => {
@@ -403,10 +418,13 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const recStartedRef = useRef(false);
   const onMicPressIn = useCallback(async () => {
     recStartedRef.current = await picker.startRecording();
-  }, [picker]);
+    // signale au pair « enregistre un audio… »
+    if (recStartedRef.current) sendTyping(conversationId, 'start', 'audio');
+  }, [picker, sendTyping, conversationId]);
   const onMicPressOut = useCallback(async () => {
     if (!recStartedRef.current) return;
     recStartedRef.current = false;
+    sendTyping(conversationId, 'stop', 'audio');
     // enregistrement trop court -> on annule
     if (picker.recordSeconds < 1) {
       await picker.cancelRecording();
@@ -414,7 +432,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     }
     const local = await picker.stopRecordingLocal();
     if (local) await sendLocalMedia(local);
-  }, [picker, sendLocalMedia]);
+  }, [picker, sendLocalMedia, sendTyping, conversationId]);
 
   /** Appui long sur un message -> feuille d'actions. */
   const onMessageLongPress = (m: LocalMessage) => {
@@ -648,7 +666,9 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const subtitle = blocked
     ? ''
     : partnerTyping
-      ? t('common.typing')
+      ? partnerActivity === 'audio'
+        ? t('chat.recordingAudio')
+        : t('common.typing')
       : !online
         ? lastSeenLabel(partnerLastSeen, false)
         : lastSeenLabel(partnerLastSeen, partnerOnlineEffective);
@@ -740,6 +760,24 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               items.length === 0
                 ? styles.emptyContent
                 : { paddingVertical: 10 }
+            }
+            ListHeaderComponent={
+              partnerTyping ? (
+                <View style={styles.typingRow}>
+                  <View style={[styles.typingBubble, { backgroundColor: c.bubbleIn }]}>
+                    <Icon
+                      name={partnerActivity === 'audio' ? 'microphone' : 'dots-horizontal'}
+                      size={18}
+                      color={c.bubbleInText}
+                    />
+                    <Text style={[styles.typingTxt, { color: c.bubbleInText }]}>
+                      {partnerActivity === 'audio'
+                        ? t('chat.recordingAudio')
+                        : t('common.typing')}
+                    </Text>
+                  </View>
+                </View>
+              ) : null
             }
             ListEmptyComponent={
               requestStatus === 'accepted' ? (
@@ -1066,4 +1104,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(140,150,170,0.12)',
   },
   encBannerTxt: { fontSize: 11.5, textAlign: 'center', lineHeight: 15 },
+  typingRow: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 6, alignItems: 'flex-start' },
+  typingBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 16,
+    borderBottomLeftRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  typingTxt: { fontSize: 13, fontStyle: 'italic' },
 });

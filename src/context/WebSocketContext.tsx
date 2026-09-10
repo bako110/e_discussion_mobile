@@ -37,7 +37,11 @@ interface WsContextValue {
   connected: boolean;
   send: (payload: object) => void;
   addListener: (fn: Listener) => () => void;
-  sendTyping: (conversationId: string, state: 'start' | 'stop') => void;
+  sendTyping: (
+    conversationId: string,
+    state: 'start' | 'stop',
+    activity?: 'text' | 'audio',
+  ) => void;
   /** Active le mode « ne jamais lâcher » (à appeler pendant un appel). */
   keepAlive: (on: boolean) => void;
 }
@@ -278,8 +282,8 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
   }, []);
 
   const sendTyping = useCallback(
-    (conversationId: string, state: 'start' | 'stop') => {
-      send({ type: 'typing', conversation_id: conversationId, state });
+    (conversationId: string, state: 'start' | 'stop', activity: 'text' | 'audio' = 'text') => {
+      send({ type: 'typing', conversation_id: conversationId, state, activity });
     },
     [send],
   );
