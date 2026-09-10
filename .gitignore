@@ -15,6 +15,7 @@ metro.config.js.bak
 android/build/
 android/app/build/
 android/.gradle/
+android/.kotlin/
 android/.cxx/
 android/app/.cxx/
 android/captures/

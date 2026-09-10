@@ -14,6 +14,7 @@ import { AppState } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useWs, type WsEvent } from '@/context/WebSocketContext';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
+import { notificationRepo } from '@/db/repositories/notificationRepo';
 import { activeConversationId, navigationRef } from '@/navigation/navigationRef';
 import {
   clearConversationNotification,
@@ -21,6 +22,24 @@ import {
 } from '@/services/notificationService';
 import { getNotifPrefs } from '@/services/notificationPrefs';
 import type { ChatMessage } from '@/types';
+
+/** Libellé court d'une pièce jointe pour l'aperçu de notif (sans emoji). */
+function attachmentLabel(type: string): string {
+  switch (type) {
+    case 'image':
+      return 'Photo';
+    case 'video':
+      return 'Vidéo';
+    case 'voice':
+      return 'Message vocal';
+    case 'file':
+      return 'Document';
+    case 'location':
+      return 'Position';
+    default:
+      return 'Nouveau message';
+  }
+}
 
 export const MessageNotifications: React.FC = () => {
   const { me } = useAuth();
@@ -34,6 +53,7 @@ export const MessageNotifications: React.FC = () => {
       if (id && id !== lastActiveRef.current) {
         lastActiveRef.current = id;
         void clearConversationNotification(id);
+        void notificationRepo.markConversationRead(id);
       } else if (!id) {
         lastActiveRef.current = null;
       }
@@ -63,10 +83,22 @@ export const MessageNotifications: React.FC = () => {
         navigationRef.isReady() && activeConversationId() === convId;
       if (focused && onThisChat) return;
 
-      const sender = (msg as { sender?: { display_name?: string | null; username?: string | null } })
-        .sender;
+      const sender = (msg as {
+        sender?: {
+          display_name?: string | null;
+          username?: string | null;
+          avatar_url?: string | null;
+        };
+      }).sender;
       const encrypted = (msg as { encrypted?: boolean }).encrypted;
+      const type = (msg as { type?: string }).type ?? 'text';
       const body = (msg as { body?: string }).body ?? '';
+      const preview =
+        type !== 'text'
+          ? attachmentLabel(type)
+          : encrypted
+            ? ''
+            : body.slice(0, 140);
 
       // conversation en sourdine -> pas de notif OS (le compteur reste à jour)
       void conversationRepo.get(convId).then((conv) => {
@@ -75,7 +107,8 @@ export const MessageNotifications: React.FC = () => {
           conversationId: convId,
           senderId: senderId ?? '',
           senderName: sender?.display_name || sender?.username || 'Message',
-          preview: encrypted ? '' : body.slice(0, 140),
+          senderAvatar: sender?.avatar_url ?? null,
+          preview,
           messageId: (msg as { id?: string }).id ?? '',
         });
       });

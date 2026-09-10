@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -227,5 +227,29 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE messages ADD COLUMN voice_played INTEGER NOT NULL DEFAULT 0;
   UPDATE messages SET voice_played = 1;
+  `,
+
+  // ── v9 : historique des notifications (messages reçus + appels). Alimenté
+  // à chaque notif affichée ET pour les appels manqués même app au premier
+  // plan, pour que l'écran « Notifications » soit complet et consultable
+  // hors-ligne.
+  `
+  CREATE TABLE IF NOT EXISTS notifications (
+    id               TEXT PRIMARY KEY,
+    kind             TEXT NOT NULL,             -- 'message' | 'call'
+    title            TEXT NOT NULL DEFAULT '',
+    body             TEXT NOT NULL DEFAULT '',
+    conversation_id  TEXT,
+    group_id         TEXT,
+    call_id          TEXT,
+    peer_id          TEXT,
+    avatar_url       TEXT,
+    call_result      TEXT,                      -- 'missed' | 'incoming' | 'outgoing' | 'rejected'
+    call_type        TEXT,                      -- 'voice' | 'video'
+    read             INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_notif_unread ON notifications(read);
   `,
 ];

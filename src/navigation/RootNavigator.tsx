@@ -29,11 +29,14 @@ export const RootNavigator: React.FC = () => {
     if (status === 'authenticated') void registerPushToken();
   }, [status]);
 
-  // ouverture d'une conversation quand on tape une notif de message
+  // ouverture d'une conversation / de l'historique quand on tape une notif
   useEffect(() => {
     const openFromData = (data: Record<string, unknown> | undefined) => {
-      if (data?.kind === 'message' && typeof data.conversationId === 'string') {
+      if (!data) return;
+      if (data.kind === 'message' && typeof data.conversationId === 'string') {
         navigateToChat(data.conversationId);
+      } else if (data.kind === 'missed-call') {
+        if (navigationRef.isReady()) navigationRef.navigate('NotificationHistory');
       }
     };
     void notifee.getInitialNotification().then((initial) => {

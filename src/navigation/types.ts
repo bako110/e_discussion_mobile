@@ -53,6 +53,8 @@ export type MainStackParamList = {
   ChatsSettings: undefined;
   CallsSettings: undefined;
   NotificationsSettings: undefined;
+  /** Historique des notifications reçues (messages + appels). */
+  NotificationHistory: undefined;
   AppearanceSettings: undefined;
   StorageSettings: undefined;
   HelpSettings: undefined;

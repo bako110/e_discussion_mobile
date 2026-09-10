@@ -576,6 +576,13 @@
     "opened": "Vidéo ouverte",
     "pending": "En attente"
   },
+  "notifHistory": {
+    "title": "Notifications",
+    "open": "Historique des notifications",
+    "empty": "Aucune notification pour l'instant",
+    "clearTitle": "Effacer l'historique ?",
+    "clearBody": "Toutes les notifications de la liste seront supprimées."
+  },
   "chat": {
     "messageActions": "Message",
     "copy": "Copier",

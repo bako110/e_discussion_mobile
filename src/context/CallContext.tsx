@@ -38,9 +38,11 @@ import { callService, userService } from '@/services';
 import {
   clearIncomingCall,
   displayIncomingCall,
+  displayMissedCall,
   ensureNotificationSetup,
   onNotificationAction,
 } from '@/services/notificationService';
+import { notificationRepo } from '@/db/repositories/notificationRepo';
 import { takePendingAcceptCallId } from '@/services/notificationBackground';
 import type { CallType, UserPublic } from '@/types';
 
@@ -436,6 +438,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const c = callRef.current;
     if (!c || phaseRef.current !== 'incoming') return;
     void clearIncomingCall();
+    void notificationRepo.markRead(`call-${c.callId}`);
     setPhase('connecting');
     try {
       const res = await callService.accept(c.callId);
@@ -465,6 +468,15 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const c = callRef.current;
     if (!c) return;
     void clearIncomingCall();
+    // refus explicite : trace « appel refusé » dans l'historique
+    void displayMissedCall({
+      callId: c.callId,
+      callType: c.callType,
+      peerId: c.peer?.id ?? '',
+      peerName: c.peer?.display_name || c.peer?.username || 'Appel',
+      peerAvatar: c.peer?.avatar_url ?? null,
+      rejected: true,
+    });
     try {
       await callService.reject(c.callId);
     } catch {
@@ -647,6 +659,9 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         case 'call.ended': {
           const c = callRef.current;
           if (c && String(e.call_id) === c.callId) {
+            const wasIncoming = phaseRef.current === 'incoming';
+            const wasConnected =
+              phaseRef.current === 'active' || phaseRef.current === 'connecting';
             void clearIncomingCall();
             void teardown();
             let reason: EndReason = 'ended';
@@ -656,6 +671,21 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
               reason = 'cancelled';
             } else if (e.status === 'missed') {
               reason = 'missed';
+            }
+            // appel entrant terminé SANS qu'on ait décroché -> appel manqué
+            if (!c.outgoing && wasIncoming && !wasConnected) {
+              void displayMissedCall({
+                callId: c.callId,
+                callType: c.callType,
+                peerId: c.peer?.id ?? '',
+                peerName:
+                  c.peer?.display_name || c.peer?.username || 'Appel manqué',
+                peerAvatar: c.peer?.avatar_url ?? null,
+              });
+            } else if (!c.outgoing) {
+              // décroché puis raccroché : l'entrée d'historique « entrant »
+              // n'est plus « non lue »
+              void notificationRepo.markRead(`call-${c.callId}`);
             }
             resetToIdle(reason);
           }
@@ -673,11 +703,19 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const off = onNotificationAction((a) => {
       if (a.kind === 'call-accept') void acceptCall();
       else if (a.kind === 'call-reject') void rejectCall();
+      else if (a.kind === 'call-back') {
+        // « Rappeler » depuis une notif d'appel manqué
+        void (async () => {
+          if (phaseRef.current !== 'idle') return;
+          const peer = await userService.getById(a.peerId).catch(() => null);
+          if (peer) void startCall(peer, a.callType);
+        })();
+      }
       // 'open-incoming-call' : l'app est déjà ramenée au premier plan par
       // fullScreenAction ; le RootNavigator affiche l'IncomingCallScreen.
     });
     return off;
-  }, [acceptCall, rejectCall]);
+  }, [acceptCall, rejectCall, startCall]);
 
   // ── nettoyage au démontage du provider ──────────────────────────────
   useEffect(() => {

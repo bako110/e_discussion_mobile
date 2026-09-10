@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Icon, Screen } from '@/components/common';
-import { SettingsSection, ToggleRow } from '@/components/settings';
+import { SettingsRow, SettingsSection, ToggleRow } from '@/components/settings';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
 
@@ -26,6 +26,15 @@ export const NotificationsSettingsScreen: React.FC = () => {
       />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <SettingsSection title={t('notifHistory.title')}>
+          <SettingsRow
+            icon="history"
+            label={t('notifHistory.open')}
+            onPress={() => navigation.navigate('NotificationHistory')}
+            last
+          />
+        </SettingsSection>
+
         <SettingsSection title={t('settings.notifShow')}>
           <ToggleRow
             icon="message-badge-outline"

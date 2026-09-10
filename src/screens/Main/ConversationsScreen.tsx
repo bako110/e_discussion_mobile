@@ -21,6 +21,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainNav } from '@/navigation/types';
 import { onLocalMessageEvent } from '@/context/MessageSync';
+import { notificationRepo } from '@/db/repositories/notificationRepo';
 import { conversationService } from '@/services';
 import type { ConversationSummary, MessageType } from '@/types';
 import { relativeTime } from '@/utils/time';
@@ -133,6 +134,13 @@ export const ConversationsScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
   const [convFilter, setConvFilter] = useState<ConvFilter>('all');
+  const [notifUnread, setNotifUnread] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => void notificationRepo.unreadCount().then(setNotifUnread);
+    refresh();
+    return notificationRepo.subscribe(refresh);
+  }, []);
 
   const load = useCallback(async () => {
     if (!ready) return;
@@ -376,14 +384,31 @@ export const ConversationsScreen: React.FC = () => {
           </View>
         }
         right={
-          <Pressable
-            onPress={() => navigation.navigate('NewConversation')}
-            style={styles.newBtn}
-            android_ripple={{ color: 'rgba(255,255,255,0.18)', borderless: false }}
-          >
-            <Icon name="square-edit-outline" size={15} color="#fff" />
-            <Text style={styles.newBtnText}>{t('conversations.newShort')}</Text>
-          </Pressable>
+          <View style={styles.headerRight}>
+            <Pressable
+              onPress={() => navigation.navigate('NotificationHistory')}
+              style={styles.bellBtn}
+              hitSlop={8}
+              android_ripple={{ color: 'rgba(255,255,255,0.18)', borderless: true }}
+            >
+              <Icon name="bell-outline" size={20} color="#fff" />
+              {notifUnread > 0 ? (
+                <View style={styles.bellDot}>
+                  <Text style={styles.bellDotTxt}>
+                    {notifUnread > 9 ? '9+' : notifUnread}
+                  </Text>
+                </View>
+              ) : null}
+            </Pressable>
+            <Pressable
+              onPress={() => navigation.navigate('NewConversation')}
+              style={styles.newBtn}
+              android_ripple={{ color: 'rgba(255,255,255,0.18)', borderless: false }}
+            >
+              <Icon name="square-edit-outline" size={15} color="#fff" />
+              <Text style={styles.newBtnText}>{t('conversations.newShort')}</Text>
+            </Pressable>
+          </View>
         }
         bottom={
           <View style={styles.searchRow}>
@@ -530,6 +555,21 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.55)',
   },
   newBtnText: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  bellBtn: { padding: 4 },
+  bellDot: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellDotTxt: { color: '#fff', fontSize: 9.5, fontWeight: '800' },
 
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   searchBox: {

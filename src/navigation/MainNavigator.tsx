@@ -28,6 +28,7 @@ import { MediaViewerScreen } from '@/screens/Main/MediaViewerScreen';
 import { MessageInfoScreen } from '@/screens/Main/MessageInfoScreen';
 import { NewConversationScreen } from '@/screens/Main/NewConversationScreen';
 import { NotificationsSettingsScreen } from '@/screens/Main/NotificationsSettingsScreen';
+import { NotificationHistoryScreen } from '@/screens/Main/NotificationHistoryScreen';
 import { PrivacySettingsScreen } from '@/screens/Main/PrivacySettingsScreen';
 import { MyStatusScreen } from '@/screens/Main/MyStatusScreen';
 import { ScannerScreen } from '@/screens/Main/ScannerScreen';
@@ -61,6 +62,7 @@ export const MainNavigator: React.FC = () => (
     <Stack.Screen name="ChatsSettings" component={ChatsSettingsScreen} />
     <Stack.Screen name="CallsSettings" component={CallsSettingsScreen} />
     <Stack.Screen name="NotificationsSettings" component={NotificationsSettingsScreen} />
+    <Stack.Screen name="NotificationHistory" component={NotificationHistoryScreen} />
     <Stack.Screen name="AppearanceSettings" component={AppearanceSettingsScreen} />
     <Stack.Screen name="StorageSettings" component={StorageSettingsScreen} />
     <Stack.Screen name="HelpSettings" component={HelpSettingsScreen} />
