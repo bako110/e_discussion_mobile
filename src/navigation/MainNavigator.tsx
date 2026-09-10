@@ -16,6 +16,7 @@ import { EditProfileScreen } from '@/screens/Main/EditProfileScreen';
 import { GroupChatScreen } from '@/screens/Main/GroupChatScreen';
 import { GroupInfoScreen } from '@/screens/Main/GroupInfoScreen';
 import { AddGroupMembersScreen } from '@/screens/Main/AddGroupMembersScreen';
+import { ChatMediaPreviewScreen } from '@/screens/Main/ChatMediaPreviewScreen';
 import { GroupQrScreen } from '@/screens/Main/GroupQrScreen';
 import { GroupsListScreen } from '@/screens/Main/GroupsListScreen';
 import { HelpSettingsScreen } from '@/screens/Main/HelpSettingsScreen';
@@ -66,6 +67,11 @@ export const MainNavigator: React.FC = () => (
     <Stack.Screen
       name="MediaEditor"
       component={MediaEditorScreen}
+      options={{ animation: 'fade' }}
+    />
+    <Stack.Screen
+      name="ChatMediaPreview"
+      component={ChatMediaPreviewScreen}
       options={{ animation: 'fade' }}
     />
     <Stack.Screen

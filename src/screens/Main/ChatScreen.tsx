@@ -304,19 +304,32 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     [conversationId, partnerId, myId, reload, t],
   );
 
+  const openPreview = useCallback(
+    (local: LocalMediaFile) =>
+      navigation.navigate('ChatMediaPreview', {
+        conversationId,
+        partnerId,
+        senderId: myId,
+        local,
+      }),
+    [navigation, conversationId, partnerId, myId],
+  );
+
   const onAttachPick = useCallback(
     async (kind: AttachKind) => {
       if (kind === 'gallery' || kind === 'camera') {
+        // aperçu (crop + légende) AVANT tout upload — comme WhatsApp
         const local = await picker.pickImageLocal({ camera: kind === 'camera' });
-        if (local) await sendLocalMedia(local);
+        if (local) openPreview(local);
         return;
       }
       if (kind === 'video') {
         const local = await picker.pickVideoLocal();
-        if (local) await sendLocalMedia(local);
+        if (local) openPreview(local);
         return;
       }
       if (kind === 'file') {
+        // un document n'a pas besoin d'édition -> envoi direct
         const local = await picker.pickDocumentLocal();
         if (local) await sendLocalMedia(local);
         return;
@@ -335,7 +348,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         }
       }
     },
-    [picker, sendLocalMedia, sendAttachment, t],
+    [picker, openPreview, sendLocalMedia, sendAttachment, t],
   );
 
   const onOpenMedia = useCallback(

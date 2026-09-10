@@ -26,7 +26,6 @@ import { useStories } from '@/context/StoriesContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { mediaService, storyService } from '@/services';
 import type { StoryAudience, StoryMediaType } from '@/types';
-import { mediaUrl } from '@/utils/media';
 
 type Stroke = { color: string; width: number; d: string };
 type Sticker = { id: string; emoji: string; x: number; y: number; scale: number };
@@ -75,24 +74,28 @@ const DraggableSticker: React.FC<{
  *  - dessiner au doigt (SVG),
  *  - légende texte,
  *  - stickers emoji déplaçables,
- *  - « Envoyer » : capture la vue annotée -> upload -> publie la story.
+ *  - « Envoyer » : capture la vue annotée -> UPLOAD (unique) -> publie la story.
  *
- * `route.params.media` vient de useMediaPicker (déjà uploadé une 1re fois — on
- * ré-uploade l'image annotée finale).
+ * `route.params.local` est un FICHIER LOCAL non uploadé. Rien ne part au
+ * serveur tant que l'utilisateur n'appuie pas sur « Envoyer ».
  */
 export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   route,
   navigation,
 }) => {
-  const { media } = route.params;
+  const { local } = route.params;
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { reload } = useStories();
 
   const shotRef = useRef<React.ElementRef<typeof ViewShot>>(null);
 
-  const isImage = media.media_type === 'image';
-  const [imageUri, setImageUri] = useState<string>(mediaUrl(media.url) ?? media.url ?? '');
+  const mediaType: StoryMediaType =
+    local.kind === 'image' ? 'image' : local.kind === 'video' ? 'video' : 'audio';
+  const isImage = mediaType === 'image';
+  const [imageUri, setImageUri] = useState<string>(
+    local.file.uri.startsWith('file://') ? local.file.uri : `file://${local.file.uri}`,
+  );
   const [tool, setTool] = useState<Tool>('none');
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [current, setCurrent] = useState<Stroke | null>(null);
@@ -174,16 +177,17 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   const moveSticker = (id: string, x: number, y: number) =>
     setStickers((all) => all.map((s) => (s.id === id ? { ...s, x, y } : s)));
 
-  // ── publication ───────────────────────────────────────────────────────
+  // ── publication : c'est ICI (et seulement ici) qu'on uploade ──────────
   const publish = async () => {
     if (publishing) return;
     setPublishing(true);
     try {
-      let finalUrl = media.url ?? '';
-      let finalThumb = media.thumbnail_url ?? undefined;
+      let finalUrl = '';
+      let finalThumb: string | undefined;
+      let audioUrl: string | undefined;
 
       if (isImage && shotRef.current) {
-        // grave dessin + stickers sur l'image -> capture -> ré-upload
+        // grave dessin + stickers sur l'image locale -> capture -> UPLOAD unique
         const shotUri = await captureRef(shotRef, { format: 'jpg', quality: 0.9 });
         const up = await mediaService.upload({
           uri: shotUri.startsWith('file://') ? shotUri : `file://${shotUri}`,
@@ -192,19 +196,25 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
         });
         finalUrl = up.url;
         finalThumb = up.thumbnail_url ?? undefined;
+      } else {
+        // vidéo / audio : upload du fichier local tel quel
+        const up = await mediaService.upload(local.file);
+        finalUrl = up.url;
+        finalThumb = up.thumbnail_url ?? undefined;
+        if (mediaType === 'audio') audioUrl = up.url;
       }
 
       await storyService.create({
-        media_type: media.media_type as StoryMediaType,
+        media_type: mediaType,
         media_url: finalUrl,
         thumbnail_url: finalThumb,
         caption: caption.trim() || undefined,
         background_color: isImage ? undefined : bg,
-        audio_url: media.media_type === 'audio' ? media.url ?? undefined : undefined,
+        audio_url: audioUrl,
         audience,
         duration_sec:
-          media.media_type === 'video' || media.media_type === 'audio'
-            ? Math.min(120, Math.max(3, Math.round(media.duration_sec ?? 15)))
+          mediaType === 'video' || mediaType === 'audio'
+            ? Math.min(120, Math.max(3, Math.round(local.durationSec ?? 15)))
             : 6,
       });
       await reload();
@@ -224,17 +234,17 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
       <ViewShot ref={shotRef} style={styles.canvas} options={{ format: 'jpg', quality: 0.9 }}>
         {isImage ? (
           <Image source={{ uri: imageUri }} style={styles.media} resizeMode="contain" />
-        ) : media.media_type === 'video' ? (
+        ) : mediaType === 'video' ? (
           <View style={styles.mediaFallback}>
-            {media.thumbnail_url ? (
-              <Image
-                source={{ uri: mediaUrl(media.thumbnail_url) }}
-                style={styles.media}
-                resizeMode="contain"
-              />
-            ) : (
+            {/* pas de miniature avant l'upload : aperçu du fichier vidéo local */}
+            <Image
+              source={{ uri: imageUri }}
+              style={[styles.media, { opacity: 0.5 }]}
+              resizeMode="contain"
+            />
+            <View style={styles.playOnTop}>
               <Icon name="play-circle" size={72} color="#ffffffcc" />
-            )}
+            </View>
           </View>
         ) : (
           <View style={styles.mediaFallback}>
@@ -402,6 +412,7 @@ const styles = StyleSheet.create({
   canvas: { flex: 1 },
   media: { width: '100%', height: '100%' },
   mediaFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  playOnTop: { position: 'absolute' },
   audioBadge: {
     width: 110,
     height: 110,

@@ -2,7 +2,7 @@ import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import type { GroupKind, GroupPreview } from '@/types';
-import type { UploadedMedia } from '@/services';
+import type { LocalMediaFile } from '@/hooks/useMediaPicker';
 
 export type AuthStackParamList = {
   Welcome: undefined;
@@ -59,7 +59,15 @@ export type MainStackParamList = {
   AboutSettings: undefined;
   StoryComposer: undefined;
   /** Éditeur média (recadrage / dessin / légende / stickers) avant publication. */
-  MediaEditor: { media: UploadedMedia };
+  /** Fichier local (non uploadé) — l'upload se fait à la publication. */
+  MediaEditor: { local: LocalMediaFile };
+  /** Aperçu d'un média avant envoi dans une conversation (crop + légende). */
+  ChatMediaPreview: {
+    conversationId: string;
+    partnerId: string;
+    senderId: string;
+    local: LocalMediaFile;
+  };
   StoryViewer: { authorId: string };
   /** Page « Mes statuts » facon WhatsApp : liste de mes stories + leurs vues. */
   MyStatus: undefined;

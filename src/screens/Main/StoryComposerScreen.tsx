@@ -55,20 +55,21 @@ export const StoryComposerScreen: React.FC = () => {
   const busy = publishing || picker.busy;
 
   // Après sélection d'un média : on passe direct à l'éditeur plein écran
-  // (recadrage / dessin / légende / stickers), qui gère aussi la publication.
+  // SANS uploader (recadrage / dessin / légende / stickers). L'upload se fait
+  // seulement à la publication — comme WhatsApp.
   const chooseImage = async (camera: boolean) => {
-    const up = await picker.pickImage({ camera });
-    if (up) navigation.replace('MediaEditor', { media: up });
+    const local = await picker.pickImageLocal({ camera });
+    if (local) navigation.replace('MediaEditor', { local });
   };
   const chooseVideo = async (camera: boolean) => {
-    const up = await picker.pickVideo({ camera });
-    if (up) navigation.replace('MediaEditor', { media: up });
+    const local = await picker.pickVideoLocal({ camera });
+    if (local) navigation.replace('MediaEditor', { local });
   };
 
   const toggleRecord = async () => {
     if (picker.recording) {
-      const res = await picker.stopRecording();
-      if (res) navigation.replace('MediaEditor', { media: res.media });
+      const local = await picker.stopRecordingLocal();
+      if (local) navigation.replace('MediaEditor', { local });
     } else {
       setMode('audio');
       await picker.startRecording();

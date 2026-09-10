@@ -520,6 +520,7 @@
     "attachFile": "Document",
     "attachLocation": "Location",
     "attachTitle": "Attach",
+    "addCaption": "Add a caption…",
     "locationShared": "Location shared",
     "locationSharing": "Getting your location…",
     "locationDenied": "Allow location access to share your position.",
