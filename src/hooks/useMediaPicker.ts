@@ -226,32 +226,18 @@ export function useMediaPicker(): MediaPicker {
         const rawUri = res.assets?.[0]?.uri;
         if (!rawUri) return null;
 
-        // Recadrage circulaire local (éditeur natif, hors ligne)
-        const ImagePicker = (await import('react-native-image-crop-picker')).default;
-        let cropped: { path: string; mime?: string };
-        try {
-          cropped = (await ImagePicker.openCropper({
-            path: /^(content:|file:|http|data:)/.test(rawUri) ? rawUri : `file://${rawUri}`,
-            mediaType: 'photo',
-            width: 512,
-            height: 512,
-            cropperCircleOverlay: true,
-            cropperToolbarTitle: 'Photo de profil',
-            cropperActiveWidgetColor: '#1E6FE0',
-            cropperToolbarColor: '#000000',
-            cropperToolbarWidgetColor: '#FFFFFF',
-            compressImageQuality: 0.9,
-            forceJpg: true,
-          })) as { path: string; mime?: string };
-        } catch (e) {
-          const msg = String((e as Error)?.message ?? e);
-          if (/cancel/i.test(msg)) return null;
-          throw e;
-        }
-        const path = cropped.path;
-        const uri = path.startsWith('file://') || path.startsWith('http') ? path : `file://${path}`;
-        const name = uri.split('/').pop() || `avatar_${Date.now()}.jpg`;
-        return await mediaService.upload({ uri, name, type: cropped.mime || 'image/jpeg' });
+        // Recadrage circulaire local (éditeur natif, hors ligne). `cropImage`
+        // résout d'abord un chemin fichier fiable (copie si `content://`).
+        const { cropImage } = await import('@/utils/imageEdit');
+        const cropped = await cropImage(rawUri, {
+          circle: true,
+          width: 512,
+          height: 512,
+          title: 'Photo de profil',
+        });
+        if (!cropped) return null;
+        const name = cropped.uri.split('/').pop() || `avatar_${Date.now()}.jpg`;
+        return await mediaService.upload({ uri: cropped.uri, name, type: 'image/jpeg' });
       } catch (e) {
         console.warn('[media] pickAvatar failed:', e);
         alertError('Erreur', "L'envoi de la photo a échoué.");

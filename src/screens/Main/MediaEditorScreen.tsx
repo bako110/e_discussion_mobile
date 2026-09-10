@@ -1,7 +1,8 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
+  LayoutChangeEvent,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -14,9 +15,9 @@ import { useTranslation } from 'react-i18next';
 import Svg, { Path } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 import ViewShot from 'react-native-view-shot';
-import ImagePicker from 'react-native-image-crop-picker';
 
 import { Icon, showAlert } from '@/components/common';
+import { asDisplayUri, cropImage, getImageSize } from '@/utils/imageEdit';
 import {
   DRAW_COLORS,
   STICKER_EMOJIS,
@@ -93,10 +94,13 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   const mediaType: StoryMediaType =
     local.kind === 'image' ? 'image' : local.kind === 'video' ? 'video' : 'audio';
   const isImage = mediaType === 'image';
-  // ne préfixe `file://` QUE sur un chemin absolu nu (pas content://, http, data:)
-  const asUri = (p: string) =>
-    /^(content:|file:|http|data:)/.test(p) ? p : `file://${p}`;
-  const [imageUri, setImageUri] = useState<string>(asUri(local.file.uri));
+  const [imageUri, setImageUri] = useState<string>(asDisplayUri(local.file.uri));
+  // ratio réel de l'image affichée (w/h). Le canvas capturable est dimensionné
+  // À CE RATIO -> ce qu'on voit == ce qui est capturé == ce que voit l'autre.
+  const [imgRatio, setImgRatio] = useState<number>(
+    local.width && local.height ? local.width / local.height : 0,
+  );
+  const [stageBox, setStageBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [tool, setTool] = useState<Tool>('none');
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [current, setCurrent] = useState<Stroke | null>(null);
@@ -135,32 +139,38 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
 
   const undoStroke = () => setStrokes((s) => s.slice(0, -1));
 
+  // Dimensions réelles de l'image -> ratio du canvas capturable.
+  useEffect(() => {
+    if (!isImage) return;
+    let alive = true;
+    void getImageSize(imageUri).then((sz) => {
+      if (alive && sz && sz.height > 0) setImgRatio(sz.width / sz.height);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [imageUri, isImage]);
+
   // ── recadrage : éditeur natif interactif (cadre visible, pinch, grille) ──
   const crop = async () => {
     if (!isImage || cropping) return;
     setCropping(true);
     try {
-      const res = await ImagePicker.openCropper({
-        path: imageUri,
-        mediaType: 'photo',
-        freeStyleCropEnabled: true, // cadre libre + poignées
-        cropperToolbarTitle: t('stories.cropTitle'),
-        cropperActiveWidgetColor: '#1E6FE0',
-        cropperToolbarColor: '#000000',
-        cropperToolbarWidgetColor: '#FFFFFF',
-        hideBottomControls: false,
-        enableRotationGesture: true,
-        compressImageQuality: 0.9,
-        // dimensions par défaut du cadre (portrait story)
-        width: 1080,
-        height: 1350,
+      const res = await cropImage(imageUri, {
+        freeStyle: true,
+        title: t('stories.cropTitle'),
       });
-      const uri = (res as { path?: string }).path;
-      if (uri) setImageUri(asUri(uri));
+      if (res) {
+        setImageUri(res.uri);
+        if (res.height > 0) setImgRatio(res.width / res.height);
+        // le recadrage change la forme -> on repart d'un overlay propre
+        setStrokes([]);
+        setCurrent(null);
+        setStickers([]);
+      }
     } catch (e) {
-      // l'utilisateur a annulé -> pas d'erreur
-      const msg = String((e as Error)?.message ?? e);
-      if (!/cancel/i.test(msg)) console.warn('[editor] crop failed:', e);
+      console.warn('[editor] crop failed:', e);
+      showAlert(t('errors.generic'));
     } finally {
       setCropping(false);
     }
@@ -188,10 +198,11 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
       let audioUrl: string | undefined;
 
       if (isImage && shotRef.current) {
-        // grave dessin + stickers sur l'image locale -> capture -> UPLOAD unique
-        const shotUri = await captureRef(shotRef, { format: 'jpg', quality: 0.9 });
+        // grave dessin + stickers sur l'image locale -> capture -> UPLOAD unique.
+        // Le canvas est au ratio exact de l'image : la capture == ce qu'on voit.
+        const shotUri = await captureRef(shotRef, { format: 'jpg', quality: 0.92 });
         const up = await mediaService.upload({
-          uri: asUri(shotUri),
+          uri: asDisplayUri(shotUri),
           name: `story_${Date.now()}.jpg`,
           type: 'image/jpeg',
         });
@@ -229,58 +240,98 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
 
   const canvasBg = isImage ? '#000' : bg;
 
+  // Boîte capturable = image ajustée (façon `contain`) DANS le stage, mais
+  // c'est la boîte elle-même qui prend ce ratio -> aucun letterbox capturé,
+  // les overlays sont posés exactement sur l'image.
+  const shotBox = (() => {
+    const { w, h } = stageBox;
+    if (!isImage || !imgRatio || w <= 0 || h <= 0) return null;
+    const byW = { w, h: w / imgRatio };
+    const byH = { w: h * imgRatio, h };
+    return byW.h <= h ? byW : byH;
+  })();
+
+  const onStageLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setStageBox({ w: width, h: height });
+  };
+
+  const captureContent = (
+    <>
+      {isImage ? (
+        // `cover` : la boîte est déjà au ratio de l'image -> remplit sans déformer
+        // ni rogner. Tant que le ratio est inconnu, `contain` évite tout rognage.
+        <Image
+          source={{ uri: imageUri }}
+          style={styles.fill}
+          resizeMode={shotBox ? 'cover' : 'contain'}
+        />
+      ) : mediaType === 'video' ? (
+        <View style={styles.mediaFallback}>
+          <Image
+            source={{ uri: imageUri }}
+            style={[styles.media, { opacity: 0.5 }]}
+            resizeMode="contain"
+          />
+          <View style={styles.playOnTop}>
+            <Icon name="play-circle" size={72} color="#ffffffcc" />
+          </View>
+        </View>
+      ) : (
+        <View style={styles.mediaFallback}>
+          <View style={styles.audioBadge}>
+            <Icon name="microphone" size={44} color="#fff" />
+          </View>
+        </View>
+      )}
+
+      {/* dessin */}
+      {isImage ? (
+        <View
+          style={StyleSheet.absoluteFill}
+          {...drawResponder.panHandlers}
+          pointerEvents={tool === 'draw' ? 'auto' : 'box-none'}
+        >
+          <Svg style={StyleSheet.absoluteFill}>
+            {strokes.map((s, i) => (
+              <Path key={i} d={s.d} stroke={s.color} strokeWidth={s.width} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            ))}
+            {current ? (
+              <Path d={current.d} stroke={current.color} strokeWidth={current.width} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            ) : null}
+          </Svg>
+        </View>
+      ) : null}
+
+      {/* stickers */}
+      {stickers.map((s) => (
+        <DraggableSticker key={s.id} item={s} onMove={moveSticker} />
+      ))}
+
+      {/* légende gravée en bas de l'image */}
+      {caption.trim() && isImage ? (
+        <View style={styles.captionOverlay} pointerEvents="none">
+          <Text style={styles.captionOverlayText}>{caption.trim()}</Text>
+        </View>
+      ) : null}
+    </>
+  );
+
   return (
     <View style={[styles.root, { backgroundColor: canvasBg }]}>
-      {/* Canvas capturable */}
-      <ViewShot ref={shotRef} style={styles.canvas} options={{ format: 'jpg', quality: 0.9 }}>
-        {isImage ? (
-          <Image source={{ uri: imageUri }} style={styles.media} resizeMode="contain" />
-        ) : mediaType === 'video' ? (
-          <View style={styles.mediaFallback}>
-            {/* pas de miniature avant l'upload : aperçu du fichier vidéo local */}
-            <Image
-              source={{ uri: imageUri }}
-              style={[styles.media, { opacity: 0.5 }]}
-              resizeMode="contain"
-            />
-            <View style={styles.playOnTop}>
-              <Icon name="play-circle" size={72} color="#ffffffcc" />
-            </View>
-          </View>
-        ) : (
-          <View style={styles.mediaFallback}>
-            <View style={styles.audioBadge}>
-              <Icon name="microphone" size={44} color="#fff" />
-            </View>
-          </View>
-        )}
-
-        {/* dessin */}
-        {isImage ? (
-          <View style={StyleSheet.absoluteFill} {...drawResponder.panHandlers} pointerEvents={tool === 'draw' ? 'auto' : 'box-none'}>
-            <Svg style={StyleSheet.absoluteFill}>
-              {strokes.map((s, i) => (
-                <Path key={i} d={s.d} stroke={s.color} strokeWidth={s.width} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-              ))}
-              {current ? (
-                <Path d={current.d} stroke={current.color} strokeWidth={current.width} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-              ) : null}
-            </Svg>
-          </View>
-        ) : null}
-
-        {/* stickers */}
-        {stickers.map((s) => (
-          <DraggableSticker key={s.id} item={s} onMove={moveSticker} />
-        ))}
-
-        {/* légende gravée en bas de l'image */}
-        {caption.trim() && isImage ? (
-          <View style={styles.captionOverlay} pointerEvents="none">
-            <Text style={styles.captionOverlayText}>{caption.trim()}</Text>
-          </View>
-        ) : null}
-      </ViewShot>
+      {/* Stage : centre la boîte capturable, au ratio exact de l'image */}
+      <View style={styles.canvas} onLayout={onStageLayout}>
+        <ViewShot
+          ref={shotRef}
+          style={[
+            styles.shot,
+            shotBox ? { width: shotBox.w, height: shotBox.h } : StyleSheet.absoluteFillObject,
+          ]}
+          options={{ format: 'jpg', quality: 0.92 }}
+        >
+          {captureContent}
+        </ViewShot>
+      </View>
 
       {/* Header outils */}
       <View style={[styles.header, { top: insets.top + 4 }]}>
@@ -410,7 +461,9 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  canvas: { flex: 1 },
+  canvas: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  shot: { overflow: 'hidden' },
+  fill: { width: '100%', height: '100%' },
   media: { width: '100%', height: '100%' },
   mediaFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   playOnTop: { position: 'absolute' },

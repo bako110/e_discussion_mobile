@@ -20,7 +20,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
-import ImagePicker from 'react-native-image-crop-picker';
 
 import { Icon, showAlert } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
@@ -28,6 +27,7 @@ import type { MainScreenProps } from '@/navigation/types';
 import { pendingMediaService } from '@/services';
 import { syncNow } from '@/sync/syncEngine';
 import type { LocalMediaFile } from '@/hooks/useMediaPicker';
+import { asDisplayUri, cropImage } from '@/utils/imageEdit';
 
 export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'>> = ({
   route,
@@ -45,11 +45,9 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
   const [cropping, setCropping] = useState(false);
 
   // `local.file.uri` peut être `content://…` (galerie Android), `file://…`,
-  // un chemin absolu nu, ou `http…`. On ne préfixe `file://` QUE sur un
-  // chemin absolu nu — sinon on casse l'URI (ex: `file://content://…`).
-  const uri = /^(content:|file:|http|data:)/.test(local.file.uri)
-    ? local.file.uri
-    : `file://${local.file.uri}`;
+  // un chemin absolu nu, ou `http…`. `asDisplayUri` ne préfixe `file://` QUE
+  // sur un chemin nu — sinon on casse l'URI (ex: `file://content://…`).
+  const uri = asDisplayUri(local.file.uri);
   const isImage = local.kind === 'image';
   const isVideo = local.kind === 'video';
 
@@ -57,32 +55,21 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
     if (!isImage || cropping) return;
     setCropping(true);
     try {
-      const res = await ImagePicker.openCropper({
-        path: uri,
-        mediaType: 'photo',
-        freeStyleCropEnabled: true,
-        cropperToolbarTitle: t('stories.cropTitle'),
-        cropperActiveWidgetColor: '#1E6FE0',
-        cropperToolbarColor: '#000000',
-        cropperToolbarWidgetColor: '#FFFFFF',
-        enableRotationGesture: true,
-        compressImageQuality: 0.9,
+      const res = await cropImage(local.file.uri, {
+        freeStyle: true,
+        title: t('stories.cropTitle'),
       });
-      const path = (res as { path?: string; width?: number; height?: number }).path;
-      if (path) {
+      if (res) {
         setLocal((cur) => ({
           ...cur,
-          file: {
-            ...cur.file,
-            uri: path.startsWith('file://') ? path : `file://${path}`,
-          },
-          width: (res as { width?: number }).width ?? cur.width,
-          height: (res as { height?: number }).height ?? cur.height,
+          file: { ...cur.file, uri: res.uri },
+          width: res.width || cur.width,
+          height: res.height || cur.height,
         }));
       }
     } catch (e) {
-      const msg = String((e as Error)?.message ?? e);
-      if (!/cancel/i.test(msg)) console.warn('[chat-preview] crop failed:', e);
+      console.warn('[chat-preview] crop failed:', e);
+      showAlert(t('errors.generic'));
     } finally {
       setCropping(false);
     }
