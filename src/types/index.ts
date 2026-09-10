@@ -94,6 +94,8 @@ export interface ChatMessage {
   pending?: boolean;
   decrypted?: boolean;
   decryptFailed?: boolean;
+  /** vocal/vidéo reçu : déjà écouté / ouvert par moi (point bleu si false). */
+  voicePlayed?: boolean;
 }
 
 export type RequestStatus =

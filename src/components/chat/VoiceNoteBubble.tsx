@@ -91,6 +91,10 @@ interface Props {
   fg: string;
   /** id du message — si fourni + reçu, on notifie « écouté » au 1er play. */
   messageId?: string;
+  /** `false` -> point bleu « pas encore écouté » (vocal reçu). */
+  played?: boolean;
+  /** appelé au 1er play d'un vocal reçu (persistance locale + refresh). */
+  onFirstPlay?: () => void;
 }
 
 function humanSize(bytes: number | null | undefined): string {
@@ -112,6 +116,8 @@ export const VoiceNoteBubble: React.FC<Props> = ({
   mine,
   fg,
   messageId,
+  played = true,
+  onFirstPlay,
 }) => {
   const { theme } = useTheme();
   const c = theme.colors;
@@ -153,12 +159,19 @@ export const VoiceNoteBubble: React.FC<Props> = ({
       playUri = await cached.download();
       if (!playUri) return;
     }
-    // vocal reçu -> notifie « écouté » à l'expéditeur (écran Infos)
-    if (!mine && messageId) messageService.markPlayed(messageId);
+    // vocal reçu -> notifie « écouté » (expéditeur : écran Infos) + retire le
+    // point bleu localement.
+    if (!mine && messageId) {
+      messageService.markPlayed(messageId);
+      if (!played) onFirstPlay?.();
+    }
     void toggleShared(playUri);
-  }, [cached, mine, messageId]);
+  }, [cached, mine, messageId, played, onFirstPlay]);
 
-  const barActive = mine ? '#ffffff' : c.primary;
+  // vocal REÇU pas encore écouté -> accent bleu vif (bulle in) façon WhatsApp
+  const unheard = !mine && !played;
+  const accent = unheard ? '#2E9BFF' : mine ? '#ffffff' : c.primary;
+  const barActive = mine ? '#ffffff' : accent;
   const barIdle = mine ? 'rgba(255,255,255,0.38)' : c.border;
   const needsDownload = !cached.localUri && !!url;
   const shownProgress = cached.downloading ? cached.progress : progress;
@@ -182,10 +195,20 @@ export const VoiceNoteBubble: React.FC<Props> = ({
       <View
         style={[
           styles.playBtn,
-          { backgroundColor: mine ? 'rgba(255,255,255,0.22)' : c.primary + '1F' },
+          {
+            backgroundColor: unheard
+              ? '#2E9BFF'
+              : mine
+                ? 'rgba(255,255,255,0.22)'
+                : c.primary + '1F',
+          },
         ]}
       >
-        <Icon name={iconName} size={20} color={mine ? '#fff' : c.primary} />
+        <Icon
+          name={iconName}
+          size={20}
+          color={unheard ? '#fff' : mine ? '#fff' : c.primary}
+        />
       </View>
 
       <View style={styles.waveArea}>
@@ -205,11 +228,11 @@ export const VoiceNoteBubble: React.FC<Props> = ({
         </View>
         <View style={styles.metaRow}>
           <Text style={[styles.time, { color: fg, opacity: 0.85 }]}>{sub}</Text>
-          {/* petit badge micro (façon WhatsApp), bleu si déjà écouté par moi */}
+          {/* badge micro : bleu vif tant que le vocal reçu n'est pas écouté */}
           <Icon
             name="microphone"
             size={14}
-            color={mine ? 'rgba(255,255,255,0.85)' : c.primary}
+            color={unheard ? '#2E9BFF' : mine ? 'rgba(255,255,255,0.85)' : c.textFaint}
           />
         </View>
       </View>

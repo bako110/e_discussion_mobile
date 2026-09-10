@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -52,6 +52,9 @@ export const MIGRATIONS: string[] = [
     reaction          TEXT,
     delivered         INTEGER NOT NULL DEFAULT 0,
     read              INTEGER NOT NULL DEFAULT 0,
+    -- vocal / vidéo REÇU : 1 quand JE l'ai écouté / ouvert (point bleu
+    -- « non lu » façon WhatsApp). Toujours 1 pour mes propres messages.
+    voice_played      INTEGER NOT NULL DEFAULT 0,
     edited_at         TEXT,
     deleted_at        TEXT,
     created_at        TEXT NOT NULL,
@@ -216,5 +219,13 @@ export const MIGRATIONS: string[] = [
   WHERE last_message_preview LIKE '📷 %' OR last_message_preview LIKE '🎬 %'
      OR last_message_preview LIKE '🎤 %' OR last_message_preview LIKE '📎 %'
      OR last_message_preview LIKE '📍 %';
+  `,
+
+  // ── v8 : `voice_played` — point bleu « vocal non écouté » chez le pair.
+  // Les messages EXISTANTS sont marqués écoutés (1) pour ne pas afficher
+  // rétroactivement des points bleus sur tout l'historique.
+  `
+  ALTER TABLE messages ADD COLUMN voice_played INTEGER NOT NULL DEFAULT 0;
+  UPDATE messages SET voice_played = 1;
   `,
 ];

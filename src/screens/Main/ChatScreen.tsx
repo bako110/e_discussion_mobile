@@ -394,6 +394,13 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     [navigation, myId],
   );
 
+  const onVoicePlayed = useCallback(
+    (messageId: string) => {
+      void messageRepo.markVoicePlayed(messageId).then(reload);
+    },
+    [reload],
+  );
+
   const onOpenFile = useCallback(
     async (m: LocalMessage) => {
       // télécharge d'abord si besoin, puis ouvre le fichier local
@@ -907,6 +914,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                   onOpenMedia={onOpenMedia}
                   onOpenFile={onOpenFile}
                   onOpenLocation={onOpenLocation}
+                  onVoicePlayed={onVoicePlayed}
                 />
               );
             }}

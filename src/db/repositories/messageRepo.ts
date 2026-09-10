@@ -36,11 +36,14 @@ interface Row {
   created_at: string;
   sync_state: string;
   decrypt_failed: number;
+  voice_played: number;
 }
 
 export interface LocalMessage extends ChatMessage {
   client_id: string | null;
   sync_state: SyncState;
+  /** vocal/vidéo REÇU : `true` si je l'ai déjà écouté / ouvert. */
+  voicePlayed: boolean;
 }
 
 function toMsg(r: Row): LocalMessage {
@@ -69,6 +72,7 @@ function toMsg(r: Row): LocalMessage {
     created_at: r.created_at,
     decrypted: true,
     decryptFailed,
+    voicePlayed: !!r.voice_played,
     sync_state: r.sync_state as SyncState,
     pending: r.sync_state !== 'synced',
   };
@@ -119,8 +123,8 @@ export const messageRepo = {
       await run(
         `INSERT INTO messages
           (id, client_id, conversation_id, sender_id, type, body, body_cipher, encrypted,
-           attachment_url, attachment_meta, reply_to_json, created_at, sync_state)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pending')`,
+           attachment_url, attachment_meta, reply_to_json, created_at, sync_state, voice_played)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pending', 1)`,
         [
           m.clientId,
           m.clientId,
@@ -258,11 +262,16 @@ export const messageRepo = {
         ? opts?.cipherBody ?? (looksEncrypted(m.body) ? m.body : null)
         : null;
 
+    // vocal/vidéo REÇU -> point bleu « non écouté » (0). Le mien ou tout autre
+    // type -> 1 (rien à signaler).
+    const vplayed =
+      !opts?.mine && (m.type === 'voice' || m.type === 'video') ? 0 : 1;
+
     await run(
       `INSERT INTO messages
         (id, conversation_id, sender_id, type, body, body_cipher, encrypted, attachment_url, attachment_meta,
-         reply_to_json, reaction, delivered, read, edited_at, deleted_at, created_at, sync_state, decrypt_failed)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced', ?)
+         reply_to_json, reaction, delivered, read, edited_at, deleted_at, created_at, sync_state, decrypt_failed, voice_played)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced', ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          body=CASE WHEN excluded.body <> '' THEN excluded.body ELSE messages.body END,
          body_cipher=CASE
@@ -280,6 +289,8 @@ export const messageRepo = {
          read=MAX(messages.read, excluded.read),
          edited_at=excluded.edited_at, deleted_at=excluded.deleted_at,
          decrypt_failed=CASE WHEN messages.body <> '' THEN 0 ELSE excluded.decrypt_failed END,
+         -- ne jamais "dé-marquer" un vocal déjà écouté
+         voice_played=MAX(messages.voice_played, excluded.voice_played),
          sync_state='synced'`,
       [
         m.id,
@@ -299,8 +310,17 @@ export const messageRepo = {
         m.deleted_at,
         m.created_at,
         dfail,
+        vplayed,
       ],
     );
+  },
+
+  /** Marque un vocal/vidéo reçu comme écouté / ouvert (retire le point bleu). */
+  async markVoicePlayed(messageId: string): Promise<void> {
+    await run('UPDATE messages SET voice_played=1 WHERE id=? OR client_id=?', [
+      messageId,
+      messageId,
+    ]);
   },
 
   async setReaction(messageId: string, emoji: string | null): Promise<void> {

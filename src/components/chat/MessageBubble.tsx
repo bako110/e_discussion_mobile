@@ -23,6 +23,8 @@ interface Props {
   onOpenFile?: (m: LocalMessage) => void;
   /** Ouvre la position partagée dans une app de cartes. */
   onOpenLocation?: (lat: number, lng: number) => void;
+  /** 1er play d'un vocal reçu -> persiste « écouté » (retire le point bleu). */
+  onVoicePlayed?: (messageId: string) => void;
 }
 
 function metaNum(meta: Record<string, unknown> | null, key: string): number | null {
@@ -69,6 +71,7 @@ export const MessageBubble: React.FC<Props> = ({
   onOpenMedia,
   onOpenFile,
   onOpenLocation,
+  onVoicePlayed,
 }) => {
   const { t } = useTranslation();
   const { theme } = useTheme();
@@ -201,6 +204,8 @@ export const MessageBubble: React.FC<Props> = ({
           mine={mine}
           fg={fg}
           messageId={message.id}
+          played={mine || message.voicePlayed !== false}
+          onFirstPlay={onVoicePlayed ? () => onVoicePlayed(message.id) : undefined}
         />
       );
     }
