@@ -12,7 +12,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, showSheet } from '@/components/common';
+import { AppHeader, Avatar, CachedImage, Icon, Screen, showSheet } from '@/components/common';
 import { openStoryPrivacySheet } from '@/services/storyPrivacySheet';
 import { useAuth } from '@/context/AuthContext';
 import { useStories } from '@/context/StoriesContext';
@@ -76,6 +76,30 @@ export const StatusScreen: React.FC = () => {
   // Barre horizontale : non-vus d'abord, puis vus (ordre déjà donné par le service).
   const moments = filteredFeed;
 
+  /** total de vues cumulées sur toutes les stories actives d'un auteur. */
+  const totalViews = useCallback(
+    (item: StoryFeedItem) => item.stories.reduce((n, s) => n + (s.view_count || 0), 0),
+    [],
+  );
+
+  /** URL d'aperçu (image/vidéo) de la story la plus récente d'un auteur. */
+  const previewUri = useCallback((item: StoryFeedItem): string | null => {
+    const s = item.stories[0];
+    if (!s) return null;
+    return s.thumbnail_url || (s.media_type === 'image' ? s.media_url : null);
+  }, []);
+
+  // Statuts populaires : triés par vues cumulées décroissantes (façon WhatsApp
+  // « les plus vus »). On ne garde que ceux qui ont au moins une vue.
+  const popular = useMemo(
+    () =>
+      [...filteredFeed]
+        .filter((f) => totalViews(f) > 0)
+        .sort((a, b) => totalViews(b) - totalViews(a))
+        .slice(0, 8),
+    [filteredFeed, totalViews],
+  );
+
   // Activité récente : à plat, plus récent d'abord, limité.
   const activity = useMemo(
     () =>
@@ -85,38 +109,49 @@ export const StatusScreen: React.FC = () => {
     [filteredFeed],
   );
 
-  /** Bulle ronde façon WhatsApp : avatar cerclé (anneau plein = story non vue,
-   * gris = vue) + prénom + heure de la dernière story. */
-  const renderMomentBubble = (item: StoryFeedItem) => {
+  /** Carte verticale façon WhatsApp : aperçu de la dernière story en fond,
+   * avatar cerclé (anneau vert = non vue) en haut, nom en bas. */
+  const renderMomentCard = (item: StoryFeedItem) => {
     const name = item.author.display_name || item.author.username || '—';
     const first = name.split(' ')[0] ?? name;
+    const uri = previewUri(item);
+    const bg = item.stories[0]?.background_color || c.surfaceAlt;
     return (
       <Pressable
         key={item.author.id}
-        style={styles.bubble}
-        android_ripple={{ color: c.surfaceAlt, borderless: true }}
+        style={styles.card}
+        android_ripple={{ color: c.surfaceAlt }}
         onPress={() => openViewer(item.author.id)}
       >
-        <View
-          style={[
-            styles.ring,
-            {
-              borderColor: item.has_unseen ? c.primary : c.border,
-              borderStyle: item.has_unseen ? 'solid' : 'dashed',
-            },
-          ]}
-        >
-          <Avatar uri={item.author.avatar_url} name={name} size={58} online={item.author.is_online} />
+        <View style={[styles.cardMedia, { backgroundColor: bg }]}>
+          {uri ? (
+            <CachedImage uri={uri} style={styles.cardImg} resizeMode="cover" />
+          ) : (
+            <View style={styles.cardTextPreview}>
+              <Text style={styles.cardTextPreviewTxt} numberOfLines={4}>
+                {item.stories[0]?.caption || ''}
+              </Text>
+            </View>
+          )}
+          <View style={styles.cardShade} />
+          <View
+            style={[
+              styles.cardRing,
+              { borderColor: item.has_unseen ? c.primary : 'rgba(255,255,255,0.85)' },
+            ]}
+          >
+            <Avatar uri={item.author.avatar_url} name={name} size={34} />
+          </View>
           {item.stories.length > 1 ? (
-            <View style={[styles.storyCount, { backgroundColor: c.primary, borderColor: c.background }]}>
-              <Text style={styles.storyCountText}>{item.stories.length}</Text>
+            <View style={[styles.cardCount, { backgroundColor: c.primary }]}>
+              <Text style={styles.cardCountTxt}>{item.stories.length}</Text>
             </View>
           ) : null}
         </View>
-        <Text style={[styles.bubbleName, { color: c.text }]} numberOfLines={1}>
+        <Text style={[styles.cardName, { color: c.text }]} numberOfLines={1}>
           {first}
         </Text>
-        <Text style={[styles.bubbleTime, { color: c.textMuted }]} numberOfLines={1}>
+        <Text style={[styles.cardTime, { color: c.textMuted }]} numberOfLines={1}>
           {relativeTime(item.latest_at)}
         </Text>
       </Pressable>

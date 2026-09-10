@@ -25,6 +25,8 @@ interface Props {
   onOpenLocation?: (lat: number, lng: number) => void;
   /** 1er play d'un vocal reçu -> persiste « écouté » (retire le point bleu). */
   onVoicePlayed?: (messageId: string) => void;
+  /** contexte pour le mini-lecteur vocal global (barre hors du chat). */
+  voiceTitle?: string;
 }
 
 function metaNum(meta: Record<string, unknown> | null, key: string): number | null {
@@ -72,6 +74,7 @@ export const MessageBubble: React.FC<Props> = ({
   onOpenFile,
   onOpenLocation,
   onVoicePlayed,
+  voiceTitle,
 }) => {
   const { t } = useTranslation();
   const { theme } = useTheme();
@@ -206,6 +209,10 @@ export const MessageBubble: React.FC<Props> = ({
           messageId={message.id}
           played={mine || message.voicePlayed !== false}
           onFirstPlay={onVoicePlayed ? () => onVoicePlayed(message.id) : undefined}
+          playerMeta={{
+            conversationId: message.conversation_id,
+            title: voiceTitle ?? null,
+          }}
         />
       );
     }

@@ -354,6 +354,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
               <GroupAttachment
                 message={item}
                 mine={mine}
+                groupName={group?.name || initialName}
                 onOpenMedia={(target, type) =>
                   navigation.navigate('MediaViewer', {
                     url: target,

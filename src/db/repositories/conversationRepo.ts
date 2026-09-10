@@ -122,9 +122,23 @@ export const conversationRepo = {
     await run('UPDATE conversations SET unread_count=? WHERE id=?', [count, id]);
   },
 
-  /** +1 au compteur non-lus (message entrant temps réel, chat non ouvert). */
-  async incrementUnread(id: string): Promise<void> {
-    await run('UPDATE conversations SET unread_count = unread_count + 1 WHERE id=?', [id]);
+  /**
+   * Recale `unread_count` sur le VRAI nombre de messages reçus non lus en base.
+   * Idempotent : peut être appelé plusieurs fois pour le même message entrant
+   * (l'event `message.new` peut être livré par plusieurs canaux) sans gonfler
+   * le compteur, contrairement à un simple `+1`.
+   */
+  async recountUnread(id: string, myId: string): Promise<void> {
+    await run(
+      `UPDATE conversations SET unread_count = (
+         SELECT COUNT(*) FROM messages
+         WHERE conversation_id = ?1
+           AND sender_id <> ?2
+           AND read = 0
+           AND deleted_at IS NULL
+       ) WHERE id = ?1`,
+      [id, myId],
+    );
   },
 
   async setRequestStatus(id: string, status: RequestStatus): Promise<void> {

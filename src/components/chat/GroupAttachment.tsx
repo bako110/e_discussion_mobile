@@ -41,9 +41,11 @@ interface Props {
   message: LocalGroupMessage;
   mine: boolean;
   onOpenMedia: (localOrRemoteUrl: string, type: 'image' | 'video') => void;
+  /** nom du groupe — affiché par le mini-lecteur vocal global. */
+  groupName?: string;
 }
 
-export const GroupAttachment: React.FC<Props> = ({ message, mine, onOpenMedia }) => {
+export const GroupAttachment: React.FC<Props> = ({ message, mine, onOpenMedia, groupName }) => {
   const { t } = useTranslation();
   const { theme } = useTheme();
   const c = theme.colors;
@@ -142,6 +144,7 @@ export const GroupAttachment: React.FC<Props> = ({ message, mine, onOpenMedia })
         mine={mine}
         fg={fg}
         messageId={message.id}
+        playerMeta={{ conversationId: message.group_id, title: groupName ?? null }}
       />
     );
   }

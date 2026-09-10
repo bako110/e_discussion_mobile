@@ -974,6 +974,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                   onOpenFile={onOpenFile}
                   onOpenLocation={onOpenLocation}
                   onVoicePlayed={onVoicePlayed}
+                  voiceTitle={partnerName}
                 />
               );
             }}

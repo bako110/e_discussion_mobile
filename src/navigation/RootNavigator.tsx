@@ -15,6 +15,7 @@ import { navigateToChat, navigationRef } from '@/navigation/navigationRef';
 import { registerPushToken } from '@/services/pushTokenService';
 import { subscribeFcmForeground } from '@/services/fcm';
 import { CallOverlay } from '@/screens/Main/CallOverlay';
+import { GlobalVoiceBar } from '@/components/chat/GlobalVoiceBar';
 
 import { AuthNavigator } from './AuthNavigator';
 import { linking } from './linking';
@@ -91,6 +92,7 @@ export const RootNavigator: React.FC = () => {
             <MessageSync />
             <MessageNotifications />
             <CallOverlay />
+            <GlobalVoiceBar />
           </CallProvider>
         </WebSocketProvider>
       ) : status === 'onboarding' ? (

@@ -1,81 +1,25 @@
 /**
  * Lecteur inline pour une note vocale reçue/envoyée.
  *
- * Un seul lecteur natif partagé (module-level) : lancer une note stoppe la
- * précédente. Chaque bulle s'abonne à l'état courant et n'affiche la
- * progression que si elle est la note active.
+ * Le lecteur natif est un SINGLETON partagé (`@/services/voicePlayer`) : la
+ * lecture continue même si on quitte le chat, et un mini-lecteur global la
+ * pilote depuis n'importe où. Chaque bulle s'abonne à l'état courant et
+ * n'affiche la progression que si elle est la note active.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 
 import { Icon } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import { useCachedMedia } from '@/hooks/useCachedMedia';
 import { messageService } from '@/services';
+import {
+  getVoiceState,
+  subscribeVoice,
+  toggleVoice,
+  type PlayMeta,
+} from '@/services/voicePlayer';
 import { mediaUrl } from '@/utils/media';
-
-const player = new AudioRecorderPlayer();
-
-type State = { url: string | null; position: number; duration: number; playing: boolean };
-let state: State = { url: null, position: 0, duration: 0, playing: false };
-const subs = new Set<() => void>();
-const emit = () => subs.forEach((fn) => fn());
-
-async function stopShared(): Promise<void> {
-  try {
-    player.removePlayBackListener();
-    await player.stopPlayer();
-  } catch {
-    /* déjà stoppé */
-  }
-  state = { url: null, position: 0, duration: 0, playing: false };
-  emit();
-}
-
-async function toggleShared(url: string): Promise<void> {
-  if (state.url === url && state.playing) {
-    try {
-      await player.pausePlayer();
-    } catch {
-      /* noop */
-    }
-    state = { ...state, playing: false };
-    emit();
-    return;
-  }
-  if (state.url === url && !state.playing) {
-    try {
-      await player.resumePlayer();
-      state = { ...state, playing: true };
-      emit();
-      return;
-    } catch {
-      /* on relance depuis le début ci-dessous */
-    }
-  }
-  await stopShared();
-  try {
-    await player.startPlayer(url);
-    state = { url, position: 0, duration: 0, playing: true };
-    emit();
-    player.addPlayBackListener((e) => {
-      state = {
-        url,
-        position: e.currentPosition,
-        duration: e.duration,
-        playing: !e.isFinished,
-      };
-      if (e.isFinished) {
-        player.removePlayBackListener();
-        state = { url: null, position: 0, duration: 0, playing: false };
-      }
-      emit();
-    });
-  } catch {
-    await stopShared();
-  }
-}
 
 function fmt(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -95,6 +39,8 @@ interface Props {
   played?: boolean;
   /** appelé au 1er play d'un vocal reçu (persistance locale + refresh). */
   onFirstPlay?: () => void;
+  /** contexte pour le mini-lecteur global (conversation + titre affiché). */
+  playerMeta?: PlayMeta;
 }
 
 function humanSize(bytes: number | null | undefined): string {
@@ -118,6 +64,7 @@ export const VoiceNoteBubble: React.FC<Props> = ({
   messageId,
   played = true,
   onFirstPlay,
+  playerMeta,
 }) => {
   const { theme } = useTheme();
   const c = theme.colors;
@@ -132,25 +79,25 @@ export const VoiceNoteBubble: React.FC<Props> = ({
 
   useEffect(() => {
     mounted.current = true;
-    const fn = () => mounted.current && force((n) => n + 1);
-    subs.add(fn);
+    const off = subscribeVoice(() => mounted.current && force((n) => n + 1));
     return () => {
       mounted.current = false;
-      subs.delete(fn);
+      off();
     };
   }, []);
 
-  const active = !!resolved && state.url === resolved;
-  const playing = active && state.playing;
+  const vp = getVoiceState();
+  const active = !!resolved && vp.url === resolved;
+  const playing = active && vp.playing;
   const progress =
-    active && state.duration > 0 ? Math.min(1, state.position / state.duration) : 0;
+    active && vp.duration > 0 ? Math.min(1, vp.position / vp.duration) : 0;
   const totalMs =
-    active && state.duration > 0
-      ? state.duration
+    active && vp.duration > 0
+      ? vp.duration
       : durationSec != null
         ? durationSec * 1000
         : 0;
-  const label = active && state.position > 0 ? fmt(state.position) : fmt(totalMs);
+  const label = active && vp.position > 0 ? fmt(vp.position) : fmt(totalMs);
 
   const onPress = useCallback(async () => {
     // pas encore en local -> on télécharge d'abord, puis on joue
@@ -165,8 +112,12 @@ export const VoiceNoteBubble: React.FC<Props> = ({
       messageService.markPlayed(messageId);
       if (!played) onFirstPlay?.();
     }
-    void toggleShared(playUri);
-  }, [cached, mine, messageId, played, onFirstPlay]);
+    void toggleVoice(playUri, {
+      ...playerMeta,
+      durationMs:
+        playerMeta?.durationMs ?? (durationSec != null ? durationSec * 1000 : null),
+    });
+  }, [cached, mine, messageId, played, onFirstPlay, playerMeta, durationSec]);
 
   // vocal REÇU pas encore écouté -> accent bleu vif (bulle in) façon WhatsApp
   const unheard = !mine && !played;

@@ -225,10 +225,11 @@ export const messageService = {
       msg.encrypted,
       msg.created_at,
     );
-    // +1 non-lus si le chat de cette conversation n'est PAS ouvert (sinon
-    // l'écran va marquer lu dans la foulée — le compteur doit rester à 0).
-    if (activeConversationId() !== msg.conversation_id) {
-      await conversationRepo.incrementUnread(msg.conversation_id).catch(() => undefined);
+    // recale le compteur non-lus sur le nombre RÉEL de messages reçus non lus
+    // (idempotent — l'event peut arriver par plusieurs canaux), sauf si le chat
+    // de cette conversation est ouvert (il va marquer lu dans la foulée).
+    if (activeConversationId() !== msg.conversation_id && myId) {
+      await conversationRepo.recountUnread(msg.conversation_id, myId).catch(() => undefined);
     }
     // accuse de reception « remis » — best-effort, ne bloque rien
     void netMessageService.ackDelivered(msg.id);
