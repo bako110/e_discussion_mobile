@@ -314,7 +314,15 @@
     "disappear_d1": "24 heures",
     "disappear_d7": "7 jours",
     "disappear_d90": "90 jours",
-    "note": "Ces réglages s'appliquent à tous les participants. Seuls les administrateurs peuvent les modifier."
+    "note": "Ces réglages s'appliquent à tous les participants. Seuls les administrateurs peuvent les modifier.",
+    "saved": "Paramètre enregistré",
+    "saveFailed": "Échec de l'enregistrement",
+    "deniedShort": "Réservé aux administrateurs",
+    "deniedTitle": "Accès réservé aux administrateurs",
+    "deniedBody": "Seuls le créateur et les administrateurs du groupe peuvent voir et modifier ces paramètres.",
+    "pendingHint": "Ces personnes demandent à rejoindre le groupe. Approuvez pour les ajouter, refusez pour ignorer la demande.",
+    "requestApproved": "Membre ajouté",
+    "requestRejected": "Demande refusée"
   },
   "calls": {
     "title": "Appels",

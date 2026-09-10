@@ -314,7 +314,15 @@
     "disappear_d1": "24 hours",
     "disappear_d7": "7 days",
     "disappear_d90": "90 days",
-    "note": "These settings apply to all participants. Only admins can change them."
+    "note": "These settings apply to all participants. Only admins can change them.",
+    "saved": "Setting saved",
+    "saveFailed": "Couldn't save",
+    "deniedShort": "Admins only",
+    "deniedTitle": "Admins only",
+    "deniedBody": "Only the group owner and admins can view and change these settings.",
+    "pendingHint": "These people asked to join the group. Approve to add them, reject to dismiss the request.",
+    "requestApproved": "Member added",
+    "requestRejected": "Request rejected"
   },
   "calls": {
     "title": "Calls",

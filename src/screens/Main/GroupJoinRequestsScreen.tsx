@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showToast } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { groupService } from '@/services';
@@ -30,7 +30,7 @@ export const GroupJoinRequestsScreen: React.FC<MainScreenProps<'GroupJoinRequest
     try {
       setReqs(await groupService.joinRequests(groupId));
     } catch {
-      showAlert(t('errors.generic'));
+      showToast(t('errors.generic'), { type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -46,8 +46,11 @@ export const GroupJoinRequestsScreen: React.FC<MainScreenProps<'GroupJoinRequest
       if (approve) await groupService.approveJoin(groupId, userId);
       else await groupService.rejectJoin(groupId, userId);
       setReqs((r) => r.filter((x) => x.user.id !== userId));
+      showToast(
+        approve ? t('groupSettings.requestApproved') : t('groupSettings.requestRejected'),
+      );
     } catch {
-      showAlert(t('errors.generic'));
+      showToast(t('errors.generic'), { type: 'error' });
     } finally {
       setBusy(null);
     }
@@ -70,6 +73,11 @@ export const GroupJoinRequestsScreen: React.FC<MainScreenProps<'GroupJoinRequest
           data={reqs}
           keyExtractor={(r) => r.user.id}
           contentContainerStyle={styles.list}
+          ListHeaderComponent={
+            <Text style={[styles.hint, { color: c.textMuted }]}>
+              {t('groupSettings.pendingHint')}
+            </Text>
+          }
           ListEmptyComponent={
             <Text style={[styles.empty, { color: c.textMuted }]}>
               {t('groupSettings.noPending')}
@@ -135,4 +143,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   empty: { textAlign: 'center', marginTop: 40, fontSize: 14 },
+  hint: { fontSize: 13, lineHeight: 18, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10 },
 });

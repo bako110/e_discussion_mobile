@@ -14,6 +14,12 @@ export {
   type SheetAction,
   type SheetOptions,
 } from './ActionSheet';
+export {
+  ToastHost,
+  showToast,
+  type ToastType,
+  type ToastOptions,
+} from './Toast';
 export type { CropModalOpts, CropModalResult } from './CropModal';
 // `openCrop` / `ImageCropScreen` : importer depuis '@/components/common/CropModal'
 // directement (l'écran est enregistré dans MainNavigator).

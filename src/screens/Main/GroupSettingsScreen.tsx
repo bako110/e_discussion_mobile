@@ -8,11 +8,12 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, showAlert, showSheet } from '@/components/common';
+import { AppHeader, Icon, Screen, showSheet, showToast } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
+import { ApiError } from '@/api';
 import { groupService } from '@/services';
 import type { GroupSettings } from '@/types';
 
@@ -39,6 +40,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState(0);
+  const [denied, setDenied] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -51,7 +53,11 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
         setS(cfg);
         setPending(reqs.length);
       })
-      .catch(() => alive && showAlert(t('errors.generic')))
+      .catch((e) => {
+        if (!alive) return;
+        if (e instanceof ApiError && e.status === 403) setDenied(true);
+        else showToast(t('errors.generic'), { type: 'error' });
+      })
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
@@ -60,15 +66,21 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
 
   const patch = async (p: Partial<GroupSettings>) => {
     if (!s) return;
-    const next = { ...s, ...p };
-    setS(next);
+    const prev = s;
+    setS({ ...s, ...p });
     setSaving(true);
     try {
       await groupService.setSettings(groupId, p);
       void reloadGroups();
-    } catch {
-      setS(s); // rollback
-      showAlert(t('errors.generic'));
+      showToast(t('groupSettings.saved'));
+    } catch (e) {
+      setS(prev); // rollback
+      if (e instanceof ApiError && e.status === 403) {
+        setDenied(true);
+        showToast(t('groupSettings.deniedShort'), { type: 'error' });
+      } else {
+        showToast(t('groupSettings.saveFailed'), { type: 'error' });
+      }
     } finally {
       setSaving(false);
     }
@@ -130,7 +142,17 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
         }
       />
 
-      {loading || !s ? (
+      {denied ? (
+        <View style={styles.denied}>
+          <Icon name="shield-lock-outline" size={44} color={c.textFaint} />
+          <Text style={[styles.deniedTitle, { color: c.text }]}>
+            {t('groupSettings.deniedTitle')}
+          </Text>
+          <Text style={[styles.deniedBody, { color: c.textMuted }]}>
+            {t('groupSettings.deniedBody')}
+          </Text>
+        </View>
+      ) : loading || !s ? (
         <ActivityIndicator style={{ marginTop: 40 }} color={c.primary} />
       ) : (
         <ScrollView contentContainerStyle={styles.scroll}>
@@ -239,4 +261,7 @@ const styles = StyleSheet.create({
   },
   toggleLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
   note: { fontSize: 12, marginTop: 18, marginHorizontal: 6, lineHeight: 17 },
+  denied: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
+  deniedTitle: { fontSize: 17, fontWeight: '700', textAlign: 'center' },
+  deniedBody: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
 });
