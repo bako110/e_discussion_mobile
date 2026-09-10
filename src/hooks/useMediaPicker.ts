@@ -9,8 +9,16 @@ import {
   type ImageLibraryOptions,
   type PhotoQuality,
 } from 'react-native-image-picker';
-import AudioRecorderPlayer from 'react-native-audio-recorder-player';
+import AudioRecorderPlayer, {
+  AudioEncoderAndroidType,
+  AudioSourceAndroidType,
+  AVEncoderAudioQualityIOSType,
+  AVEncodingOption,
+  OutputFormatAndroidType,
+  type AudioSet,
+} from 'react-native-audio-recorder-player';
 import Geolocation from '@react-native-community/geolocation';
+import ReactNativeBlobUtil from 'react-native-blob-util';
 
 import type { UploadFile } from '@/api';
 import { mediaService, type UploadedMedia } from '@/services';
@@ -52,6 +60,53 @@ export interface LocalMediaFile {
 }
 
 const audioRecorder = new AudioRecorderPlayer();
+
+// Réglages d'encodage explicites (AAC dans un conteneur MPEG-4 .m4a) — plus
+// fiable que le défaut selon les appareils, et lisible partout.
+const AUDIO_SET: AudioSet = {
+  AudioSourceAndroid: AudioSourceAndroidType.MIC,
+  OutputFormatAndroid: OutputFormatAndroidType.MPEG_4,
+  AudioEncoderAndroid: AudioEncoderAndroidType.AAC,
+  AudioSamplingRateAndroid: 44100,
+  AudioEncodingBitRateAndroid: 128000,
+  AVFormatIDKeyIOS: AVEncodingOption.aac,
+  AVSampleRateKeyIOS: 44100,
+  AVNumberOfChannelsKeyIOS: 1,
+  AVEncoderAudioQualityKeyIOS: AVEncoderAudioQualityIOSType.high,
+};
+
+const REC_DIR = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/voice`;
+let recDirReady: Promise<void> | null = null;
+function ensureRecDir(): Promise<void> {
+  if (!recDirReady) {
+    recDirReady = ReactNativeBlobUtil.fs
+      .isDir(REC_DIR)
+      .then((ok) => (ok ? undefined : ReactNativeBlobUtil.fs.mkdir(REC_DIR).then(() => undefined)))
+      .catch(() => undefined);
+  }
+  return recDirReady;
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// Verrou global : évite qu'un `startRecorder` parte pendant qu'un
+// `stopRecorder` précédent n'a pas fini de libérer le micro (cause n°1 du
+// « Impossible de démarrer l'enregistrement »).
+let recBusy: Promise<unknown> | null = null;
+async function withRecLock<T>(fn: () => Promise<T>): Promise<T> {
+  while (recBusy) {
+    try {
+      await recBusy;
+    } catch {
+      /* ignore */
+    }
+  }
+  const p = fn();
+  recBusy = p.finally(() => {
+    recBusy = null;
+  });
+  return p;
+}
 
 function assetToFile(asset: Asset | undefined, fallbackType: string): UploadFile | null {
   if (!asset?.uri) return null;
@@ -432,22 +487,45 @@ export function useMediaPicker(): MediaPicker {
       showAlert('Micro', "L'accès au micro est nécessaire pour enregistrer.");
       return false;
     }
-    try {
-      const path = await audioRecorder.startRecorder();
-      recordPathRef.current = path;
-      activeRecording.current = true;
-      pausedRef.current = false;
-      setRecording(true);
-      setRecordingPaused(false);
-      setRecordSeconds(0);
-      recordSecondsRef.current = 0;
-      startTick();
-      return true;
-    } catch (e) {
-      console.warn('[media] record start failed:', e);
-      alertError('Erreur', "Impossible de démarrer l'enregistrement.");
+
+    const ok = await withRecLock(async () => {
+      await ensureRecDir();
+      // s'assure qu'aucun enregistrement fantôme ne tient encore le micro
+      try {
+        await audioRecorder.stopRecorder();
+      } catch {
+        /* rien en cours — normal */
+      }
+      audioRecorder.removeRecordBackListener?.();
+
+      const dest = `${REC_DIR}/voice_${Date.now()}.m4a`;
+      // 2 tentatives : la 1re peut échouer si le micro n'est pas encore libéré
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (attempt > 0) await sleep(250);
+          const path = await audioRecorder.startRecorder(dest, AUDIO_SET, false);
+          recordPathRef.current = path || `file://${dest}`;
+          return true;
+        } catch (e) {
+          console.warn(`[media] startRecorder tentative ${attempt + 1} échouée:`, String(e));
+        }
+      }
+      return false;
+    });
+
+    if (!ok) {
+      alertError('Erreur', "Impossible de démarrer l'enregistrement. Réessayez.");
       return false;
     }
+
+    activeRecording.current = true;
+    pausedRef.current = false;
+    setRecording(true);
+    setRecordingPaused(false);
+    setRecordSeconds(0);
+    recordSecondsRef.current = 0;
+    startTick();
+    return true;
   }, [startTick]);
 
   /** Met l'enregistrement en pause (le temps se fige). */
@@ -483,15 +561,17 @@ export function useMediaPicker(): MediaPicker {
     pausedRef.current = false;
     if (!activeRecording.current) return { path: null, seconds };
     activeRecording.current = false;
-    try {
-      // si en pause, il faut reprendre avant de pouvoir stopper proprement
-      await audioRecorder.resumeRecorder().catch(() => undefined);
-      const path = await audioRecorder.stopRecorder();
-      audioRecorder.removeRecordBackListener?.();
-      return { path: path || recordPathRef.current, seconds };
-    } catch {
-      return { path: recordPathRef.current, seconds };
-    }
+    return withRecLock(async () => {
+      try {
+        // si en pause, reprendre avant de pouvoir stopper proprement
+        await audioRecorder.resumeRecorder().catch(() => undefined);
+        const path = await audioRecorder.stopRecorder();
+        audioRecorder.removeRecordBackListener?.();
+        return { path: path || recordPathRef.current, seconds };
+      } catch {
+        return { path: recordPathRef.current, seconds };
+      }
+    });
   }, []);
 
   const stopRecording = useCallback(async (): Promise<{

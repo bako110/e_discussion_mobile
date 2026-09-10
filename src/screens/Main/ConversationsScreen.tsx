@@ -27,6 +27,39 @@ import { relativeTime } from '@/utils/time';
 
 const BADGE = require('@/assets/logo_badge.png');
 
+/** Ligne avec animation d'apparition (fondu + léger glissement), décalée
+ * selon la position — on ne l'anime QU'au premier affichage. */
+const AnimatedRow: React.FC<{ index: number; children: React.ReactNode }> = ({
+  index,
+  children,
+}) => {
+  const anim = useRef(new Animated.Value(0)).current;
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current) return;
+    done.current = true;
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 260,
+      delay: Math.min(index, 12) * 28,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [anim, index]);
+  return (
+    <Animated.View
+      style={{
+        opacity: anim,
+        transform: [
+          { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) },
+        ],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+};
+
 /** Icone + libelle pour l'apercu du dernier message selon son type.
  *
  * `hasPlainText` : on a le texte clair en local (message dechiffre stocke via
@@ -206,12 +239,14 @@ export const ConversationsScreen: React.FC = () => {
     });
   };
 
-  const renderRow = ({ item }: { item: ConversationSummary }) => {
+  const renderRow = ({ item, index }: { item: ConversationSummary; index: number }) => {
     const name = item.partner.display_name || item.partner.username || '—';
     const incoming = item.request_status === 'pending_incoming';
     const hasStory = storyByAuthor.has(item.partner.id);
     const storyUnseen = storyByAuthor.get(item.partner.id) === true;
+    const unread = item.unread_count > 0;
     return (
+      <AnimatedRow index={index}>
       <Pressable
         android_ripple={{ color: c.surfaceAlt }}
         style={styles.row}
@@ -251,10 +286,13 @@ export const ConversationsScreen: React.FC = () => {
         )}
         <View style={styles.rowBody}>
           <View style={styles.rowTop}>
-            <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+            <Text
+              style={[styles.name, { color: c.text, fontWeight: unread ? '800' : '700' }]}
+              numberOfLines={1}
+            >
               {name}
             </Text>
-            <Text style={[styles.time, { color: item.unread_count ? c.primary : c.textFaint }]}>
+            <Text style={[styles.time, { color: unread ? c.primary : c.textFaint }]}>
               {relativeTime(item.last_message_at)}
             </Text>
           </View>
@@ -299,7 +337,13 @@ export const ConversationsScreen: React.FC = () => {
                   {showIcon ? (
                     <Icon name={meta.icon!} size={14} color={c.textFaint} />
                   ) : null}
-                  <Text style={[styles.preview, { color: c.textMuted }]} numberOfLines={1}>
+                  <Text
+                    style={[
+                      styles.preview,
+                      { color: unread ? c.text : c.textMuted, fontWeight: unread ? '600' : '400' },
+                    ]}
+                    numberOfLines={1}
+                  >
                     {text}
                   </Text>
                 </View>
@@ -307,7 +351,7 @@ export const ConversationsScreen: React.FC = () => {
             })()}
             <View style={styles.rowBadges}>
               {item.muted ? <Icon name="bell-off-outline" size={14} color={c.textFaint} /> : null}
-              {item.unread_count > 0 ? (
+              {unread ? (
                 <View style={[styles.badge, { backgroundColor: c.primary }]}>
                   <Text style={styles.badgeText}>
                     {item.unread_count > 99 ? '99+' : item.unread_count}
@@ -318,6 +362,7 @@ export const ConversationsScreen: React.FC = () => {
           </View>
         </View>
       </Pressable>
+      </AnimatedRow>
     );
   };
 

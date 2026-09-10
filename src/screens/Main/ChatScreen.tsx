@@ -423,27 +423,47 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const recStartedRef = useRef(false);
   const recLockedRef = useRef(false);
   const cancelledRef = useRef(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const releasedBeforeStart = useRef(false);
   const [recLocked, setRecLocked] = useState(false);
 
   const stopTyping = useCallback(() => {
     sendTyping(conversationId, 'stop', 'audio');
   }, [sendTyping, conversationId]);
 
-  const beginRecording = useCallback(async () => {
+  // le doigt s'est posé : on ARME le démarrage après une courte tempo (évite
+  // un enregistrement fantôme sur un simple tap).
+  const armRecording = useCallback(() => {
     cancelledRef.current = false;
+    releasedBeforeStart.current = false;
     recLockedRef.current = false;
     setRecLocked(false);
-    // coupe le timer de « stop typing » du texte pour ne pas effacer
-    // l'indicateur « enregistre un audio… » chez le pair 1,5 s plus tard.
     if (typingTimeout.current) {
       clearTimeout(typingTimeout.current);
       typingTimeout.current = null;
     }
-    recStartedRef.current = await picker.startRecording();
-    if (recStartedRef.current) sendTyping(conversationId, 'start', 'audio');
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(async () => {
+      holdTimer.current = null;
+      if (releasedBeforeStart.current) return; // relâché avant la tempo
+      const ok = await picker.startRecording();
+      recStartedRef.current = ok;
+      if (ok && releasedBeforeStart.current) {
+        // relâché pendant le démarrage -> on annule tout de suite
+        recStartedRef.current = false;
+        await picker.cancelRecording();
+        return;
+      }
+      if (ok) sendTyping(conversationId, 'start', 'audio');
+    }, 160);
   }, [picker, sendTyping, conversationId]);
 
   const finalizeRecording = useCallback(async () => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    releasedBeforeStart.current = true;
     if (!recStartedRef.current) return;
     recStartedRef.current = false;
     recLockedRef.current = false;
@@ -458,6 +478,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   }, [picker, sendLocalMedia, stopTyping]);
 
   const cancelVoice = useCallback(async () => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    releasedBeforeStart.current = true;
     cancelledRef.current = true;
     recStartedRef.current = false;
     recLockedRef.current = false;
@@ -475,15 +500,15 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   // Gestes sur le bouton micro : slide haut = lock, slide gauche = cancel.
   // Les handlers sont dans des refs (le PanResponder est créé une seule fois
   // et fige sinon les closures du 1er rendu).
-  const voiceFns = useRef({ beginRecording, finalizeRecording, cancelVoice, lockVoice });
-  voiceFns.current = { beginRecording, finalizeRecording, cancelVoice, lockVoice };
+  const voiceFns = useRef({ armRecording, finalizeRecording, cancelVoice, lockVoice });
+  voiceFns.current = { armRecording, finalizeRecording, cancelVoice, lockVoice };
 
   const micPan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        void voiceFns.current.beginRecording();
+        voiceFns.current.armRecording();
       },
       onPanResponderMove: (_e, g) => {
         if (recLockedRef.current || !recStartedRef.current) return;

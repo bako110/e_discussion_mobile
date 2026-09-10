@@ -158,9 +158,19 @@ export const VoiceNoteBubble: React.FC<Props> = ({
     void toggleShared(playUri);
   }, [cached, mine, messageId]);
 
-  const track = mine ? 'rgba(255,255,255,0.35)' : c.border;
-  const fill = mine ? '#fff' : c.primary;
+  const barActive = mine ? '#ffffff' : c.primary;
+  const barIdle = mine ? 'rgba(255,255,255,0.38)' : c.border;
   const needsDownload = !cached.localUri && !!url;
+  const shownProgress = cached.downloading ? cached.progress : progress;
+
+  const iconName = cached.downloading
+    ? 'progress-download'
+    : needsDownload
+      ? 'download'
+      : playing
+        ? 'pause'
+        : 'play';
+
   const sub = cached.downloading
     ? `${Math.round(cached.progress * 100)} %`
     : needsDownload
@@ -169,39 +179,56 @@ export const VoiceNoteBubble: React.FC<Props> = ({
 
   return (
     <Pressable onPress={onPress} style={styles.row} disabled={cached.downloading}>
-      <View style={[styles.playBtn, { backgroundColor: mine ? 'rgba(255,255,255,0.2)' : c.primary + '22' }]}>
-        <Icon
-          name={cached.downloading ? 'progress-download' : needsDownload ? 'download' : playing ? 'pause' : 'play'}
-          size={18}
-          color={fg}
-        />
+      <View
+        style={[
+          styles.playBtn,
+          { backgroundColor: mine ? 'rgba(255,255,255,0.22)' : c.primary + '1F' },
+        ]}
+      >
+        <Icon name={iconName} size={20} color={mine ? '#fff' : c.primary} />
       </View>
+
       <View style={styles.waveArea}>
-        <View style={[styles.track, { backgroundColor: track }]}>
-          <View
-            style={[
-              styles.fill,
-              {
-                backgroundColor: fill,
-                width: `${(cached.downloading ? cached.progress : progress) * 100}%`,
-              },
-            ]}
+        <View style={styles.waveRow}>
+          {WAVE.map((h, i) => {
+            const filled = i / WAVE.length <= shownProgress;
+            return (
+              <View
+                key={i}
+                style={[
+                  styles.bar,
+                  { height: 4 + h * 16, backgroundColor: filled ? barActive : barIdle },
+                ]}
+              />
+            );
+          })}
+        </View>
+        <View style={styles.metaRow}>
+          <Text style={[styles.time, { color: fg, opacity: 0.85 }]}>{sub}</Text>
+          {/* petit badge micro (façon WhatsApp), bleu si déjà écouté par moi */}
+          <Icon
+            name="microphone"
+            size={14}
+            color={mine ? 'rgba(255,255,255,0.85)' : c.primary}
           />
         </View>
-        <Text style={[styles.time, { color: fg, opacity: 0.75 }]}>{sub}</Text>
-      </View>
-      <View style={{ opacity: 0.6 }}>
-        <Icon name="microphone" size={15} color={fg} />
       </View>
     </Pressable>
   );
 };
 
+// hauteurs relatives (0..1) d'une "waveform" décorative fixe
+const WAVE = [
+  0.25, 0.55, 0.35, 0.8, 0.5, 0.95, 0.4, 0.7, 0.3, 0.6, 0.9, 0.45, 0.75, 0.35, 1, 0.5,
+  0.65, 0.3, 0.85, 0.4, 0.7, 0.55, 0.35, 0.6, 0.25, 0.8, 0.45, 0.3,
+];
+
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 180, paddingVertical: 2 },
-  playBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  waveArea: { flex: 1, gap: 4 },
-  track: { height: 4, borderRadius: 2, overflow: 'hidden' },
-  fill: { height: 4, borderRadius: 2 },
-  time: { fontSize: 11 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 210, paddingVertical: 4 },
+  playBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  waveArea: { flex: 1, gap: 5 },
+  waveRow: { flexDirection: 'row', alignItems: 'center', gap: 2.5, height: 22 },
+  bar: { width: 2.5, borderRadius: 2 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  time: { fontSize: 11.5, fontVariant: ['tabular-nums'] },
 });
