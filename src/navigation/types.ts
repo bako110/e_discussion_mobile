@@ -58,6 +58,15 @@ export type MainStackParamList = {
   HelpSettings: undefined;
   AboutSettings: undefined;
   StoryComposer: undefined;
+  /** Confidentialité des statuts façon WhatsApp (3 modes + liste de contacts). */
+  StoryPrivacy: undefined;
+  /** Sélection multiple de contacts. `token` relie l'appel à sa réponse. */
+  SelectContacts: {
+    token: string;
+    title?: string;
+    preselected?: string[];
+    confirmLabel?: string;
+  };
   /** Éditeur média (recadrage / dessin / légende / stickers) avant publication. */
   /** Fichier local (non uploadé) — l'upload se fait à la publication. */
   MediaEditor: { local: LocalMediaFile };

@@ -53,6 +53,7 @@ export const Endpoints = {
     feed: `${V1}/stories/feed`,
     mine: `${V1}/stories/mine`,
     create: `${V1}/stories`,
+    audience: `${V1}/stories/audience`,
     byId: (id: string) => `${V1}/stories/${id}`,
     view: (id: string) => `${V1}/stories/${id}/view`,
     viewers: (id: string) => `${V1}/stories/${id}/viewers`,

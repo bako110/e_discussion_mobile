@@ -6,6 +6,7 @@
     "retry": "Réessayer",
     "save": "Enregistrer",
     "delete": "Supprimer",
+    "done": "OK",
     "search": "Rechercher",
     "loading": "Chargement…",
     "online": "en ligne",
@@ -161,6 +162,24 @@
     "send": "Envoyer",
     "cropTitle": "Recadrer",
     "trimVideo": "Découper la vidéo"
+  },
+  "storyPrivacy": {
+    "title": "Confidentialité des statuts",
+    "whoCanSee": "Qui peut voir mes statuts",
+    "mode_contacts": "Mes contacts",
+    "mode_contacts_except": "Mes contacts sauf…",
+    "mode_only": "Uniquement…",
+    "hint_contacts": "Tous mes contacts voient mes statuts.",
+    "hint_contacts_except": "Tous mes contacts sauf les personnes que je choisis.",
+    "hint_only": "Seules les personnes que je choisis voient mes statuts.",
+    "exceptTitle": "Masquer mes statuts à…",
+    "onlyTitle": "Partager mes statuts avec…",
+    "excludedN": "{{count}} personne(s) exclue(s)",
+    "allowedN": "{{count}} personne(s) autorisée(s)",
+    "selectTitle": "Choisir des contacts",
+    "nSelected": "{{count}} sélectionné(s)",
+    "noContacts": "Aucun contact",
+    "footer": "Les changements s'appliquent aussi aux statuts déjà publiés. Les personnes exclues ne verront pas non plus vos futurs statuts."
   },
   "groups": {
     "new": "Nouveau",

@@ -1,12 +1,21 @@
 import { apiClient, Endpoints } from '@/api';
 import { storage } from '@/utils/storage';
 import { mediaCache } from '@/services/mediaCache';
+import { newClientId, outbox } from '@/sync/outbox';
 import type {
   CreateStoryInput,
   Story,
   StoryFeedItem,
   StoryViewer,
 } from '@/types';
+
+export type StoryAudienceMode = 'contacts' | 'contacts_except' | 'only';
+export interface StoryAudience {
+  mode: StoryAudienceMode;
+  contact_ids: string[];
+}
+
+const K_AUDIENCE = 'stories.audience.cache';
 
 /**
  * Stories — statuts éphémères (24h). LOCAL-FIRST façon WhatsApp :
@@ -139,6 +148,37 @@ export const storyService = {
     return apiClient.post(Endpoints.stories.reply(id), {
       body,
       client_id: clientId ?? undefined,
+    });
+  },
+
+  // ── confidentialité des statuts (façon WhatsApp) ─────────────────────
+  /** Lecture immédiate depuis le cache (peut être vide au 1er lancement). */
+  readAudienceCache(): StoryAudience {
+    return (
+      storage.getJSON<StoryAudience>(K_AUDIENCE) ?? { mode: 'contacts', contact_ids: [] }
+    );
+  },
+
+  /** Récupère la config serveur et met à jour le cache. */
+  async audience(): Promise<StoryAudience> {
+    const a = await apiClient.get<StoryAudience>(Endpoints.stories.audience);
+    storage.setJSON(K_AUDIENCE, a);
+    return a;
+  },
+
+  /**
+   * Change la confidentialité des statuts — LOCAL-FIRST : on écrit le cache
+   * tout de suite, l'appel serveur est rejoué par l'outbox à la reconnexion.
+   */
+  async setAudience(next: StoryAudience): Promise<void> {
+    const clean: StoryAudience = {
+      mode: next.mode,
+      contact_ids: next.mode === 'contacts' ? [] : [...new Set(next.contact_ids)],
+    };
+    storage.setJSON(K_AUDIENCE, clean);
+    await outbox.enqueue('update_story_audience', newClientId(), {
+      mode: clean.mode,
+      contact_ids: clean.contact_ids,
     });
   },
 };

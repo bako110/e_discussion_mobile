@@ -12,7 +12,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showSheet } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
 import { useStories } from '@/context/StoriesContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -142,6 +142,24 @@ export const StatusScreen: React.FC = () => {
             </Pressable>
             <Pressable onPress={openComposer} hitSlop={10} style={styles.hdrBtn}>
               <Icon name="plus-circle-outline" size={23} color={c.onHeader} />
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                showSheet({
+                  title: t('tabs.status'),
+                  actions: [
+                    {
+                      label: t('storyPrivacy.title'),
+                      icon: 'shield-account-outline',
+                      onPress: () => navigation.navigate('StoryPrivacy'),
+                    },
+                  ],
+                })
+              }
+              hitSlop={10}
+              style={styles.hdrBtn}
+            >
+              <Icon name="dots-vertical" size={21} color={c.onHeader} />
             </Pressable>
           </View>
         }

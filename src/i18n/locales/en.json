@@ -6,6 +6,7 @@
     "retry": "Retry",
     "save": "Save",
     "delete": "Delete",
+    "done": "Done",
     "search": "Search",
     "loading": "Loading…",
     "online": "online",
@@ -161,6 +162,24 @@
     "send": "Send",
     "cropTitle": "Crop",
     "trimVideo": "Trim video"
+  },
+  "storyPrivacy": {
+    "title": "Status privacy",
+    "whoCanSee": "Who can see my status",
+    "mode_contacts": "My contacts",
+    "mode_contacts_except": "My contacts except…",
+    "mode_only": "Only share with…",
+    "hint_contacts": "All my contacts can see my status.",
+    "hint_contacts_except": "All my contacts except the people I pick.",
+    "hint_only": "Only the people I pick can see my status.",
+    "exceptTitle": "Hide my status from…",
+    "onlyTitle": "Share my status with…",
+    "excludedN": "{{count}} people excluded",
+    "allowedN": "{{count}} people allowed",
+    "selectTitle": "Choose contacts",
+    "nSelected": "{{count}} selected",
+    "noContacts": "No contacts",
+    "footer": "Changes also apply to status updates you've already posted. Excluded people also won't see your future status updates."
   },
   "groups": {
     "new": "New",

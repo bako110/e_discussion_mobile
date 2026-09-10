@@ -201,6 +201,21 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
       }
       break;
     }
+    case 'update_story_audience': {
+      // dernier état gagne : on ne garde que la dernière entrée en attente
+      const dueList = await outbox.due();
+      const mine = dueList.filter((e) => e.kind === 'update_story_audience');
+      const last = mine[mine.length - 1] ?? entry;
+      if (entry.id !== last.id) break; // une entrée plus récente s'en chargera
+      await apiClient.put(Endpoints.stories.audience, {
+        mode: last.payload.mode,
+        contact_ids: (last.payload.contact_ids as string[]) ?? [],
+      });
+      for (const e of mine) {
+        if (e.id !== entry.id) await outbox.remove(e.id);
+      }
+      break;
+    }
     case 'accept_request':
       await apiClient.post(Endpoints.conversations.accept(p.conversationId as string));
       await conversationRepo.markSynced(p.conversationId as string);
