@@ -31,7 +31,6 @@ import { ScannerScreen } from '@/screens/Main/ScannerScreen';
 import { StorageSettingsScreen } from '@/screens/Main/StorageSettingsScreen';
 import { MediaEditorScreen } from '@/screens/Main/MediaEditorScreen';
 import { StoryComposerScreen } from '@/screens/Main/StoryComposerScreen';
-import { StoryPrivacyScreen } from '@/screens/Main/StoryPrivacyScreen';
 import { SelectContactsScreen } from '@/screens/Main/SelectContactsScreen';
 import { StoryViewerScreen } from '@/screens/Main/StoryViewerScreen';
 import { StoryViewersScreen } from '@/screens/Main/StoryViewersScreen';
@@ -73,7 +72,6 @@ export const MainNavigator: React.FC = () => (
       component={MediaEditorScreen}
       options={{ animation: 'fade' }}
     />
-    <Stack.Screen name="StoryPrivacy" component={StoryPrivacyScreen} />
     <Stack.Screen
       name="SelectContacts"
       component={SelectContactsScreen}

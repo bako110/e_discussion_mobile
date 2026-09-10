@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -22,8 +22,10 @@ import { useStories } from '@/context/StoriesContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
 import type { MainNav } from '@/navigation/types';
 import { storyService } from '@/services';
+import type { StoryAudienceMode } from '@/services/storyService';
+import { openStoryPrivacySheet } from '@/services/storyPrivacySheet';
 import type { UploadedMedia } from '@/services';
-import type { StoryAudience, StoryMediaType } from '@/types';
+import type { StoryMediaType } from '@/types';
 import { mediaUrl } from '@/utils/media';
 
 type Mode = 'text' | 'photo' | 'video' | 'audio';
@@ -46,7 +48,16 @@ export const StoryComposerScreen: React.FC = () => {
   const [text, setText] = useState('');
   const [bg, setBg] = useState(STORY_BG_COLORS[0]!);
   const [font, setFont] = useState(STORY_FONTS[0]!.key);
-  const [audience, setAudience] = useState<StoryAudience>('everyone');
+  // confidentialité GLOBALE des statuts (écran StoryPrivacy) — affichée ici
+  const [audienceMode, setAudienceMode] = useState<StoryAudienceMode>(
+    () => storyService.readAudienceCache().mode,
+  );
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () =>
+      setAudienceMode(storyService.readAudienceCache().mode),
+    );
+    return unsub;
+  }, [navigation]);
   const [media, setMedia] = useState<UploadedMedia | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +115,6 @@ export const StoryComposerScreen: React.FC = () => {
           caption,
           background_color: bg,
           font,
-          audience,
           duration_sec: Math.min(30, Math.max(5, Math.ceil((caption?.length ?? 0) / 20))),
         });
       } else if (media) {
@@ -116,7 +126,6 @@ export const StoryComposerScreen: React.FC = () => {
           background_color: media.media_type === 'audio' ? bg : undefined,
           font: media.media_type === 'audio' ? font : undefined,
           audio_url: media.media_type === 'audio' ? media.url : undefined,
-          audience,
           duration_sec:
             media.media_type === 'video' || media.media_type === 'audio'
               ? Math.max(3, Math.round(media.duration_sec ?? 15))
@@ -302,20 +311,28 @@ export const StoryComposerScreen: React.FC = () => {
         </View>
       ) : null}
 
-      {/* Pied : audience + envoyer */}
+      {/* Pied : confidentialité + envoyer */}
       <View style={[styles.footer, { paddingBottom: 12 + insets.bottom }]}>
         <Pressable
-          onPress={() => setAudience((a) => (a === 'everyone' ? 'contacts' : 'everyone'))}
+          onPress={() =>
+            openStoryPrivacySheet(() =>
+              setAudienceMode(storyService.readAudienceCache().mode),
+            )
+          }
           style={styles.audienceBtn}
         >
           <Icon
-            name={audience === 'everyone' ? 'earth' : 'account-multiple-outline'}
+            name={
+              audienceMode === 'only'
+                ? 'account-lock-outline'
+                : audienceMode === 'contacts_except'
+                  ? 'account-cancel-outline'
+                  : 'account-multiple-outline'
+            }
             size={16}
             color="#fff"
           />
-          <Text style={styles.audienceText}>
-            {audience === 'everyone' ? t('stories.audienceEveryone') : t('stories.audienceContacts')}
-          </Text>
+          <Text style={styles.audienceText}>{t(`storyPrivacy.mode_${audienceMode}`)}</Text>
         </Pressable>
 
         <Pressable

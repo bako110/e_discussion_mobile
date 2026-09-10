@@ -13,6 +13,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Avatar, Icon, Screen, showSheet } from '@/components/common';
+import { openStoryPrivacySheet } from '@/services/storyPrivacySheet';
 import { useAuth } from '@/context/AuthContext';
 import { useStories } from '@/context/StoriesContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -151,7 +152,7 @@ export const StatusScreen: React.FC = () => {
                     {
                       label: t('storyPrivacy.title'),
                       icon: 'shield-account-outline',
-                      onPress: () => navigation.navigate('StoryPrivacy'),
+                      onPress: () => openStoryPrivacySheet(),
                     },
                   ],
                 })

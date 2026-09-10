@@ -27,7 +27,9 @@ import {
 import { useStories } from '@/context/StoriesContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { mediaService, storyService } from '@/services';
-import type { StoryAudience, StoryMediaType } from '@/types';
+import type { StoryAudienceMode } from '@/services/storyService';
+import { openStoryPrivacySheet } from '@/services/storyPrivacySheet';
+import type { StoryMediaType } from '@/types';
 
 type Stroke = { color: string; width: number; d: string };
 type Sticker = { id: string; emoji: string; x: number; y: number; scale: number };
@@ -115,7 +117,17 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   const [caption, setCaption] = useState('');
   // fond des stories vidéo/audio (pas de canvas image) — non modifiable ici
   const bg = STORY_BG_COLORS[5]!;
-  const [audience, setAudience] = useState<StoryAudience>('everyone');
+  // confidentialité GLOBALE des statuts (écran StoryPrivacy). Ici on l'affiche
+  // seulement ; le tap ouvre l'écran de réglage.
+  const [audienceMode, setAudienceMode] = useState<StoryAudienceMode>(
+    () => storyService.readAudienceCache().mode,
+  );
+  useEffect(() => {
+    const unsub = navigation.addListener('focus', () =>
+      setAudienceMode(storyService.readAudienceCache().mode),
+    );
+    return unsub;
+  }, [navigation]);
   const [publishing, setPublishing] = useState(false);
   const [cropping, setCropping] = useState(false);
 
@@ -247,7 +259,7 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
         caption: caption.trim() || undefined,
         background_color: isImage ? undefined : bg,
         audio_url: audioUrl,
-        audience,
+        // visibilité = confidentialité globale des statuts (écran StoryPrivacy)
         // pas de plafond : l'utilisateur a déjà choisi le segment via la découpe
         duration_sec:
           mediaType === 'video' || mediaType === 'audio'
@@ -458,19 +470,25 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
 
         <View style={styles.bottomRow}>
           <Pressable
-            onPress={() => setAudience((a) => (a === 'everyone' ? 'contacts' : 'everyone'))}
+            onPress={() =>
+              openStoryPrivacySheet(() =>
+                setAudienceMode(storyService.readAudienceCache().mode),
+              )
+            }
             style={styles.audienceBtn}
           >
             <Icon
-              name={audience === 'everyone' ? 'earth' : 'account-multiple-outline'}
+              name={
+                audienceMode === 'only'
+                  ? 'account-lock-outline'
+                  : audienceMode === 'contacts_except'
+                    ? 'account-cancel-outline'
+                    : 'account-multiple-outline'
+              }
               size={16}
               color="#fff"
             />
-            <Text style={styles.audienceText}>
-              {audience === 'everyone'
-                ? t('stories.audienceEveryone')
-                : t('stories.audienceContacts')}
-            </Text>
+            <Text style={styles.audienceText}>{t(`storyPrivacy.mode_${audienceMode}`)}</Text>
           </Pressable>
 
           <Pressable
