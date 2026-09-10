@@ -30,9 +30,11 @@ export interface UserMe extends UserPublic {
   locale: string;
   email_verified: boolean;
   phone_verified: boolean;
-  last_seen_privacy: PrivacyLevel;
-  profile_photo_privacy: PrivacyLevel;
-  about_privacy: PrivacyLevel;
+  last_seen_privacy: string;
+  profile_photo_privacy: string;
+  about_privacy: string;
+  /** 'match_last_seen' par défaut (suit la dernière connexion). */
+  online_privacy: string;
   read_receipts: boolean;
   // préférences d'appel (synchronisées serveur)
   call_ringtone: Ringtone;

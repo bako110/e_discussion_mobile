@@ -163,6 +163,20 @@
     "cropTitle": "Crop",
     "trimVideo": "Trim video"
   },
+  "profilePrivacy": {
+    "field_online": "Online",
+    "field_last_seen": "Last seen",
+    "field_profile_photo": "Profile photo",
+    "field_about": "About",
+    "mode_everyone": "Everyone",
+    "mode_contacts": "My contacts",
+    "mode_nobody": "Nobody",
+    "mode_everyone_except": "Everyone except…",
+    "mode_only": "Only share with…",
+    "mode_match_last_seen": "Same as last seen",
+    "exceptTitle": "Hide from…",
+    "onlyTitle": "Share with…"
+  },
   "storyPrivacy": {
     "title": "Status privacy",
     "whoCanSee": "Who can see my status",

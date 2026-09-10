@@ -21,6 +21,7 @@ export const Endpoints = {
   },
   users: {
     updateMe: `${V1}/users/me`,
+    privacy: `${V1}/users/me/privacy`,
     search: (q: string) => `${V1}/users/search?q=${encodeURIComponent(q)}`,
     blocked: `${V1}/users/blocked`,
     byId: (id: string) => `${V1}/users/${id}`,

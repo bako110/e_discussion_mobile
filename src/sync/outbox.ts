@@ -18,6 +18,7 @@ export type OutboxKind =
   | 'mute'
   | 'update_me' // réglages users.* (confidentialité, appels, langue, profil)
   | 'update_story_audience' // confidentialité des statuts (mode + liste de contacts)
+  | 'update_privacy_field' // confidentialité profil : un champ (mode + liste)
   // ── groupes ──
   | 'send_group_message'
   | 'upload_group_message'

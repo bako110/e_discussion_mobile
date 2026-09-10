@@ -1,30 +1,24 @@
-import React, { useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, showAlert, showSheet } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
 import { userService } from '@/services';
-import type { PrivacyLevel } from '@/types';
-
-const LEVELS: PrivacyLevel[] = ['everyone', 'contacts', 'nobody'];
+import type { PrivacyField } from '@/services/userService';
+import { openProfilePrivacySheet, privacyModeLabel } from '@/services/profilePrivacySheet';
 
 /**
- * Confidentialité — réglages branchés au backend :
- *  - qui voit ma dernière connexion / ma photo / mes infos (everyone/contacts/nobody) ;
- *  - accusés de lecture (si off, je n'envoie ni ne reçois les « vu ») ;
- *  - accès à la liste des utilisateurs bloqués.
+ * Confidentialité — façon WhatsApp actuel :
+ *  - 4 champs (En ligne, Dernière connexion, Photo, Infos) avec 3 modes :
+ *    Tout le monde / Tout le monde sauf… / Uniquement… (+ Personne, + « comme
+ *    la dernière connexion » pour En ligne) ;
+ *  - accusés de lecture (réciproques) ;
+ *  - liste des utilisateurs bloqués.
  */
 export const PrivacySettingsScreen: React.FC = () => {
   const navigation = useNavigation<MainNav>();
@@ -34,40 +28,16 @@ export const PrivacySettingsScreen: React.FC = () => {
   const c = theme.colors;
 
   const [busy, setBusy] = useState<string | null>(null);
+  // ré-render quand le cache de confidentialité change
+  const [tick, setTick] = useState(0);
+  const bump = () => setTick((n) => n + 1);
 
-  const levelLabel = (lvl: PrivacyLevel) => t(`settings.privacy_${lvl}`);
+  useEffect(() => {
+    // charge l'état serveur au montage (best-effort)
+    void userService.privacy().then(bump).catch(() => undefined);
+  }, []);
 
-  const LEVEL_ICON: Record<PrivacyLevel, string> = {
-    everyone: 'earth',
-    contacts: 'account-multiple-outline',
-    nobody: 'lock-outline',
-  };
-
-  const pickLevel = (
-    key: 'last_seen_privacy' | 'profile_photo_privacy' | 'about_privacy',
-    current: PrivacyLevel,
-    title: string,
-  ) => {
-    showSheet({
-      title,
-      actions: LEVELS.map((lvl) => ({
-        label: levelLabel(lvl) + (lvl === current ? '  ✓' : ''),
-        icon: LEVEL_ICON[lvl],
-        onPress: async () => {
-          if (lvl === current) return;
-          setBusy(key);
-          try {
-            await userService.setPrivacy(key, lvl); // optimiste local + outbox
-            refreshMeLocal();
-          } catch {
-            showAlert(t('errors.generic'));
-          } finally {
-            setBusy(null);
-          }
-        },
-      })),
-    });
-  };
+  const openField = (field: PrivacyField) => openProfilePrivacySheet(field, bump);
 
   const toggleReadReceipts = async (next: boolean) => {
     setBusy('read_receipts');
@@ -81,10 +51,9 @@ export const PrivacySettingsScreen: React.FC = () => {
     }
   };
 
-  const lastSeen = me?.last_seen_privacy ?? 'everyone';
-  const photo = me?.profile_photo_privacy ?? 'everyone';
-  const about = me?.about_privacy ?? 'everyone';
   const readReceipts = me?.read_receipts ?? true;
+  // `tick` force la relecture des libellés depuis le cache
+  void tick;
 
   return (
     <Screen edges={[]}>
@@ -100,36 +69,34 @@ export const PrivacySettingsScreen: React.FC = () => {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <SettingsSection title={t('settings.whoCanSee')}>
           <SettingsRow
+            icon="access-point"
+            label={t('profilePrivacy.field_online')}
+            value={privacyModeLabel('online')}
+            onPress={() => openField('online')}
+          />
+          <SettingsRow
             icon="clock-outline"
             label={t('settings.lastSeen')}
-            value={busy === 'last_seen_privacy' ? '…' : levelLabel(lastSeen)}
-            onPress={() =>
-              pickLevel('last_seen_privacy', lastSeen, t('settings.lastSeen'))
-            }
+            value={privacyModeLabel('last_seen')}
+            onPress={() => openField('last_seen')}
           />
           <SettingsRow
             icon="account-box-outline"
             label={t('settings.profilePhoto')}
-            value={busy === 'profile_photo_privacy' ? '…' : levelLabel(photo)}
-            onPress={() =>
-              pickLevel('profile_photo_privacy', photo, t('settings.profilePhoto'))
-            }
+            value={privacyModeLabel('profile_photo')}
+            onPress={() => openField('profile_photo')}
           />
           <SettingsRow
             icon="information-outline"
             label={t('settings.aboutVisibility')}
-            value={busy === 'about_privacy' ? '…' : levelLabel(about)}
-            onPress={() =>
-              pickLevel('about_privacy', about, t('settings.aboutVisibility'))
-            }
+            value={privacyModeLabel('about')}
+            onPress={() => openField('about')}
             last
           />
         </SettingsSection>
 
         <SettingsSection title={t('settings.messaging')}>
-          <View
-            style={[styles.toggleRow, { borderBottomColor: c.divider }]}
-          >
+          <View style={[styles.toggleRow, { borderBottomColor: c.divider }]}>
             <Icon name="check-all" size={20} color={c.textMuted} />
             <Text style={[styles.toggleLabel, { color: c.text }]}>
               {t('settings.readReceipts')}

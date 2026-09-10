@@ -216,6 +216,24 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
       }
       break;
     }
+    case 'update_privacy_field': {
+      // un PUT par champ ; dernier état d'un même champ gagne
+      const dueList = await outbox.due();
+      const sameField = dueList.filter(
+        (e) => e.kind === 'update_privacy_field' && e.payload.field === p.field,
+      );
+      const last = sameField[sameField.length - 1] ?? entry;
+      if (entry.id !== last.id) break;
+      await apiClient.put(Endpoints.users.privacy, {
+        field: last.payload.field,
+        mode: last.payload.mode,
+        contact_ids: (last.payload.contact_ids as string[]) ?? [],
+      });
+      for (const e of sameField) {
+        if (e.id !== entry.id) await outbox.remove(e.id);
+      }
+      break;
+    }
     case 'accept_request':
       await apiClient.post(Endpoints.conversations.accept(p.conversationId as string));
       await conversationRepo.markSynced(p.conversationId as string);

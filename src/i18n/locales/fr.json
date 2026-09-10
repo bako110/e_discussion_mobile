@@ -163,6 +163,20 @@
     "cropTitle": "Recadrer",
     "trimVideo": "Découper la vidéo"
   },
+  "profilePrivacy": {
+    "field_online": "En ligne",
+    "field_last_seen": "Dernière connexion",
+    "field_profile_photo": "Photo de profil",
+    "field_about": "Infos",
+    "mode_everyone": "Tout le monde",
+    "mode_contacts": "Mes contacts",
+    "mode_nobody": "Personne",
+    "mode_everyone_except": "Tout le monde sauf…",
+    "mode_only": "Uniquement…",
+    "mode_match_last_seen": "Comme la dernière connexion",
+    "exceptTitle": "Masquer à…",
+    "onlyTitle": "Partager avec…"
+  },
   "storyPrivacy": {
     "title": "Confidentialité des statuts",
     "whoCanSee": "Qui peut voir mes statuts",
