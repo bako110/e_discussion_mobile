@@ -14,12 +14,9 @@ export {
   type SheetAction,
   type SheetOptions,
 } from './ActionSheet';
-export {
-  CropModalHost,
-  openCrop,
-  type CropModalOpts,
-  type CropModalResult,
-} from './CropModal';
+export type { CropModalOpts, CropModalResult } from './CropModal';
+// `CropModalHost` / `openCrop` : importer depuis '@/components/common/CropModal'
+// directement (module lourd Reanimated — pas dans le barrel).
 export { Avatar } from './Avatar';
 export { BrandLogo } from './BrandLogo';
 export { Button } from './Button';

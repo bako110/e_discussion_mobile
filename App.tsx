@@ -4,12 +4,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import '@/i18n';
-import {
-  ActionSheetHost,
-  AppAlertHost,
-  CropModalHost,
-  ThemedStatusBar,
-} from '@/components/common';
+import { ActionSheetHost, AppAlertHost, ThemedStatusBar } from '@/components/common';
+import { CropModalHost } from '@/components/common/CropModal';
 import { AuthProvider } from '@/context/AuthContext';
 import { CallPrefsProvider } from '@/context/CallPrefsContext';
 import { ChatPrefsProvider } from '@/context/ChatPrefsContext';

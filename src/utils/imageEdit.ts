@@ -86,7 +86,7 @@ export interface CropOpts {
  */
 export async function cropImage(rawUri: string, opts: CropOpts = {}): Promise<CropResult | null> {
   const path = await ensureFilePath(rawUri);
-  const { openCrop } = await import('@/components/common');
+  const { openCrop } = await import('@/components/common/CropModal');
   const aspect = opts.circle
     ? 1
     : opts.freeStyle
