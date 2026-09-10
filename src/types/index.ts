@@ -223,7 +223,7 @@ export interface GroupMessage {
   sender_id: string;
   sender: UserPublic | null;
   client_id: string | null;
-  type: 'text' | 'image' | 'video' | 'system';
+  type: MessageType | 'system';
   body: string;
   attachment_url: string | null;
   attachment_meta: Record<string, unknown> | null;

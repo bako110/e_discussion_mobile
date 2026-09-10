@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -197,5 +197,24 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX IF NOT EXISTS idx_gmsg_group ON group_messages(group_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_gmsg_sync ON group_messages(sync_state);
+  `,
+
+  // ── v7 : retire les emojis d'apercu (📷 🎬 🎤 📎 📍) des libelles de dernier
+  // message deja stockes en local (conversations + groupes). Le nouveau code
+  // ecrit deja des libelles sans emoji ; ceci nettoie l'existant.
+  `
+  UPDATE conversations SET last_message = TRIM(
+    REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(last_message,
+      '📷 ', ''), '🎬 ', ''), '🎤 ', ''), '📎 ', ''), '📍 ', ''))
+  WHERE last_message LIKE '📷 %' OR last_message LIKE '🎬 %'
+     OR last_message LIKE '🎤 %' OR last_message LIKE '📎 %'
+     OR last_message LIKE '📍 %';
+
+  UPDATE groups SET last_message_preview = TRIM(
+    REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(last_message_preview,
+      '📷 ', ''), '🎬 ', ''), '🎤 ', ''), '📎 ', ''), '📍 ', ''))
+  WHERE last_message_preview LIKE '📷 %' OR last_message_preview LIKE '🎬 %'
+     OR last_message_preview LIKE '🎤 %' OR last_message_preview LIKE '📎 %'
+     OR last_message_preview LIKE '📍 %';
   `,
 ];

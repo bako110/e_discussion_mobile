@@ -40,6 +40,7 @@ import {
   pendingMediaService,
   userService,
 } from '@/services';
+import { mediaCache } from '@/services/mediaCache';
 import { retryFailedDecryptions, syncNow } from '@/sync/syncEngine';
 import type { ChatMessage, MessageType, RequestStatus } from '@/types';
 import { dayLabel, lastSeenLabel } from '@/utils/time';
@@ -355,8 +356,10 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     (m: LocalMessage) => {
       const raw = mediaUrl(m.attachment_url);
       if (!raw) return;
+      // si déjà téléchargé -> on ouvre le FICHIER LOCAL (marche hors-ligne)
+      const local = mediaCache.localFor(m.attachment_url);
       navigation.navigate('MediaViewer', {
-        url: raw,
+        url: local ?? raw,
         type: m.type === 'video' ? 'video' : 'image',
         thumbnailUrl: mediaUrl(
           (m.attachment_meta?.thumbnail_url as string | undefined) ?? undefined,
@@ -366,10 +369,16 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     [navigation],
   );
 
-  const onOpenFile = useCallback((m: LocalMessage) => {
-    const raw = mediaUrl(m.attachment_url);
-    if (raw) void Linking.openURL(raw).catch(() => showAlert(t('errors.generic')));
-  }, [t]);
+  const onOpenFile = useCallback(
+    async (m: LocalMessage) => {
+      // télécharge d'abord si besoin, puis ouvre le fichier local
+      const local =
+        mediaCache.localFor(m.attachment_url) ?? (await mediaCache.fetchNow(m.attachment_url));
+      const target = local ?? mediaUrl(m.attachment_url);
+      if (target) void Linking.openURL(target).catch(() => showAlert(t('errors.generic')));
+    },
+    [t],
+  );
 
   const onOpenLocation = useCallback((lat: number, lng: number) => {
     const url =

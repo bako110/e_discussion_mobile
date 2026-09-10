@@ -6,6 +6,7 @@ import { CachedImage, Icon } from '@/components/common';
 import { useChatPrefs } from '@/context/ChatPrefsContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { LocalMessage } from '@/db/repositories/messageRepo';
+import { useCachedMedia } from '@/hooks/useCachedMedia';
 import { clockTime } from '@/utils/time';
 import { mediaUrl } from '@/utils/media';
 import { VoiceNoteBubble } from './VoiceNoteBubble';
@@ -74,6 +75,9 @@ export const MessageBubble: React.FC<Props> = ({
   const { fontScale } = useChatPrefs();
   const c = theme.colors;
 
+  // état du fichier joint vis-à-vis du cache disque persistant (hook : avant tout return)
+  const cached = useCachedMedia(message.attachment_url);
+
   if (message.deleted_at) {
     return (
       <View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs]}>
@@ -112,28 +116,18 @@ export const MessageBubble: React.FC<Props> = ({
       ? (metaNum(meta, 'width') as number) / (metaNum(meta, 'height') as number)
       : 1;
 
+  const attSize = metaNum(meta, 'size');
+
   const renderAttachment = () => {
-    if (isMediaType && hasAttachment) {
-      // vidéo pas encore uploadée : `thumb` est un file://…mp4 (pas une image)
-      // -> on n'affiche pas <Image>, juste un fond neutre + play + spinner.
-      const localVideoPending =
-        message.type === 'video' && message.pending && (thumb ?? '').startsWith('file:');
+    // ── IMAGE : auto-download selon réglage (CachedImage gère tout) ──────
+    if (message.type === 'image' && hasAttachment) {
       return (
         <Pressable
           onPress={() => onOpenMedia?.(message)}
           onLongPress={onLongPress}
           style={[styles.mediaWrap, { aspectRatio: Math.max(0.6, Math.min(1.9, ratio)) }]}
         >
-          {localVideoPending ? (
-            <View style={[styles.mediaImg, styles.videoPlaceholder]} />
-          ) : (
-            <CachedImage uri={thumb} style={styles.mediaImg} resizeMode="cover" />
-          )}
-          {message.type === 'video' ? (
-            <View style={styles.playOverlay}>
-              <Icon name="play" size={26} color="#fff" />
-            </View>
-          ) : null}
+          <CachedImage uri={thumb} style={styles.mediaImg} resizeMode="cover" />
           {message.pending ? (
             <View style={styles.mediaPending}>
               <ActivityIndicator color="#fff" />
@@ -142,11 +136,68 @@ export const MessageBubble: React.FC<Props> = ({
         </Pressable>
       );
     }
+
+    // ── VIDÉO : miniature + poids + bouton telecharger ; téléchargement au tap ───────────
+    if (message.type === 'video' && hasAttachment) {
+      const localVideoPending = message.pending && (cached.localUri ?? '').startsWith('file:') === false;
+      const ready = !!cached.localUri;
+      return (
+        <Pressable
+          onPress={() => {
+            if (message.pending) return;
+            if (ready) onOpenMedia?.(message);
+            else void cached.download();
+          }}
+          onLongPress={onLongPress}
+          style={[styles.mediaWrap, { aspectRatio: Math.max(0.6, Math.min(1.9, ratio)) }]}
+        >
+          {localVideoPending || !metaStr(meta, 'thumbnail_url') ? (
+            <View style={[styles.mediaImg, styles.videoPlaceholder]} />
+          ) : (
+            <CachedImage uri={mediaUrl(metaStr(meta, 'thumbnail_url') ?? undefined)} style={styles.mediaImg} resizeMode="cover" />
+          )}
+
+          {message.pending ? (
+            <View style={styles.mediaPending}>
+              <ActivityIndicator color="#fff" />
+            </View>
+          ) : ready ? (
+            <View style={styles.playOverlay}>
+              <View style={styles.playChip}>
+                <Icon name="play" size={24} color="#fff" />
+              </View>
+            </View>
+          ) : (
+            <View style={styles.playOverlay}>
+              <View style={styles.dlChip}>
+                {cached.downloading ? (
+                  <>
+                    <ActivityIndicator color="#fff" size="small" />
+                    <Text style={styles.dlChipText}>
+                      {Math.round(cached.progress * 100)}%
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="download" size={18} color="#fff" />
+                    {attSize ? (
+                      <Text style={styles.dlChipText}>{humanSize(attSize)}</Text>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            </View>
+          )}
+        </Pressable>
+      );
+    }
+
     if (isVoice) {
       return (
         <VoiceNoteBubble
           url={url}
           durationSec={metaNum(meta, 'duration_sec')}
+          sizeBytes={attSize}
           mine={mine}
           fg={fg}
         />
@@ -154,22 +205,34 @@ export const MessageBubble: React.FC<Props> = ({
     }
     if (isFile) {
       const name = metaStr(meta, 'name') ?? t('chat.file');
-      const size = humanSize(metaNum(meta, 'size'));
+      const size = humanSize(attSize);
+      const ready = !!cached.localUri;
       return (
-        <Pressable onPress={() => onOpenFile?.(message)} style={styles.fileRow}>
+        <Pressable
+          onPress={() => {
+            if (ready) onOpenFile?.(message);
+            else void cached.download();
+          }}
+          style={styles.fileRow}
+        >
           <View style={[styles.fileIcon, { backgroundColor: mine ? 'rgba(255,255,255,0.18)' : c.primary + '18' }]}>
-            <Icon name="file-document-outline" size={22} color={fg} />
+            {cached.downloading ? (
+              <ActivityIndicator color={fg} size="small" />
+            ) : (
+              <Icon name={ready ? 'file-document-outline' : 'download'} size={22} color={fg} />
+            )}
           </View>
           <View style={styles.flexShrink}>
             <Text style={[styles.fileName, { color: fg }]} numberOfLines={1}>
               {name}
             </Text>
-            {size ? (
-              <Text style={[styles.fileMeta, { color: fg, opacity: 0.65 }]}>{size}</Text>
-            ) : null}
-          </View>
-          <View style={{ opacity: 0.7 }}>
-            <Icon name="download" size={18} color={fg} />
+            <Text style={[styles.fileMeta, { color: fg, opacity: 0.65 }]}>
+              {cached.downloading
+                ? `${Math.round(cached.progress * 100)} %`
+                : ready
+                  ? size || t('chat.file')
+                  : [size, t('chat.tapToDownload')].filter(Boolean).join(' · ')}
+            </Text>
           </View>
         </Pressable>
       );
@@ -319,6 +382,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  playChip: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dlChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  dlChipText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   mediaPending: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',

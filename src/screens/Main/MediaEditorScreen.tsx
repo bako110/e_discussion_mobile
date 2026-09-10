@@ -18,6 +18,7 @@ import ViewShot from 'react-native-view-shot';
 
 import { Icon, showAlert } from '@/components/common';
 import { asDisplayUri, cropImage, getImageSize } from '@/utils/imageEdit';
+import { trimVideo } from '@/utils/videoEdit';
 import {
   DRAW_COLORS,
   STICKER_EMOJIS,
@@ -94,7 +95,12 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   const mediaType: StoryMediaType =
     local.kind === 'image' ? 'image' : local.kind === 'video' ? 'video' : 'audio';
   const isImage = mediaType === 'image';
+  const isVideo = mediaType === 'video';
   const [imageUri, setImageUri] = useState<string>(asDisplayUri(local.file.uri));
+  // fichier vidéo courant (peut être remplacé par un segment découpé)
+  const [videoFile, setVideoFile] = useState(local.file);
+  const [videoDurationSec, setVideoDurationSec] = useState<number>(local.durationSec ?? 15);
+  const [trimming, setTrimming] = useState(false);
   // ratio réel de l'image affichée (w/h). Le canvas capturable est dimensionné
   // À CE RATIO -> ce qu'on voit == ce qui est capturé == ce que voit l'autre.
   const [imgRatio, setImgRatio] = useState<number>(
@@ -176,6 +182,24 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
     }
   };
 
+  // ── découpe vidéo : l'utilisateur choisit le segment à montrer ──────────
+  const cut = async () => {
+    if (!isVideo || trimming) return;
+    setTrimming(true);
+    try {
+      const res = await trimVideo(videoFile.uri, { headerText: t('stories.trimVideo') });
+      if (res) {
+        setVideoFile((f) => ({ ...f, uri: res.uri }));
+        if (res.durationSec > 0) setVideoDurationSec(res.durationSec);
+        setImageUri(asDisplayUri(res.uri)); // rafraîchit l'aperçu
+      }
+    } catch (e) {
+      console.warn('[editor] trim failed:', e);
+    } finally {
+      setTrimming(false);
+    }
+  };
+
   // ── stickers ──────────────────────────────────────────────────────────
   const addSticker = (emoji: string) => {
     setStickers((s) => [
@@ -209,8 +233,8 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
         finalUrl = up.url;
         finalThumb = up.thumbnail_url ?? undefined;
       } else {
-        // vidéo / audio : upload du fichier local tel quel
-        const up = await mediaService.upload(local.file);
+        // vidéo (éventuellement découpée) / audio : upload du fichier local
+        const up = await mediaService.upload(isVideo ? videoFile : local.file);
         finalUrl = up.url;
         finalThumb = up.thumbnail_url ?? undefined;
         if (mediaType === 'audio') audioUrl = up.url;
@@ -224,9 +248,10 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
         background_color: isImage ? undefined : bg,
         audio_url: audioUrl,
         audience,
+        // pas de plafond : l'utilisateur a déjà choisi le segment via la découpe
         duration_sec:
           mediaType === 'video' || mediaType === 'audio'
-            ? Math.min(120, Math.max(3, Math.round(local.durationSec ?? 15)))
+            ? Math.max(3, Math.round((isVideo ? videoDurationSec : local.durationSec) ?? 15))
             : 6,
       });
       await reload();
@@ -345,6 +370,15 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <Icon name="crop" size={22} color="#fff" />
+              )}
+            </Pressable>
+          ) : null}
+          {isVideo ? (
+            <Pressable onPress={cut} hitSlop={10} style={styles.iconBtn} disabled={trimming}>
+              {trimming ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Icon name="content-cut" size={22} color="#fff" />
               )}
             </Pressable>
           ) : null}

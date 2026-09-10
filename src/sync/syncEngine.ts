@@ -28,11 +28,11 @@ const LAST_SYNC_KEY = 'last_sync_at';
 
 /** Aperçu court d'une conversation quand le dernier message est une pièce jointe sans texte. */
 const ATTACH_PREVIEW: Record<string, string> = {
-  image: '📷 Photo',
-  video: '🎬 Vidéo',
-  voice: '🎤 Message vocal',
-  file: '📎 Document',
-  location: '📍 Position',
+  image: 'Photo',
+  video: 'Vidéo',
+  voice: 'Message vocal',
+  file: 'Document',
+  location: 'Position',
 };
 
 // id de l'utilisateur courant — pose par AuthContext, sert a distinguer NOS

@@ -159,7 +159,8 @@
     "fromGallery": "Gallery",
     "fromCamera": "Camera",
     "send": "Send",
-    "cropTitle": "Crop"
+    "cropTitle": "Crop",
+    "trimVideo": "Trim video"
   },
   "groups": {
     "new": "New",
@@ -521,6 +522,7 @@
     "attachLocation": "Location",
     "attachTitle": "Attach",
     "addCaption": "Add a caption…",
+    "trimVideo": "Trim video",
     "locationShared": "Location shared",
     "locationSharing": "Getting your location…",
     "locationDenied": "Allow location access to share your position.",
@@ -533,6 +535,8 @@
     "photo": "Photo",
     "video": "Video",
     "file": "Document",
+    "tapToDownload": "Tap to download",
+    "downloading": "Downloading…",
     "emptyTitle": "Start the conversation",
     "emptyBody": "Send {{name}} a first message — your chats are end-to-end encrypted.",
     "quickHello": "Hi 👋",

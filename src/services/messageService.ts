@@ -18,15 +18,15 @@ import { messageService as netMessageService } from './messageService.net';
 function attachmentPreview(type: MessageType): string {
   switch (type) {
     case 'image':
-      return '📷 Photo';
+      return 'Photo';
     case 'video':
-      return '🎬 Vidéo';
+      return 'Vidéo';
     case 'voice':
-      return '🎤 Message vocal';
+      return 'Message vocal';
     case 'file':
-      return '📎 Document';
+      return 'Document';
     case 'location':
-      return '📍 Position';
+      return 'Position';
     default:
       return '';
   }

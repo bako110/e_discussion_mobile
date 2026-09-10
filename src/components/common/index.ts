@@ -14,6 +14,12 @@ export {
   type SheetAction,
   type SheetOptions,
 } from './ActionSheet';
+export {
+  CropModalHost,
+  openCrop,
+  type CropModalOpts,
+  type CropModalResult,
+} from './CropModal';
 export { Avatar } from './Avatar';
 export { BrandLogo } from './BrandLogo';
 export { Button } from './Button';

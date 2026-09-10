@@ -18,10 +18,10 @@ import { newClientId, outbox } from '@/sync/outbox';
 import type { MessageType } from '@/types';
 
 const PREVIEW: Record<string, string> = {
-  image: '📷 Photo',
-  video: '🎬 Vidéo',
-  voice: '🎤 Message vocal',
-  file: '📎 Document',
+  image: 'Photo',
+  video: 'Vidéo',
+  voice: 'Message vocal',
+  file: 'Document',
 };
 
 function kindToType(kind: LocalMediaFile['kind']): MessageType {

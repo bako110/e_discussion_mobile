@@ -11,6 +11,7 @@ import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 
 import { Icon } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
+import { useCachedMedia } from '@/hooks/useCachedMedia';
 import { mediaUrl } from '@/utils/media';
 
 const player = new AudioRecorderPlayer();
@@ -84,16 +85,34 @@ function fmt(ms: number): string {
 interface Props {
   url: string | null | undefined;
   durationSec?: number | null;
+  sizeBytes?: number | null;
   mine: boolean;
   fg: string;
 }
 
-export const VoiceNoteBubble: React.FC<Props> = ({ url, durationSec, mine, fg }) => {
+function humanSize(bytes: number | null | undefined): string {
+  if (!bytes || bytes <= 0) return '';
+  const u = ['o', 'Ko', 'Mo', 'Go'];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) {
+    n /= 1024;
+    i += 1;
+  }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
+}
+
+export const VoiceNoteBubble: React.FC<Props> = ({ url, durationSec, sizeBytes, mine, fg }) => {
   const { theme } = useTheme();
   const c = theme.colors;
-  const resolved = mediaUrl(url) ?? null;
   const [, force] = useState(0);
   const mounted = useRef(true);
+
+  // le vocal ne se télécharge qu'au tap (comme WhatsApp) ; une fois local il
+  // reste jouable hors-ligne.
+  const cached = useCachedMedia(url);
+  // ce qu'on donne au lecteur : le fichier local si dispo, sinon l'URL distante
+  const resolved = cached.localUri ?? mediaUrl(url) ?? null;
 
   useEffect(() => {
     mounted.current = true;
@@ -117,23 +136,47 @@ export const VoiceNoteBubble: React.FC<Props> = ({ url, durationSec, mine, fg })
         : 0;
   const label = active && state.position > 0 ? fmt(state.position) : fmt(totalMs);
 
-  const onPress = useCallback(() => {
-    if (resolved) void toggleShared(resolved);
-  }, [resolved]);
+  const onPress = useCallback(async () => {
+    // pas encore en local -> on télécharge d'abord, puis on joue
+    let playUri = cached.localUri;
+    if (!playUri) {
+      playUri = await cached.download();
+      if (!playUri) return;
+    }
+    void toggleShared(playUri);
+  }, [cached]);
 
   const track = mine ? 'rgba(255,255,255,0.35)' : c.border;
   const fill = mine ? '#fff' : c.primary;
+  const needsDownload = !cached.localUri && !!url;
+  const sub = cached.downloading
+    ? `${Math.round(cached.progress * 100)} %`
+    : needsDownload
+      ? [humanSize(sizeBytes), fmt(totalMs)].filter(Boolean).join(' · ') || label
+      : label;
 
   return (
-    <Pressable onPress={onPress} style={styles.row} disabled={!resolved}>
+    <Pressable onPress={onPress} style={styles.row} disabled={cached.downloading}>
       <View style={[styles.playBtn, { backgroundColor: mine ? 'rgba(255,255,255,0.2)' : c.primary + '22' }]}>
-        <Icon name={playing ? 'pause' : 'play'} size={18} color={fg} />
+        <Icon
+          name={cached.downloading ? 'progress-download' : needsDownload ? 'download' : playing ? 'pause' : 'play'}
+          size={18}
+          color={fg}
+        />
       </View>
       <View style={styles.waveArea}>
         <View style={[styles.track, { backgroundColor: track }]}>
-          <View style={[styles.fill, { backgroundColor: fill, width: `${progress * 100}%` }]} />
+          <View
+            style={[
+              styles.fill,
+              {
+                backgroundColor: fill,
+                width: `${(cached.downloading ? cached.progress : progress) * 100}%`,
+              },
+            ]}
+          />
         </View>
-        <Text style={[styles.time, { color: fg, opacity: 0.75 }]}>{label}</Text>
+        <Text style={[styles.time, { color: fg, opacity: 0.75 }]}>{sub}</Text>
       </View>
       <View style={{ opacity: 0.6 }}>
         <Icon name="microphone" size={15} color={fg} />

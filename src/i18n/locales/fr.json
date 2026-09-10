@@ -159,7 +159,8 @@
     "fromGallery": "Galerie",
     "fromCamera": "Caméra",
     "send": "Envoyer",
-    "cropTitle": "Recadrer"
+    "cropTitle": "Recadrer",
+    "trimVideo": "Découper la vidéo"
   },
   "groups": {
     "new": "Nouveau",
@@ -521,6 +522,7 @@
     "attachLocation": "Localisation",
     "attachTitle": "Joindre",
     "addCaption": "Ajouter une légende…",
+    "trimVideo": "Découper la vidéo",
     "locationShared": "Position partagée",
     "locationSharing": "Récupération de la position…",
     "locationDenied": "Autorisez la localisation pour partager votre position.",
@@ -533,6 +535,8 @@
     "photo": "Photo",
     "video": "Vidéo",
     "file": "Document",
+    "tapToDownload": "Appuyer pour télécharger",
+    "downloading": "Téléchargement…",
     "emptyTitle": "Démarrez la conversation",
     "emptyBody": "Envoyez un premier message à {{name}} — vos échanges sont chiffrés de bout en bout.",
     "quickHello": "Salut 👋",

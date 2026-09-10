@@ -24,10 +24,10 @@ import type {
 import { newClientId, outbox } from '@/sync/outbox';
 
 const PREVIEW: Record<string, string> = {
-  image: '📷 Photo',
-  video: '🎬 Vidéo',
-  voice: '🎤 Message vocal',
-  file: '📎 Document',
+  image: 'Photo',
+  video: 'Vidéo',
+  voice: 'Message vocal',
+  file: 'Document',
 };
 
 export const groupService = {

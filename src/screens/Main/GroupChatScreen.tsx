@@ -14,7 +14,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, CachedImage, Icon, Screen, showAlert, showSheet } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showAlert, showSheet } from '@/components/common';
+import { GroupAttachment } from '@/components/chat/GroupAttachment';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
@@ -28,6 +29,8 @@ import { groupRepo } from '@/db/repositories/groupRepo';
 import { useSync } from '@/context/SyncContext';
 import { syncNow } from '@/sync/syncEngine';
 import { mediaUrl } from '@/utils/media';
+import { cropImage } from '@/utils/imageEdit';
+import { trimVideo } from '@/utils/videoEdit';
 import { clockTime, dayLabel } from '@/utils/time';
 
 /**
@@ -143,17 +146,43 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
           ? await picker.pickVideoLocal()
           : await picker.pickDocumentLocal();
     if (!local) return;
+
+    // Édition locale AVANT envoi (comme WhatsApp) : recadrer une photo,
+    // découper le segment d'une vidéo. `null` -> l'utilisateur garde l'original.
+    let file = local.file;
+    let width = local.width;
+    let height = local.height;
+    let durationSec = local.durationSec;
+    try {
+      if (local.kind === 'image') {
+        const r = await cropImage(local.file.uri, { freeStyle: true, title: t('stories.cropTitle') });
+        if (r) {
+          file = { ...file, uri: r.uri };
+          width = r.width || width;
+          height = r.height || height;
+        }
+      } else if (local.kind === 'video') {
+        const r = await trimVideo(local.file.uri, { headerText: t('chat.trimVideo') });
+        if (r) {
+          file = { ...file, uri: r.uri };
+          durationSec = r.durationSec || durationSec;
+        }
+      }
+    } catch (e) {
+      console.warn('[group] media edit failed:', e);
+    }
+
     setSending(true);
     try {
       await groupService.sendMedia({
         groupId,
         senderId: myId,
-        localFile: local.file,
+        localFile: file,
         kind: local.kind,
         meta: {
-          width: local.width ?? undefined,
-          height: local.height ?? undefined,
-          duration_sec: local.durationSec ?? undefined,
+          width: width ?? undefined,
+          height: height ?? undefined,
+          duration_sec: durationSec ?? undefined,
           size: local.size ?? undefined,
         },
       });
@@ -222,39 +251,20 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
               </Text>
             ) : null}
 
-            {item.attachment_url && (item.type === 'image' || item.type === 'video') ? (
-              <Pressable
-                onPress={() =>
+            {item.attachment_url ? (
+              <GroupAttachment
+                message={item}
+                mine={mine}
+                onOpenMedia={(target, type) =>
                   navigation.navigate('MediaViewer', {
-                    url: mediaUrl(item.attachment_url) ?? item.attachment_url!,
-                    type: item.type === 'video' ? 'video' : 'image',
+                    url: target,
+                    type,
                     thumbnailUrl: mediaUrl(
                       item.attachment_meta?.thumbnail_url as string | undefined,
                     ),
                   })
                 }
-                style={styles.attachWrap}
-              >
-                <CachedImage
-                  uri={
-                    (item.attachment_meta?.thumbnail_url as string | undefined) ??
-                    item.attachment_url ??
-                    undefined
-                  }
-                  style={styles.attachImg}
-                  resizeMode="cover"
-                />
-                {item.type === 'video' ? (
-                  <View style={styles.attachPlay}>
-                    <Icon name="play" size={22} color="#fff" />
-                  </View>
-                ) : null}
-                {item.pending ? (
-                  <View style={styles.attachPending}>
-                    <ActivityIndicator color="#fff" />
-                  </View>
-                ) : null}
-              </Pressable>
+              />
             ) : null}
 
             {item.body ? (

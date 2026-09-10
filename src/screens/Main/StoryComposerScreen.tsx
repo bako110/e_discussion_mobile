@@ -119,7 +119,7 @@ export const StoryComposerScreen: React.FC = () => {
           audience,
           duration_sec:
             media.media_type === 'video' || media.media_type === 'audio'
-              ? Math.min(120, Math.max(3, Math.round(media.duration_sec ?? 15)))
+              ? Math.max(3, Math.round(media.duration_sec ?? 15))
               : 6,
         });
       }

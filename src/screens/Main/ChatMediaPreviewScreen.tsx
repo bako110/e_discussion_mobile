@@ -28,6 +28,7 @@ import { pendingMediaService } from '@/services';
 import { syncNow } from '@/sync/syncEngine';
 import type { LocalMediaFile } from '@/hooks/useMediaPicker';
 import { asDisplayUri, cropImage } from '@/utils/imageEdit';
+import { trimVideo } from '@/utils/videoEdit';
 
 export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'>> = ({
   route,
@@ -43,6 +44,7 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
   const [caption, setCaption] = useState('');
   const [sending, setSending] = useState(false);
   const [cropping, setCropping] = useState(false);
+  const [trimming, setTrimming] = useState(false);
 
   // `local.file.uri` peut être `content://…` (galerie Android), `file://…`,
   // un chemin absolu nu, ou `http…`. `asDisplayUri` ne préfixe `file://` QUE
@@ -72,6 +74,26 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
       showAlert(t('errors.generic'));
     } finally {
       setCropping(false);
+    }
+  };
+
+  const cut = async () => {
+    if (!isVideo || trimming) return;
+    setTrimming(true);
+    try {
+      const res = await trimVideo(local.file.uri, { headerText: t('chat.trimVideo') });
+      if (res) {
+        setLocal((cur) => ({
+          ...cur,
+          file: { ...cur.file, uri: res.uri },
+          durationSec: res.durationSec || cur.durationSec,
+          size: null,
+        }));
+      }
+    } catch (e) {
+      console.warn('[chat-preview] trim failed:', e);
+    } finally {
+      setTrimming(false);
     }
   };
 
@@ -107,6 +129,15 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
               <ActivityIndicator color="#fff" size="small" />
             ) : (
               <Icon name="crop" size={22} color="#fff" />
+            )}
+          </Pressable>
+        ) : null}
+        {isVideo ? (
+          <Pressable onPress={cut} hitSlop={12} style={styles.iconBtn} disabled={trimming}>
+            {trimming ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Icon name="content-cut" size={22} color="#fff" />
             )}
           </Pressable>
         ) : null}
