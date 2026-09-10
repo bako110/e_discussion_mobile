@@ -48,14 +48,43 @@ import { E2EE_ENABLED } from '@/utils/constants';
 import { dayLabel, lastSeenLabel } from '@/utils/time';
 import { mediaUrl } from '@/utils/media';
 
-type Item = { kind: 'msg'; m: LocalMessage } | { kind: 'day'; label: string; key: string };
+type Item =
+  | { kind: 'msg'; m: LocalMessage }
+  | { kind: 'day'; label: string; key: string }
+  | { kind: 'unread'; count: number; key: string };
 
-function withDaySeparators(messages: LocalMessage[]): Item[] {
-  // messages triés du plus récent au plus ancien (liste inversée)
+/**
+ * Construit la liste affichée (inversée : plus récent en premier) avec les
+ * séparateurs de jour et, si `unreadCount > 0`, une barre « X messages non lus »
+ * insérée JUSTE au-dessus du premier message non lu — c.-à-d. avant le plus
+ * ancien des `unreadCount` derniers messages reçus (non envoyés par moi).
+ */
+function withDaySeparators(
+  messages: LocalMessage[],
+  unreadCount: number,
+  myId: string,
+): Item[] {
+  // id du 1er message non lu = le plus ancien des `unreadCount` messages reçus
+  let firstUnreadId: string | null = null;
+  if (unreadCount > 0) {
+    let seen = 0;
+    for (const m of messages) {
+      // liste déjà triée du + récent au + ancien
+      if (m.sender_id === myId) continue;
+      seen += 1;
+      firstUnreadId = m.id;
+      if (seen >= unreadCount) break;
+    }
+  }
+
   const out: Item[] = [];
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]!;
     out.push({ kind: 'msg', m });
+    if (m.id === firstUnreadId) {
+      // barre APRÈS le message dans la liste inversée = visuellement AU-DESSUS
+      out.push({ kind: 'unread', count: unreadCount, key: `unread-${m.id}` });
+    }
     const next = messages[i + 1];
     if (!next || new Date(m.created_at).toDateString() !== new Date(next.created_at).toDateString()) {
       out.push({ kind: 'day', label: dayLabel(m.created_at), key: `day-${m.id}` });
@@ -76,6 +105,10 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const { available: callsAvailable, startCall, phase: callPhase } = useCall();
 
   const [messages, setMessages] = useState<LocalMessage[]>([]);
+  // nombre de messages non lus à l'ouverture — figé pour la durée de l'écran,
+  // sert à positionner la barre « X messages non lus » (façon WhatsApp).
+  const [unreadAtOpen, setUnreadAtOpen] = useState(0);
+  const unreadCaptured = useRef(false);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -109,6 +142,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     if (conv) {
       setRequestStatus(conv.request_status);
       setPartnerOnline(conv.partner.is_online);
+      // capture unique : après le 1er reload, markRead a déjà remis le compteur
+      // à 0, donc on ne le relit plus.
+      if (!unreadCaptured.current) {
+        unreadCaptured.current = true;
+        setUnreadAtOpen(conv.unread_count > 0 ? conv.unread_count : 0);
+      }
+    } else if (!unreadCaptured.current) {
+      unreadCaptured.current = true;
     }
     setLoading(false);
   }, [conversationId]);
@@ -132,10 +173,12 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   }, [conversationId, partnerId]);
 
   useEffect(() => {
-    void reload();
+    // 1) on lit d'abord le compteur non-lus + les messages, PUIS on marque lu
+    //    (sinon markRead remet le compteur à 0 avant qu'on l'ait capturé).
+    void reload().then(() => {
+      void messageService.markRead(conversationId, myId);
+    });
     void refreshDetail();
-    // marque lu (local + outbox) + tente une sync delta pour cette conv
-    void messageService.markRead(conversationId, myId);
     // filet : messages "pending" restés sans entrée d'outbox (app tuée) -> ré-empile
     void messageService.recoverOrphanPending(myId).then((n) => {
       if (n > 0) void reload();
@@ -757,7 +800,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   ];
 
   const c = theme.colors;
-  const items = withDaySeparators(messages);
+  const items = withDaySeparators(messages, unreadAtOpen, myId);
 
   // si MA connexion est coupée, je ne peux pas savoir si le partenaire est en
   // ligne -> on n'affiche plus le point vert ni « en ligne » (comme WhatsApp).
@@ -901,6 +944,19 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                     <View style={[styles.dayPill, { backgroundColor: c.surfaceAlt }]}>
                       <Text style={[styles.dayText, { color: c.textMuted }]}>{item.label}</Text>
                     </View>
+                  </View>
+                );
+              }
+              if (item.kind === 'unread') {
+                return (
+                  <View style={styles.unreadWrap}>
+                    <View style={[styles.unreadLine, { backgroundColor: c.primary + '55' }]} />
+                    <View style={[styles.unreadPill, { backgroundColor: c.primary + '1A' }]}>
+                      <Text style={[styles.unreadText, { color: c.primary }]}>
+                        {t('chat.unreadDivider', { count: item.count })}
+                      </Text>
+                    </View>
+                    <View style={[styles.unreadLine, { backgroundColor: c.primary + '55' }]} />
                   </View>
                 );
               }
@@ -1199,6 +1255,16 @@ const styles = StyleSheet.create({
   offlineText: { fontSize: 12, fontWeight: '600' },
   dayWrap: { alignItems: 'center', marginVertical: 8 },
   dayPill: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  unreadWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginVertical: 10,
+    paddingHorizontal: 16,
+  },
+  unreadLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  unreadPill: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  unreadText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.2 },
   dayText: { fontSize: 12, fontWeight: '600' },
   composer: {
     flexDirection: 'row',

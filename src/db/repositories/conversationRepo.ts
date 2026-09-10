@@ -122,6 +122,11 @@ export const conversationRepo = {
     await run('UPDATE conversations SET unread_count=? WHERE id=?', [count, id]);
   },
 
+  /** +1 au compteur non-lus (message entrant temps réel, chat non ouvert). */
+  async incrementUnread(id: string): Promise<void> {
+    await run('UPDATE conversations SET unread_count = unread_count + 1 WHERE id=?', [id]);
+  },
+
   async setRequestStatus(id: string, status: RequestStatus): Promise<void> {
     await run('UPDATE conversations SET request_status=?, sync_state=\'pending\' WHERE id=?', [
       status,

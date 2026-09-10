@@ -183,6 +183,7 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
         return;
       }
       if (data.type === 'auth.ok') {
+        console.warn('[ws] auth.ok — socket active');
         setConnected(true);
         reconnectAttempt.current = 0;
         lastPong.current = Date.now();
@@ -191,6 +192,11 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
       if (data.type === 'pong') {
         lastPong.current = Date.now();
         return;
+      }
+      if (data.type === 'message.new') {
+        console.warn(
+          `[ws] RX message.new -> ${listeners.current.size} listener(s)`,
+        );
       }
       listeners.current.forEach((fn) => fn(data));
     };

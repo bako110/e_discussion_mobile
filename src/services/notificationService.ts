@@ -56,46 +56,58 @@ export async function ensureNotificationSetup(): Promise<void> {
     _channelsReady = true;
     return;
   }
-  await notifee.createChannel({
-    id: CH_CALLS,
-    name: 'Appels',
-    importance: AndroidImportance.HIGH,
-    sound: 'ringtone', // res/raw/ringtone.mp3 (fallback : son système)
-    vibration: true,
-    vibrationPattern: [0, 1000, 800, 1000, 800, 1000],
-    visibility: AndroidVisibility.PUBLIC,
-    bypassDnd: true,
-  });
-  await notifee.createChannel({
-    id: CH_MESSAGES,
-    name: 'Messages',
-    importance: AndroidImportance.HIGH,
-    sound: 'default',
-    vibration: true,
-    visibility: AndroidVisibility.PRIVATE,
-  });
-  await notifee.createChannel({
-    id: 'messages_novib',
-    name: 'Messages (sans vibreur)',
-    importance: AndroidImportance.HIGH,
-    sound: 'default',
-    vibration: false,
-    visibility: AndroidVisibility.PRIVATE,
-  });
-  await notifee.createChannel({
-    id: 'messages_silent',
-    name: 'Messages (silencieux)',
-    importance: AndroidImportance.HIGH,
-    vibration: true,
-    visibility: AndroidVisibility.PRIVATE,
-  });
-  await notifee.createChannel({
-    id: 'messages_quiet',
-    name: 'Messages (discret)',
-    importance: AndroidImportance.DEFAULT,
-    vibration: false,
-    visibility: AndroidVisibility.PRIVATE,
-  });
+  // Chaque canal est créé indépendamment : si l'un échoue (config invalide),
+  // il ne doit PAS empêcher les autres — sinon plus aucune notif du tout.
+  const channels: Parameters<typeof notifee.createChannel>[0][] = [
+    {
+      id: CH_CALLS,
+      name: 'Appels',
+      importance: AndroidImportance.HIGH,
+      sound: 'ringtone', // res/raw/ringtone.mp3 (fallback : son système)
+      vibration: true,
+      // valeurs STRICTEMENT POSITIVES, nombre PAIR (attente/vibration).
+      vibrationPattern: [400, 800, 400, 800, 400, 1000],
+      visibility: AndroidVisibility.PUBLIC,
+      bypassDnd: true,
+    },
+    {
+      id: CH_MESSAGES,
+      name: 'Messages',
+      importance: AndroidImportance.HIGH,
+      sound: 'default',
+      vibration: true,
+      visibility: AndroidVisibility.PRIVATE,
+    },
+    {
+      id: 'messages_novib',
+      name: 'Messages (sans vibreur)',
+      importance: AndroidImportance.HIGH,
+      sound: 'default',
+      vibration: false,
+      visibility: AndroidVisibility.PRIVATE,
+    },
+    {
+      id: 'messages_silent',
+      name: 'Messages (silencieux)',
+      importance: AndroidImportance.HIGH,
+      vibration: true,
+      visibility: AndroidVisibility.PRIVATE,
+    },
+    {
+      id: 'messages_quiet',
+      name: 'Messages (discret)',
+      importance: AndroidImportance.DEFAULT,
+      vibration: false,
+      visibility: AndroidVisibility.PRIVATE,
+    },
+  ];
+  for (const ch of channels) {
+    try {
+      await notifee.createChannel(ch);
+    } catch (e) {
+      console.warn(`[notif] createChannel(${ch.id}) a échoué:`, String(e));
+    }
+  }
   _channelsReady = true;
 }
 

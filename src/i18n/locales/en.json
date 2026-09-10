@@ -650,6 +650,8 @@
     "voiceNote": "Voice message",
     "recording": "Recording…",
     "recordingAudio": "recording audio…",
+    "unreadDivider": "{{count}} unread message",
+    "unreadDivider_other": "{{count}} unread messages",
     "photo": "Photo",
     "video": "Video",
     "file": "Document",
