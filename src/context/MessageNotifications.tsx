@@ -63,6 +63,7 @@ export const MessageNotifications: React.FC = () => {
 
   useEffect(() => {
     if (!me) return;
+    console.warn('[notif] MessageNotifications monté, écoute WS');
     const off = addListener((e: WsEvent) => {
       if (e.type !== 'message.new') return;
       const msg = e.message as ChatMessage | undefined;
@@ -70,18 +71,33 @@ export const MessageNotifications: React.FC = () => {
       const convId = (msg as { conversation_id?: string }).conversation_id;
       if (!convId) return;
 
-      // notifications de messages désactivées dans les réglages
-      if (!getNotifPrefs().messages) return;
-
-      // pas de notif pour mes propres messages (echo multi-device)
+      const prefs = getNotifPrefs();
       const senderId = (msg as { sender_id?: string }).sender_id;
-      if (senderId && senderId === me.id) return;
-
-      // ni si je regarde déjà cette conversation, app au premier plan
       const focused = AppState.currentState === 'active';
       const onThisChat =
         navigationRef.isReady() && activeConversationId() === convId;
-      if (focused && onThisChat) return;
+      console.warn(
+        `[notif] message.new conv=${convId.slice(0, 8)} from=${String(senderId).slice(0, 8)} ` +
+          `prefs.messages=${prefs.messages} appState=${AppState.currentState} onThisChat=${onThisChat}`,
+      );
+
+      // notifications de messages désactivées dans les réglages
+      if (!prefs.messages) {
+        console.warn('[notif] -> ABANDON: prefs.messages=false');
+        return;
+      }
+
+      // pas de notif pour mes propres messages (echo multi-device)
+      if (senderId && senderId === me.id) {
+        console.warn('[notif] -> ABANDON: mon propre message');
+        return;
+      }
+
+      // ni si je regarde déjà cette conversation, app au premier plan
+      if (focused && onThisChat) {
+        console.warn('[notif] -> ABANDON: app active sur cette conv');
+        return;
+      }
 
       const sender = (msg as {
         sender?: {
@@ -102,7 +118,11 @@ export const MessageNotifications: React.FC = () => {
 
       // conversation en sourdine -> pas de notif OS (le compteur reste à jour)
       void conversationRepo.get(convId).then((conv) => {
-        if (conv?.muted) return;
+        if (conv?.muted) {
+          console.warn('[notif] -> ABANDON: conversation en sourdine');
+          return;
+        }
+        console.warn('[notif] -> displayMessageNotification()');
         void displayMessageNotification({
           conversationId: convId,
           senderId: senderId ?? '',
@@ -110,7 +130,10 @@ export const MessageNotifications: React.FC = () => {
           senderAvatar: sender?.avatar_url ?? null,
           preview,
           messageId: (msg as { id?: string }).id ?? '',
-        });
+        }).then(
+          () => console.warn('[notif] displayMessageNotification OK'),
+          (err) => console.warn('[notif] displayMessageNotification ERREUR:', String(err)),
+        );
       });
     });
     return off;
