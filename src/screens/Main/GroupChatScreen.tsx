@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, showAlert, showSheet } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, confirmAlert, showAlert, showSheet } from '@/components/common';
 import { GroupAttachment } from '@/components/chat/GroupAttachment';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
@@ -208,6 +208,100 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     });
   };
 
+  // ── Menu ⋮ du groupe / de la chaîne (bottom sheet façon WhatsApp) ─────────
+  const openGroupMenu = () => {
+    if (!group) return;
+    const role = group.my_role;
+    const isOwner = role === 'owner';
+    const isAdmin = isOwner || role === 'admin';
+    const chan = group.kind === 'channel';
+
+    const actions: {
+      label: string;
+      icon?: string;
+      destructive?: boolean;
+      onPress?: () => void;
+    }[] = [
+      {
+        label: chan ? t('groups.channelInfo') : t('groups.groupInfo'),
+        icon: 'information-outline',
+        onPress: () => navigation.navigate('GroupInfo', { groupId }),
+      },
+      {
+        label: chan ? t('groups.subscribers') : t('groups.members'),
+        icon: 'account-multiple-outline',
+        onPress: () => navigation.navigate('GroupInfo', { groupId }),
+      },
+      {
+        label: t('chat.sharedMedia'),
+        icon: 'image-multiple-outline',
+        onPress: () => navigation.navigate('GroupInfo', { groupId }),
+      },
+      {
+        label: group.muted ? t('chat.menuUnmute') : t('chat.menuMute'),
+        icon: group.muted ? 'bell-outline' : 'bell-off-outline',
+        onPress: () => {
+          void groupService.setMuted(groupId, !group.muted).then(() => {
+            void reload();
+            void reloadGroups();
+          });
+        },
+      },
+    ];
+
+    if (isAdmin) {
+      actions.push(
+        {
+          label: t('groups.addMembers'),
+          icon: 'account-plus-outline',
+          onPress: () => navigation.navigate('AddGroupMembers', { groupId }),
+        },
+        {
+          label: t('groups.editInfo'),
+          icon: 'pencil-outline',
+          onPress: () => navigation.navigate('GroupInfo', { groupId }),
+        },
+        {
+          label: t('groups.inviteLink'),
+          icon: 'link-variant',
+          onPress: () => navigation.navigate('GroupQr', { groupId }),
+        },
+      );
+    }
+
+    if (isOwner) {
+      actions.push({
+        label: chan ? t('groups.deleteChannel') : t('groups.deleteGroup'),
+        icon: 'trash-can-outline',
+        destructive: true,
+        onPress: () =>
+          confirmAlert(t('groups.deleteTitle'), t('groups.deleteBody'), async () => {
+            await groupService.remove(groupId);
+            void reloadGroups();
+            navigation.goBack();
+          }),
+      });
+    } else {
+      actions.push({
+        label: chan ? t('groups.leaveChannel') : t('groups.leaveGroup'),
+        icon: 'exit-to-app',
+        destructive: true,
+        onPress: () =>
+          confirmAlert(
+            chan ? t('groups.leaveChannelTitle') : t('groups.leaveGroupTitle'),
+            t('groups.leaveConfirm'),
+            async () => {
+              await groupService.leave(groupId);
+              void reloadGroups();
+              navigation.goBack();
+            },
+          ),
+      });
+    }
+
+    showSheet({ title: group.name, actions });
+  };
+
   // liste inversée + séparateurs de jour
   const data = [...messages].reverse();
 
@@ -322,10 +416,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
                 </Text>
               </View>
             </Pressable>
-            <Pressable
-              onPress={() => navigation.navigate('GroupInfo', { groupId })}
-              hitSlop={10}
-            >
+            <Pressable onPress={openGroupMenu} hitSlop={10}>
               <Icon name="dots-vertical" size={22} color={c.text} />
             </Pressable>
           </View>
