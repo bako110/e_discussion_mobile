@@ -760,6 +760,7 @@
   "channelLive": {
     "sectionTitle": "Live channels",
     "sectionEmpty": "None of the channels you follow are live right now.",
+    "searchEmpty": "No live channel matches \"{{q}}\".",
     "live": "LIVE",
     "viewers": "{{count}} viewer",
     "viewers_other": "{{count}} viewers",

@@ -143,6 +143,14 @@ export const StatusScreen: React.FC = () => {
   // Barre horizontale : non-vus d'abord, puis vus (ordre déjà donné par le service).
   const moments = filteredFeed;
 
+  // La recherche filtre aussi les chaînes en direct — même barre, même champ.
+  const filteredLiveChannels = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return liveChannels;
+    return liveChannels.filter((live) => (live.channel_name ?? '').toLowerCase().includes(q));
+  }, [liveChannels, query]);
+  const isSearching = query.trim().length > 0;
+
   /** total de vues cumulées sur toutes les stories actives d'un auteur. */
   const totalViews = useCallback(
     (item: StoryFeedItem) => item.stories.reduce((n, s) => n + (s.view_count || 0), 0),
@@ -514,15 +522,15 @@ export const StatusScreen: React.FC = () => {
               </Text>
             </View>
           </View>
-          {liveChannels.length > 0 ? (
-            liveChannels.map((live, i) => (
+          {filteredLiveChannels.length > 0 ? (
+            filteredLiveChannels.map((live, i) => (
               <Pressable
                 key={live.id}
                 onPress={() => openLiveChannel(live.group_id)}
                 android_ripple={{ color: c.surfaceAlt }}
                 style={[
                   styles.actRow,
-                  i < liveChannels.length - 1 && {
+                  i < filteredLiveChannels.length - 1 && {
                     borderBottomColor: c.divider,
                     borderBottomWidth: StyleSheet.hairlineWidth,
                   },
@@ -554,7 +562,11 @@ export const StatusScreen: React.FC = () => {
             <LiveEmptyState
               color="#E0203D"
               textColor={c.textMuted}
-              hint={t('channelLive.sectionEmpty')}
+              hint={
+                isSearching
+                  ? t('channelLive.searchEmpty', { q: query.trim() })
+                  : t('channelLive.sectionEmpty')
+              }
             />
           )}
         </ScrollView>

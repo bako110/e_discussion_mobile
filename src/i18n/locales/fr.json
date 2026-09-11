@@ -760,6 +760,7 @@
   "channelLive": {
     "sectionTitle": "Chaînes en direct",
     "sectionEmpty": "Aucune chaîne à laquelle vous êtes abonné ne diffuse en ce moment.",
+    "searchEmpty": "Aucune chaîne en direct pour « {{q}} ».",
     "live": "EN DIRECT",
     "viewers": "{{count}} spectateur",
     "viewers_other": "{{count}} spectateurs",
