@@ -11,11 +11,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import Svg, { Path } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 import ViewShot from 'react-native-view-shot';
-import Video from 'react-native-video';
+import Video, { type VideoRef } from 'react-native-video';
 
 import { Icon, showAlert } from '@/components/common';
 import { asDisplayUri, cropImage, getImageSize } from '@/utils/imageEdit';
@@ -136,6 +137,25 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   // ── aperçu vidéo : lecture réelle (tap = pause/reprise), au lieu de l'icône
   // ▶ statique d'avant — on voit ce qu'on va publier. ────────────────────
   const [videoPaused, setVideoPaused] = useState(false);
+  const videoRef = useRef<VideoRef>(null);
+  // coupe la vidéo dès que cet écran perd le focus — retour arrière, mais
+  // AUSSI publication (navigation.navigate vers l'onglet Statuts) : sans ça
+  // le composant <Video> pouvait rester monté un court instant pendant la
+  // transition et continuer à jouer (son + image) après avoir quitté l'écran.
+  // `safePause` encaisse le cas où le natif a déjà démonté la vue avant que
+  // ce cleanup ne tourne (sinon react-native-video lève une exception).
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        setVideoPaused(true);
+        try {
+          videoRef.current?.pause();
+        } catch {
+          /* vue déjà démontée côté natif — rien à faire */
+        }
+      };
+    }, []),
+  );
 
   // ── aperçu audio : lecture via le lecteur singleton partagé ─────────────
   const [, forceAudioRender] = useState(0);
@@ -334,6 +354,7 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
             // le composant peut réutiliser son instance native existante et
             // continuer d'afficher/jouer l'ancien fichier (6.x).
             key={videoFile.uri}
+            ref={videoRef}
             source={{ uri: videoFile.uri }}
             style={styles.media}
             resizeMode="contain"
