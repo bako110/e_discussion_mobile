@@ -572,7 +572,10 @@ const styles = StyleSheet.create({
   dayText: { fontSize: 11, fontWeight: '700', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
   sysWrap: { alignItems: 'center', marginVertical: 6 },
   sysText: { fontSize: 12, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, overflow: 'hidden' },
-  empty: { alignItems: 'center', gap: 8, paddingVertical: 60, transform: [{ scaleY: -1 }] },
+  // NB : pas de scaleY ici — ce bloc n'apparaît que comme ListEmptyComponent
+  // (FlatList inverted SANS message) ; un flip retournerait le RENDU du
+  // texte (miroir vertical, illisible), pas seulement sa position.
+  empty: { alignItems: 'center', gap: 8, paddingVertical: 60 },
   emptyText: { fontSize: 13 },
   composer: {
     flexDirection: 'row',

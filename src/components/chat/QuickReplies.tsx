@@ -61,8 +61,12 @@ export const QuickReplies: React.FC<Props> = ({ partnerName, onSend }) => {
 };
 
 const styles = StyleSheet.create({
-  // la FlatList est inversée → on remet le bloc à l'endroit
-  root: { transform: [{ scaleY: -1 }], paddingHorizontal: 20, paddingVertical: 24, alignItems: 'center' },
+  // NB : la FlatList parente est `inverted`, mais ce composant n'est monté
+  // QUE comme ListEmptyComponent (aucun message) — un `scaleY: -1` ici
+  // retournerait aussi le RENDU du texte (miroir vertical, illisible), pas
+  // seulement sa position. Rien à compenser : le contenu est centré et n'a
+  // pas de sens directionnel à préserver.
+  root: { paddingHorizontal: 20, paddingVertical: 24, alignItems: 'center' },
   card: {
     borderRadius: 16,
     padding: 16,
