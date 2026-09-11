@@ -59,9 +59,18 @@ export async function trimVideo(
     /* best-effort */
   }
 
-  const emitter = new NativeEventEmitter(
-    NativeModules.VideoTrim ?? NativeModules.RNVideoTrim,
-  );
+  // En New Architecture (Fabric/TurboModules — notre cas), les events de
+  // cette lib NE PASSENT PAS par `NativeEventEmitter`/`RCTDeviceEventEmitter` :
+  // ce sont des `EventEmitter` Codegen exposés comme méthodes directement sur
+  // le module natif (`nativeMod.onFinishTrimming(cb)` renvoie l'abonnement).
+  // Utiliser `NativeEventEmitter` ici ne lève AUCUNE erreur mais n'écoute
+  // jamais rien : le natif termine le trim (confirmé par les logs ffmpeg),
+  // l'event part bien, mais ce mauvais canal d'écoute ne le reçoit jamais —
+  // d'où le découpage qui semblait tourner indéfiniment (en fait terminé
+  // côté natif, jamais su côté JS). Cf. README de la lib, sections
+  // « New Architecture » vs « Old Architecture ».
+  const isFabric = !!(globalThis as any).nativeFabricUIManager;
+  const nativeMod = mod.default as any;
 
   return new Promise<TrimmedVideo | null>((resolve) => {
     let settled = false;
@@ -79,32 +88,75 @@ export async function trimVideo(
       if (settled) return;
       settled = true;
       cleanup();
+      clearTimeout(watchdog);
       resolve(val);
     };
+    // Filet de sécurité : si jamais AUCUN des deux canaux d'événements
+    // (New Arch EventEmitter / Old Arch NativeEventEmitter) ne délivre —
+    // exactement le bug qui nous a fait chercher pendant des heures un
+    // découpage "qui ne finit jamais" alors qu'il réussissait déjà côté
+    // natif — on n'attend plus indéfiniment. Largement au-dessus du temps
+    // d'un ré-encodage réel (quelques secondes à quelques dizaines de
+    // secondes pour une vidéo de story).
+    const watchdog = setTimeout(() => {
+      console.warn('[videoEdit] aucun événement de fin de trim reçu après 3min — abandon');
+      finish(null);
+    }, 180_000);
 
-    subs.push(
-      emitter.addListener('onFinishTrimming', (p: {
-        outputPath: string;
-        startTime: number;
-        endTime: number;
-        duration: number;
-      }) => {
-        finish({
-          uri: asDisplayUri(p.outputPath),
-          durationSec: Math.max(0, Math.round((p.duration ?? 0) / 1000)),
-          startSec: (p.startTime ?? 0) / 1000,
-          endSec: (p.endTime ?? 0) / 1000,
-        });
-      }),
-    );
-    subs.push(emitter.addListener('onCancel', () => finish(null)));
-    subs.push(emitter.addListener('onCancelTrimming', () => finish(null)));
-    subs.push(
-      emitter.addListener('onError', (p: { message?: string }) => {
-        console.warn('[videoEdit] onError:', p?.message);
-        finish(null);
-      }),
-    );
+    const onFinish = (p: {
+      outputPath: string;
+      startTime: number;
+      endTime: number;
+      duration: number;
+    }) => {
+      finish({
+        uri: asDisplayUri(p.outputPath),
+        durationSec: Math.max(0, Math.round((p.duration ?? 0) / 1000)),
+        startSec: (p.startTime ?? 0) / 1000,
+        endSec: (p.endTime ?? 0) / 1000,
+      });
+    };
+    const onErr = (p: { message?: string }) => {
+      console.warn('[videoEdit] onError:', p?.message);
+      finish(null);
+    };
+
+    if (isFabric && typeof nativeMod?.onFinishTrimming === 'function') {
+      // New Architecture : chaque event est une méthode EventEmitter directe.
+      subs.push(nativeMod.onFinishTrimming(onFinish));
+      subs.push(nativeMod.onCancel(() => finish(null)));
+      subs.push(nativeMod.onCancelTrimming(() => finish(null)));
+      subs.push(nativeMod.onError(onErr));
+    } else {
+      // Old Architecture : un seul canal `NativeEventEmitter`, events
+      // distingués par leur champ `name` (voir README, section Old Arch).
+      const emitter = new NativeEventEmitter(
+        NativeModules.VideoTrim ?? NativeModules.RNVideoTrim,
+      );
+      subs.push(
+        emitter.addListener('VideoTrim', (event: { name: string } & Record<string, unknown>) => {
+          switch (event.name) {
+            case 'onFinishTrimming':
+              onFinish(event as unknown as Parameters<typeof onFinish>[0]);
+              break;
+            case 'onCancel':
+            case 'onCancelTrimming':
+              finish(null);
+              break;
+            case 'onError':
+              onErr(event as { message?: string });
+              break;
+            default:
+              break;
+          }
+        }),
+      );
+      // certaines versions old-arch émettent aussi directement par nom d'event
+      subs.push(emitter.addListener('onFinishTrimming', onFinish));
+      subs.push(emitter.addListener('onCancel', () => finish(null)));
+      subs.push(emitter.addListener('onCancelTrimming', () => finish(null)));
+      subs.push(emitter.addListener('onError', onErr));
+    }
 
     try {
       mod.showEditor(path, {
