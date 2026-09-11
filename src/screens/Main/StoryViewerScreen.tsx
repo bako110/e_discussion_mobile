@@ -75,14 +75,6 @@ const StoryVideo: React.FC<{
 
   return (
     <Video
-      // `key` sur la source réelle force react-native-video à REMONTER le
-      // lecteur natif dès que `src` change — y compris quand ce n'est PAS un
-      // changement de story mais juste la résolution asynchrone réseau ->
-      // cache local (useCachedMedia résout `localUri` un instant après le
-      // premier rendu, donc `source.uri` change en cours de route). Sans
-      // cette clé, react-native-video (6.x) peut ne pas recharger la
-      // nouvelle source et rester bloqué sur l'ancienne — le fichier était
-      // pourtant intact et bien mis en cache (vérifié octet à octet).
       key={src}
       ref={videoRef}
       source={{ uri: src }}
@@ -228,24 +220,35 @@ export const StoryViewerScreen: React.FC = () => {
   const goNext = useCallback(() => {
     setReplied(false);
     setMyReaction(null);
-    setIdx((i) => {
-      if (i + 1 < stories.length) return i + 1;
-      // fin des stories de cet auteur -> auteur suivant (ou fermeture)
+    // `jumpToAuthor` déclenche navigation.replace/goBack — donc un setState
+    // sur le NavigationContainer parent. Ça ne doit JAMAIS se produire dans
+    // l'updater de `setIdx` : React exécute cet updater PENDANT le rendu,
+    // et un setState d'un autre composant à ce moment casse le rendu en
+    // cours (avertissement React "Cannot update a component while
+    // rendering a different component").
+    if (idx + 1 < stories.length) {
+      setIdx(idx + 1);
+    } else {
       jumpToAuthor(1);
-      return i;
-    });
-  }, [stories.length, jumpToAuthor]);
+    }
+  }, [idx, stories.length, jumpToAuthor]);
 
   const goPrev = useCallback(() => {
     setReplied(false);
     setMyReaction(null);
-    setIdx((i) => {
-      if (i > 0) return i - 1;
-      // début des stories de cet auteur -> auteur précédent
+    if (idx > 0) {
+      setIdx(idx - 1);
+    } else {
       jumpToAuthor(-1);
-      return i;
-    });
-  }, [jumpToAuthor]);
+    }
+  }, [idx, jumpToAuthor]);
+
+  // `goNext` change d'identité à chaque changement d'`idx` (voir plus haut) —
+  // cette ref permet à l'effet de la barre de progression de toujours
+  // appeler la version courante SANS l'avoir en dépendance (ce qui relancerait
+  // l'effet, et donc l'animation/la vidéo, à chaque avancée de story).
+  const goNextRef = useRef(goNext);
+  goNextRef.current = goNext;
 
   // ── balayage horizontal : ← auteur suivant · → auteur précédent ·
   //    ↓ (swipe vers le bas) ferme le viewer — façon WhatsApp/Insta.
@@ -294,13 +297,19 @@ export const StoryViewerScreen: React.FC = () => {
     });
     anim.current = run;
     run.start(({ finished }) => {
-      if (finished) goNext();
+      if (finished) goNextRef.current();
     });
     return () => {
       run.stop();
     };
+    // `goNext` est LU via une ref (goNextRef, tenue à jour juste en dessous) —
+    // volontairement absent des deps : `goNext` change d'identité à chaque
+    // fois qu'`idx` change (nécessaire pour éviter le bug de setState pendant
+    // le rendu, voir jumpToAuthor plus haut), et le mettre en dépendance ici
+    // relançait CET effet à chaque changement d'idx -> l'animation (et donc
+    // la vidéo) repartait de zéro en boucle au lieu de jouer normalement.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.id, isMine, goNext]);
+  }, [current?.id, isMine]);
 
   // pause / reprise — reprend depuis progressVal.current
   useEffect(() => {
@@ -318,7 +327,7 @@ export const StoryViewerScreen: React.FC = () => {
     });
     anim.current = run;
     run.start(({ finished }) => {
-      if (finished) goNext();
+      if (finished) goNextRef.current();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paused]);
