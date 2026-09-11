@@ -20,6 +20,8 @@ import notifee, {
   EventType,
 } from '@notifee/react-native';
 
+import { conversationRepo } from '@/db/repositories/conversationRepo';
+import { groupRepo } from '@/db/repositories/groupRepo';
 import { notificationRepo } from '@/db/repositories/notificationRepo';
 
 import { getNotifPrefs } from './notificationPrefs';
@@ -419,10 +421,20 @@ export async function clearGroupNotification(groupId: string, conversationId: st
   await clearConversationNotification(conversationId);
 }
 
-/** Recale le badge appli sur le nombre de notifs non lues de l'historique. */
+/**
+ * Recale le badge de l'icône de l'app (écran d'accueil) sur le VRAI total de
+ * messages non lus — conversations 1-1 + groupes/chaînes — façon WhatsApp,
+ * plutôt que sur l'historique de notifications (qui peut diverger : une
+ * notif marquée lue dans l'historique ne veut pas dire la conversation est
+ * lue, et inversement). Reste à jour même app fermée/en arrière-plan tant
+ * que ce code tourne (appelé après chaque écriture pertinente en base).
+ */
 export async function refreshBadge(): Promise<void> {
   try {
-    const n = await notificationRepo.unreadCount();
+    const [convs, groups] = await Promise.all([conversationRepo.list(), groupRepo.list()]);
+    const n =
+      convs.reduce((sum, c) => sum + (c.unread_count || 0), 0) +
+      groups.reduce((sum, g) => sum + (g.unread_count || 0), 0);
     await notifee.setBadgeCount(n).catch(() => undefined);
   } catch {
     /* noop */

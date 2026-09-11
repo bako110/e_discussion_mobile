@@ -182,6 +182,15 @@ export const groupRepo = {
     await run('UPDATE groups SET unread_count=? WHERE id=?', [count, id]);
   },
 
+  /** +1 sur le compteur non-lus — appelé à la réception temps réel d'un
+   * `group.message` (WS) quand l'écran du groupe n'est pas ouvert. Sans ça
+   * `unread_count` ne bougeait qu'au prochain sync complet (`upsertFromServer`),
+   * laissant le badge de l'onglet Groupes (et celui de l'icône de l'app)
+   * en retard tant qu'un vrai pull serveur n'avait pas eu lieu. */
+  async incrementUnread(id: string): Promise<void> {
+    await run('UPDATE groups SET unread_count = unread_count + 1 WHERE id=?', [id]);
+  },
+
   /** Édition optimiste locale du nom / description / avatar / is_public / category. */
   async patchLocal(
     id: string,

@@ -128,7 +128,7 @@ export const MessageSync: React.FC = () => {
         if (!gm?.group_id) return;
         const mine = gm.sender_id === myId;
         void groupService
-          .ingestRealtime(gm)
+          .ingestRealtime(gm, mine)
           .then(() => emitLocal({ type: 'group', groupId: gm.group_id, incoming: !mine }))
           .catch(() => undefined);
       }

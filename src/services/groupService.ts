@@ -13,6 +13,8 @@
  */
 import { apiClient, Endpoints } from '@/api';
 import { groupRepo, type LocalGroup, type LocalGroupMessage } from '@/db/repositories/groupRepo';
+import { activeThreadId } from '@/navigation/navigationRef';
+import { refreshBadge } from '@/services/notificationService';
 import type {
   CreateGroupInput,
   Group,
@@ -64,13 +66,20 @@ export const groupService = {
   },
 
   /** Applique un message reçu en temps réel (WS `group.message`). */
-  async ingestRealtime(m: GroupMessage): Promise<void> {
+  async ingestRealtime(m: GroupMessage, mine = false): Promise<void> {
     await groupRepo.upsertMessageFromServer(m);
     await groupRepo.touchLastMessage(
       m.group_id,
       m.body || PREVIEW[m.type] || '',
       m.created_at,
     );
+    // +1 non-lus immédiat (sans attendre le prochain sync serveur) sauf si
+    // c'est un de nos propres messages, ou si l'écran de ce groupe est déjà
+    // ouvert (il marquera lu dans la foulée) — même logique que le 1-1.
+    if (!mine && activeThreadId() !== m.group_id) {
+      await groupRepo.incrementUnread(m.group_id).catch(() => undefined);
+      void refreshBadge();
+    }
   },
 
   // ── Envoi local-first ──────────────────────────────────────────────────
@@ -140,6 +149,7 @@ export const groupService = {
   async markRead(id: string): Promise<void> {
     await groupRepo.setUnread(id, 0);
     await outbox.enqueue('group_mark_read', newClientId(), { groupId: id });
+    void refreshBadge();
   },
 
   async setMuted(id: string, muted: boolean): Promise<void> {

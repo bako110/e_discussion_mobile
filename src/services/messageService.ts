@@ -19,6 +19,7 @@ import { newClientId, notifyMutationApplied, outbox } from '@/sync/outbox';
 // mémo local : évite de re-notifier « joué » à chaque render
 const _playedSent = new Set<string>();
 import { messageService as netMessageService } from './messageService.net';
+import { refreshBadge } from './notificationService';
 
 /** Libellé court pour l'aperçu d'une conversation quand le message n'a pas de texte. */
 function attachmentPreview(type: MessageType): string {
@@ -159,6 +160,7 @@ export const messageService = {
     await messageRepo.markConversationRead(conversationId, myId);
     await conversationRepo.setUnread(conversationId, 0);
     await outbox.enqueue('mark_read', newClientId(), { conversationId });
+    void refreshBadge();
   },
 
   /** Le destinataire a ÉCOUTÉ un vocal / OUVERT une vidéo — best-effort en
@@ -230,6 +232,7 @@ export const messageService = {
     // de cette conversation est ouvert (il va marquer lu dans la foulée).
     if (activeConversationId() !== msg.conversation_id && myId) {
       await conversationRepo.recountUnread(msg.conversation_id, myId).catch(() => undefined);
+      void refreshBadge();
     }
     // accuse de reception « remis » — best-effort, ne bloque rien
     void netMessageService.ackDelivered(msg.id);
