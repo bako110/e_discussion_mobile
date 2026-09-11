@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -9,16 +10,82 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
+import Video, { type VideoRef } from 'react-native-video';
 
-import { Avatar, CachedImage, Icon } from '@/components/common';
+import { Avatar, CachedImage, confirmAlert, Icon } from '@/components/common';
 import { fontStyle, QUICK_REACTIONS } from '@/components/story/storyConfig';
+import { useCachedMedia } from '@/hooks/useCachedMedia';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainStackParamList, MainNav } from '@/navigation/types';
 import { storyService } from '@/services';
+import { getVoiceState, subscribeVoice, stopVoice, toggleVoice } from '@/services/voicePlayer';
 import type { Story, StoryFeedItem } from '@/types';
 import { relativeTime } from '@/utils/time';
+import { mediaUrl } from '@/utils/media';
+
+/**
+ * `.pause()` sur une ref `<Video>` déjà démontée côté natif lève "Video
+ * Component is not mounted" (react-native-video) — ça arrive dès que React
+ * démonte/remonte le composant entre la capture de la ref et l'exécution du
+ * cleanup (changement de story, retour arrière). Sans conséquence ici : la
+ * vue est de toute façon partie, donc rien à mettre en pause.
+ */
+function safePause(node: VideoRef | null): void {
+  try {
+    node?.pause();
+  } catch {
+    /* vue déjà démontée côté natif — rien à faire */
+  }
+}
+
+/**
+ * Vidéo d'un statut, plein écran, avec le SON (pas de `muted`, contrairement
+ * à une prévisualisation) — lecture réelle au lieu de l'ancienne icône ▶
+ * statique. `paused` suit l'appui maintenu du viewer (tapLeft/tapRight).
+ * Télécharge d'abord le fichier localement (mêmes garanties hors-ligne que
+ * le reste de l'app) avant de lancer la lecture.
+ */
+const StoryVideo: React.FC<{
+  uri: string;
+  paused: boolean;
+  videoRef: React.RefObject<VideoRef | null>;
+  onReady: () => void;
+}> = ({ uri, paused, videoRef, onReady }) => {
+  const cached = useCachedMedia(uri);
+  const [localUri, setLocalUri] = useState<string | null>(cached.localUri);
+
+  useEffect(() => {
+    let alive = true;
+    if (cached.localUri) {
+      setLocalUri(cached.localUri);
+      return;
+    }
+    void cached.download().then((u) => {
+      if (alive && u) setLocalUri(u);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uri]);
+
+  const src = localUri ?? mediaUrl(uri) ?? uri;
+
+  return (
+    <Video
+      ref={videoRef}
+      source={{ uri: src }}
+      style={StyleSheet.absoluteFill}
+      resizeMode="cover"
+      paused={paused}
+      muted={false}
+      repeat={false}
+      onLoad={onReady}
+    />
+  );
+};
 
 /**
  * Lecteur de stories plein écran pour UN auteur :
@@ -38,6 +105,9 @@ export const StoryViewerScreen: React.FC = () => {
   const [group, setGroup] = useState<StoryFeedItem | null>(null);
   const [ownStories, setOwnStories] = useState<Story[] | null>(null);
   const [idx, setIdx] = useState(0);
+  // ordre des auteurs du feed — pour enchaîner sur le contact suivant / précédent
+  // quand on épuise les stories de l'auteur courant (façon WhatsApp).
+  const feedOrder = useRef<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
@@ -51,15 +121,54 @@ export const StoryViewerScreen: React.FC = () => {
   // reprendre l'animation après une pause sans toucher à l'API privée _value.
   const progressVal = useRef(0);
 
-  const stories: Story[] = ownStories ?? group?.stories ?? [];
+  const stories: Story[] = useMemo(
+    () => ownStories ?? group?.stories ?? [],
+    [ownStories, group],
+  );
   const current: Story | undefined = stories[idx];
   const isMine = !!ownStories;
+
+  // ── vidéo : lecture réelle (silencieuse aux yeux du système, pas mute —
+  // façon statut) au lieu de la simple icône ▶ statique d'avant ───────────
+  const videoRef = useRef<VideoRef>(null);
+  const [videoReady, setVideoReady] = useState(false);
+  // coupe explicitement le son à chaque changement de story ET en quittant
+  // l'écran (retour arrière, `navigation.replace` vers l'auteur suivant…) —
+  // le simple démontage React de <Video> ne suffit pas toujours : la vidéo
+  // pouvait continuer à jouer en arrière-plan un court instant, voire
+  // indéfiniment si le composant restait monté pendant la transition.
+  useEffect(() => {
+    setVideoReady(false);
+  }, [current?.id]);
+  // pause au changement de story ET en quittant l'écran — la ref est lue au
+  // moment du RENDU (pas dans le cleanup), comme demandé par le lint : ce
+  // n'est jamais null tant que le composant <Video> est monté. `safePause`
+  // encaisse le cas où le natif a déjà démonté la vue entre les deux (React
+  // peut remonter un nouveau <Video> avant que ce cleanup ne tourne) — sans
+  // ça `react-native-video` lève "Video Component is not mounted".
+  useEffect(() => {
+    const node = videoRef.current;
+    return () => safePause(node);
+  });
+
+  // ── audio / vocal : lecture via le lecteur singleton partagé (le même
+  // qui gère les notes vocales du chat) — télécharge d'abord si besoin.
+  const audioSrc = current?.media_type === 'audio' || current?.media_type === 'voice'
+    ? current.audio_url
+    : null;
+  const audioCache = useCachedMedia(audioSrc);
+  const [, forceAudioRender] = useState(0);
+  useEffect(() => subscribeVoice(() => forceAudioRender((n) => n + 1)), []);
+  const voiceState = getVoiceState();
+  const audioResolved = audioCache.localUri;
+  const audioPlaying = !!audioResolved && voiceState.url === audioResolved && voiceState.playing;
 
   // ── chargement ──────────────────────────────────────────────────────────
   useEffect(() => {
     let alive = true;
     const apply = (mine: Story[], feed: import('@/types').StoryFeedItem[]) => {
       if (!alive) return;
+      feedOrder.current = feed.map((f) => f.author.id);
       if (mine.length && mine[0]!.author_id === authorId) {
         setOwnStories(mine);
       } else {
@@ -86,22 +195,67 @@ export const StoryViewerScreen: React.FC = () => {
     };
   }, [authorId]);
 
-  // ── navigation entre stories ────────────────────────────────────────────
+  // ── navigation entre stories / auteurs ─────────────────────────────────
+  /** Remplace l'écran par le viewer d'un autre auteur (pile inchangée). */
+  const jumpToAuthor = useCallback(
+    (dir: 1 | -1) => {
+      const order = feedOrder.current;
+      const pos = order.indexOf(authorId);
+      if (pos === -1) {
+        navigation.goBack();
+        return;
+      }
+      const nextId = order[pos + dir];
+      if (!nextId) {
+        navigation.goBack(); // plus d'auteur dans ce sens -> on ferme
+        return;
+      }
+      navigation.replace('StoryViewer', { authorId: nextId });
+    },
+    [authorId, navigation],
+  );
+
   const goNext = useCallback(() => {
     setReplied(false);
     setMyReaction(null);
     setIdx((i) => {
       if (i + 1 < stories.length) return i + 1;
-      navigation.goBack();
+      // fin des stories de cet auteur -> auteur suivant (ou fermeture)
+      jumpToAuthor(1);
       return i;
     });
-  }, [stories.length, navigation]);
+  }, [stories.length, jumpToAuthor]);
 
   const goPrev = useCallback(() => {
     setReplied(false);
     setMyReaction(null);
-    setIdx((i) => Math.max(0, i - 1));
-  }, []);
+    setIdx((i) => {
+      if (i > 0) return i - 1;
+      // début des stories de cet auteur -> auteur précédent
+      jumpToAuthor(-1);
+      return i;
+    });
+  }, [jumpToAuthor]);
+
+  // ── balayage horizontal : ← auteur suivant · → auteur précédent ·
+  //    ↓ (swipe vers le bas) ferme le viewer — façon WhatsApp/Insta.
+  const swipe = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) =>
+          Math.abs(g.dx) > 18 || g.dy > 24,
+        onPanResponderRelease: (_e, g) => {
+          if (g.dy > 90 && Math.abs(g.dx) < 60) {
+            navigation.goBack();
+          } else if (g.dx < -60) {
+            jumpToAuthor(1);
+          } else if (g.dx > 60) {
+            jumpToAuthor(-1);
+          }
+        },
+      }),
+    [jumpToAuthor, navigation],
+  );
 
   // suit la valeur courante de la barre (API publique)
   useEffect(() => {
@@ -159,6 +313,58 @@ export const StoryViewerScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paused]);
 
+  // ── lecture audio réelle (statut audio/vocal) ────────────────────────────
+  // démarre dès que le fichier local est prêt (télécharge si besoin) ; suit
+  // `paused` (appui maintenu = pause) ; s'arrête en changeant de story ou en
+  // quittant l'écran. `play(uri)` ci-dessous ne fait JAMAIS un toggle "bascule"
+  // — il force explicitement l'état voulu, pour ne pas dépendre de l'état
+  // courant du lecteur partagé (qui peut aussi jouer un vocal de chat).
+  useEffect(() => {
+    if (!audioSrc || paused) return;
+    let cancelled = false;
+    (async () => {
+      const uri = audioCache.localUri ?? (await audioCache.download());
+      if (!uri || cancelled) return;
+      const vp = getVoiceState();
+      // déjà CETTE piste en cours -> ne touche à rien (évite un toggle qui
+      // la mettrait en pause par erreur si l'effet se relance).
+      if (vp.url === uri && vp.playing) return;
+      void toggleVoice(uri, {
+        conversationId: null,
+        title: current?.audio_name ?? null,
+        durationMs: current?.duration_sec ? current.duration_sec * 1000 : null,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioSrc, current?.id, paused]);
+
+  // appui maintenu (pause) -> coupe le son immédiatement, sans attendre le
+  // téléchargement ci-dessus.
+  useEffect(() => {
+    if (paused && audioSrc) void stopVoice();
+  }, [paused, audioSrc]);
+
+  // coupe le son en quittant l'écran (change d'auteur, retour arrière…)
+  useEffect(() => () => void stopVoice(), []);
+
+  // ── coupe TOUT son (vidéo + audio) dès que l'écran perd le focus ────────
+  // Filet de sécurité au-delà du simple démontage React : couvre le cas où
+  // `native-stack` garde l'écran monté pendant l'animation de transition
+  // (retour arrière, `navigation.replace` vers l'auteur suivant, mise en
+  // arrière-plan de l'app) — sans ça la vidéo/l'audio pouvait continuer à
+  // jouer en arrière-plan après avoir quitté le viewer.
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        safePause(videoRef.current);
+        void stopVoice();
+      };
+    }, []),
+  );
+
   // ── temps réel : ma story vue / réagie → rafraîchit le compteur ─────────
   useEffect(
     () => addListener((e) => {
@@ -205,7 +411,7 @@ export const StoryViewerScreen: React.FC = () => {
     }
   };
 
-  const removeOwn = async () => {
+  const doRemoveOwn = useCallback(async () => {
     if (!current) return;
     try {
       await storyService.remove(current.id);
@@ -218,7 +424,25 @@ export const StoryViewerScreen: React.FC = () => {
     } catch (e) {
       console.warn('[story] delete failed:', e);
     }
-  };
+  }, [current, stories, navigation]);
+
+  /** Confirmation avant suppression. La lecture est mise en pause pendant que
+   * l'alerte est affichée ; elle reprend si l'utilisateur annule. */
+  const removeOwn = useCallback(() => {
+    if (!current) return;
+    setPaused(true);
+    confirmAlert(
+      t('stories.deleteTitle'),
+      t('stories.deleteConfirm'),
+      () => void doRemoveOwn(),
+      {
+        destructive: true,
+        confirmText: t('common.delete'),
+        cancelText: t('common.cancel'),
+        onCancel: () => setPaused(false),
+      },
+    );
+  }, [current, doRemoveOwn, t]);
 
   // ── rendu ──────────────────────────────────────────────────────────────
   if (loading) {
@@ -244,7 +468,49 @@ export const StoryViewerScreen: React.FC = () => {
   const author = group?.author;
 
   return (
-    <View style={[styles.root, { backgroundColor: bg }]}>
+    <View style={[styles.root, { backgroundColor: bg }]} {...swipe.panHandlers}>
+      {/* image : PLEIN ÉCRAN (cover, façon Instagram) — tout en fond, sous
+          les zones de tap / barres / en-tête / pied qui gardent leur zIndex. */}
+      {current.media_type === 'image' && current.media_url ? (
+        <>
+          <CachedImage uri={current.media_url} style={styles.mediaFull} resizeMode="cover" />
+          {current.caption ? (
+            <View style={styles.mediaCaptionWrap} pointerEvents="none">
+              <Text style={styles.mediaCaption}>{current.caption}</Text>
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* vidéo : lecture réelle plein écran, synchronisée sur `paused` —
+          plus juste une icône ▶ statique. */}
+      {current.media_type === 'video' && current.media_url ? (
+        <>
+          <StoryVideo
+            key={current.id}
+            uri={current.media_url}
+            paused={paused}
+            videoRef={videoRef}
+            onReady={() => setVideoReady(true)}
+          />
+          {!videoReady ? (
+            <View style={styles.mediaFull} pointerEvents="none">
+              {current.thumbnail_url ? (
+                <CachedImage uri={current.thumbnail_url} style={styles.mediaFull} resizeMode="cover" />
+              ) : null}
+              <View style={[styles.center, StyleSheet.absoluteFillObject]}>
+                <ActivityIndicator color="#fff" />
+              </View>
+            </View>
+          ) : null}
+          {current.caption ? (
+            <View style={styles.mediaCaptionWrap} pointerEvents="none">
+              <Text style={styles.mediaCaption}>{current.caption}</Text>
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
       {/* zones de tap + pause au maintien */}
       <Pressable
         style={styles.tapLeft}
@@ -317,31 +583,49 @@ export const StoryViewerScreen: React.FC = () => {
       <View style={styles.content}>
         {current.media_type === 'text' ? (
           <Text style={[styles.storyText, fontStyle(current.font)]}>{current.caption}</Text>
-        ) : current.media_type === 'image' ? (
-          <>
-            {current.media_url ? (
-              <CachedImage uri={current.media_url} style={styles.media} resizeMode="contain" />
-            ) : null}
-            {current.caption ? <Text style={styles.mediaCaption}>{current.caption}</Text> : null}
-          </>
-        ) : current.media_type === 'video' ? (
+        ) : current.media_type === 'video' ? null /* rendu plein écran plus haut */ : (
+          /* audio / voice : lecture réelle via le lecteur partagé — icône et
+             barre suivent l'état de lecture au lieu d'être statiques. */
           <View style={styles.mediaFallback}>
-            <Icon name="play-circle" size={64} color="#ffffffdd" />
-            {current.caption ? <Text style={styles.mediaCaption}>{current.caption}</Text> : null}
-          </View>
-        ) : (
-          /* audio / voice */
-          <View style={styles.mediaFallback}>
-            <View style={styles.audioBadge}>
-              <Icon
-                name={current.media_type === 'voice' ? 'microphone' : 'music-note'}
-                size={40}
-                color="#fff"
-              />
-            </View>
+            <Pressable
+              style={[styles.audioBadge, audioPlaying && styles.audioBadgeActive]}
+              onPress={() => {
+                if (!audioResolved) return;
+                void toggleVoice(audioResolved, {
+                  conversationId: null,
+                  title: current.audio_name ?? null,
+                });
+              }}
+            >
+              {audioCache.downloading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Icon
+                  name={
+                    audioPlaying
+                      ? 'pause'
+                      : current.media_type === 'voice'
+                        ? 'microphone'
+                        : 'music-note'
+                  }
+                  size={40}
+                  color="#fff"
+                />
+              )}
+            </Pressable>
             <Text style={styles.audioName} numberOfLines={1}>
               {current.audio_name || t('stories.audioTrack')}
             </Text>
+            {audioPlaying && voiceState.duration > 0 ? (
+              <View style={styles.audioTrack}>
+                <View
+                  style={[
+                    styles.audioTrackFill,
+                    { width: `${Math.min(100, (voiceState.position / voiceState.duration) * 100)}%` },
+                  ]}
+                />
+              </View>
+            ) : null}
             {current.caption ? <Text style={styles.mediaCaption}>{current.caption}</Text> : null}
           </View>
         )}
@@ -435,8 +719,20 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 26 },
   storyText: { color: '#fff', fontSize: 26, fontWeight: '700', textAlign: 'center' },
-  media: { width: '100%', height: '70%' },
-  mediaCaption: { color: '#fff', fontSize: 16, textAlign: 'center', marginTop: 14 },
+  // image plein écran (façon Instagram) : remplit tout le cadre, rogne au
+  // besoin (cover) plutôt que de laisser des bandes vides autour.
+  mediaFull: { ...StyleSheet.absoluteFillObject },
+  mediaCaptionWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 22,
+    paddingTop: 60,
+    paddingBottom: 110,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  mediaCaption: { color: '#fff', fontSize: 16, textAlign: 'center' },
   mediaFallback: { alignItems: 'center', gap: 14 },
   audioBadge: {
     width: 96,
@@ -446,7 +742,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  audioBadgeActive: { backgroundColor: 'rgba(255,255,255,0.32)' },
   audioName: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  audioTrack: {
+    width: 180,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  audioTrackFill: { height: 3, backgroundColor: '#fff' },
   footer: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, alignItems: 'center', zIndex: 10 },
   footerMine: {
     borderTopWidth: StyleSheet.hairlineWidth,
