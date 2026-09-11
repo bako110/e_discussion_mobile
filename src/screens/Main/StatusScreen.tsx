@@ -125,7 +125,7 @@ export const StatusScreen: React.FC = () => {
       >
         <View style={[styles.cardMedia, { backgroundColor: bg }]}>
           {uri ? (
-            <CachedImage uri={uri} style={styles.cardImg} resizeMode="cover" />
+            <CachedImage uri={uri} style={styles.cardImg} />
           ) : (
             <View style={styles.cardTextPreview}>
               <Text style={styles.cardTextPreviewTxt} numberOfLines={4}>
@@ -246,14 +246,15 @@ export const StatusScreen: React.FC = () => {
                 {t('stories.momentsTitle')}
               </Text>
             </View>
-            {mine.length > 0 ? (
-              <Pressable onPress={openMyStatus} hitSlop={8} style={styles.seeAll}>
-                <Text style={[styles.seeAllText, { color: c.primary }]}>
-                  {t('common.seeAll')}
-                </Text>
-                <Icon name="chevron-right" size={16} color={c.primary} />
-              </Pressable>
-            ) : null}
+            {/* Toujours accessible, même sans statut publié — sinon aucun
+                moyen d'atteindre l'écran « Mes statuts » (et son historique
+                d'envois en attente) avant d'avoir publié un premier statut. */}
+            <Pressable onPress={openMyStatus} hitSlop={8} style={styles.seeAll}>
+              <Text style={[styles.seeAllText, { color: c.primary }]}>
+                {t('common.seeAll')}
+              </Text>
+              <Icon name="chevron-right" size={16} color={c.primary} />
+            </Pressable>
           </View>
 
           <ScrollView
@@ -262,19 +263,21 @@ export const StatusScreen: React.FC = () => {
             contentContainerStyle={styles.hList}
           >
             {/* Ma carte « statut ». Tap -> voir ma story (ou composer si aucune).
-                Le badge « + » ouvre le composer. Appui long -> « Mes statuts ». */}
+                Le badge « + » ouvre le composer. Appui long -> « Mes statuts »,
+                TOUJOURS accessible même sans aucun statut (écran vide géré côté
+                MyStatusScreen) — sinon aucun moyen d'y entrer avant d'avoir
+                publié un premier statut. */}
             <Pressable
               style={styles.card}
               android_ripple={{ color: c.surfaceAlt }}
               onPress={() => (myLatest ? openViewer(me!.id) : openComposer())}
-              onLongPress={() => (mine.length > 0 ? openMyStatus() : undefined)}
+              onLongPress={openMyStatus}
             >
               <View style={[styles.cardMedia, { backgroundColor: c.surfaceAlt }]}>
                 {myLatest?.thumbnail_url || myLatest?.media_url ? (
                   <CachedImage
                     uri={myLatest.thumbnail_url || myLatest.media_url}
                     style={styles.cardImg}
-                    resizeMode="cover"
                   />
                 ) : (
                   <View style={styles.cardTextPreview}>
@@ -493,9 +496,17 @@ const styles = StyleSheet.create({
     height: 132,
     borderRadius: 14,
     overflow: 'hidden',
-    justifyContent: 'flex-end',
   },
-  cardImg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  cardImg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
   cardShade: {
     position: 'absolute',
     left: 0,
