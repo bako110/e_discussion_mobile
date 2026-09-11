@@ -341,6 +341,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
               {channelLive ? (
                 <SettingsRow
                   icon="access-point"
+                  iconColor="#E0203D"
                   label={t('channelLive.live')}
                   value={t('channelLive.viewers', { count: channelLive.subscriber_count })}
                   onPress={() =>

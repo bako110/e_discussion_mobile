@@ -33,7 +33,10 @@ export const SettingsRow: React.FC<{
   last?: boolean;
   /** Force le chevron même sans `value` (ligne de navigation). */
   chevron?: boolean;
-}> = ({ icon, label, value, onPress, danger, last, chevron }) => {
+  /** Couleur d'icône ponctuelle (ex: rouge « en direct ») — sans affecter le
+   * libellé, contrairement à `danger` qui colore aussi le texte. */
+  iconColor?: string;
+}> = ({ icon, label, value, onPress, danger, last, chevron, iconColor }) => {
   const { theme } = useTheme();
   const c = theme.colors;
   const showChevron = (chevron ?? !!onPress) && !danger;
@@ -47,7 +50,7 @@ export const SettingsRow: React.FC<{
         !last && { borderBottomColor: c.divider, borderBottomWidth: StyleSheet.hairlineWidth },
       ]}
     >
-      <Icon name={icon} size={20} color={danger ? c.danger : c.textMuted} />
+      <Icon name={icon} size={20} color={iconColor ?? (danger ? c.danger : c.textMuted)} />
       <Text style={[styles.rowLabel, { color: danger ? c.danger : c.text }]} numberOfLines={1}>
         {label}
       </Text>

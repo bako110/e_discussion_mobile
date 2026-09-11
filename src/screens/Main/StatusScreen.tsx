@@ -462,7 +462,7 @@ export const StatusScreen: React.FC = () => {
           {/* ── CHAÎNES EN DIRECT ────────────────────────────────────── */}
           <View style={styles.sectionHead}>
             <View style={styles.sectionTitleRow}>
-              <Icon name="access-point" size={19} color={c.primary} />
+              <Icon name="access-point" size={19} color="#E0203D" />
               <Text style={[styles.sectionTitle, { color: c.text }]}>
                 {t('channelLive.sectionTitle')}
               </Text>
