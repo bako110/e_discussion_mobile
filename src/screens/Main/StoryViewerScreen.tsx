@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -55,6 +56,7 @@ const StoryVideo: React.FC<{
 }> = ({ uri, paused, videoRef, onReady }) => {
   const cached = useCachedMedia(uri);
   const [localUri, setLocalUri] = useState<string | null>(cached.localUri);
+  const { width, height } = useWindowDimensions();
 
   useEffect(() => {
     let alive = true;
@@ -78,12 +80,27 @@ const StoryVideo: React.FC<{
       key={src}
       ref={videoRef}
       source={{ uri: src }}
-      style={StyleSheet.absoluteFill}
+      // `StyleSheet.absoluteFill` (top/right/bottom/left: 0, sans width/
+      // height numériques) ne donne pas de taille CONCRÈTE à la vue au
+      // moment où le natif attache sa surface de rendu — confirmé en
+      // reproduisant : le lecteur chargeait et bufferisait le fichier avec
+      // succès (onLoadStart puis onBuffer true/false) mais n'affichait
+      // jamais aucune frame, la miniature restant figée indéfiniment par-
+      // dessus. Des dimensions numériques explicites (useWindowDimensions,
+      // réactif à la rotation) résolvent le problème.
+      style={{ position: 'absolute', top: 0, left: 0, width, height }}
       resizeMode="cover"
       paused={paused}
       muted={false}
       repeat={false}
       onLoad={onReady}
+      // Filet de sécurité : `onLoad` n'est pas toujours reçu de façon fiable
+      // sur ce lecteur — `onProgress` (qui avance en continu UNIQUEMENT
+      // pendant une vraie lecture) confirme que la vidéo joue déjà même si
+      // `onLoad` n'a jamais été signalé, et lève l'overlay/miniature en
+      // conséquence (sans lui, la miniature pouvait rester figée par-dessus
+      // une vidéo qui jouait pourtant bel et bien en dessous).
+      onProgress={onReady}
       onError={(e) => console.warn('[storyViewer] échec lecture vidéo:', src, e)}
     />
   );
@@ -142,16 +159,19 @@ export const StoryViewerScreen: React.FC = () => {
   useEffect(() => {
     setVideoReady(false);
   }, [current?.id]);
-  // pause au changement de story ET en quittant l'écran — la ref est lue au
-  // moment du RENDU (pas dans le cleanup), comme demandé par le lint : ce
-  // n'est jamais null tant que le composant <Video> est monté. `safePause`
-  // encaisse le cas où le natif a déjà démonté la vue entre les deux (React
-  // peut remonter un nouveau <Video> avant que ce cleanup ne tourne) — sans
-  // ça `react-native-video` lève "Video Component is not mounted".
+  // pause SEULEMENT au démontage réel du composant (retour arrière, écran qui
+  // se ferme) — surtout PAS à chaque re-render : sans le tableau de deps `[]`,
+  // ce cleanup s'exécutait entre CHAQUE rendu (changement de `videoReady`,
+  // de `paused`, etc.), mettant la vidéo en pause en continu et donnant
+  // l'impression qu'elle « démarre puis s'arrête toute seule », débloquée
+  // seulement par l'appui manuel (long press) qui la relançait. `safePause`
+  // encaisse le cas où le natif a déjà démonté la vue avant que ce cleanup
+  // ne tourne — sans ça `react-native-video` lève "Video Component is not
+  // mounted".
   useEffect(() => {
     const node = videoRef.current;
     return () => safePause(node);
-  });
+  }, []);
 
   // ── audio / vocal : lecture via le lecteur singleton partagé (le même
   // qui gère les notes vocales du chat) — télécharge d'abord si besoin.
