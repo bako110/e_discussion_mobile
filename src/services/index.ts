@@ -1,5 +1,6 @@
 export { authService } from './authService';
 export { callService } from './callService';
+export { channelLiveService } from './channelLiveService';
 export { conversationService } from './conversationService';
 export {
   syncPhoneContacts,

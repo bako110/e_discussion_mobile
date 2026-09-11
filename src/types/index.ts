@@ -367,6 +367,39 @@ export interface CallsConfig {
   ring_timeout: number;
 }
 
+// ── Diffusion en direct d'une chaîne (LiveKit self-hosted) ───────────────
+export type ChannelLiveStatus = 'live' | 'ended';
+
+export interface ChannelLive {
+  id: string;
+  group_id: string;
+  started_by: string;
+  status: ChannelLiveStatus;
+  room_name: string;
+  title: string | null;
+  peak_viewers: number;
+  started_at: string;
+  ended_at: string | null;
+  channel_name: string | null;
+  channel_avatar_url: string | null;
+  subscriber_count: number;
+}
+
+/** Réponse de POST /groups/{id}/live : accès LiveKit du diffuseur (admin). */
+export interface ChannelLiveStart extends ChannelLive {
+  livekit_url: string;
+  token: string;
+}
+
+/** Réponse de POST /groups/{id}/live/join : accès LiveKit du spectateur
+ * (lecture seule — jamais de droit de publication). */
+export interface ChannelLiveJoin {
+  livekit_url: string;
+  token: string;
+  room_name: string;
+  channel_live: ChannelLive;
+}
+
 // ── Appareils liés (E2E) ─────────────────────────────────────────────────
 export interface LinkedDevice {
   device_id: string;

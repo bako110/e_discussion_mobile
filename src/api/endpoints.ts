@@ -39,6 +39,7 @@ export const Endpoints = {
     accept: (id: string) => `${V1}/conversations/${id}/accept`,
     decline: (id: string) => `${V1}/conversations/${id}/decline`,
     mute: (id: string) => `${V1}/conversations/${id}/mute`,
+    hide: (id: string) => `${V1}/conversations/${id}/hide`,
     messages: (id: string) => `${V1}/conversations/${id}/messages`,
     read: (id: string) => `${V1}/conversations/${id}/read`,
     media: (id: string) => `${V1}/conversations/${id}/media`,
@@ -88,6 +89,11 @@ export const Endpoints = {
       `${V1}/groups/${id}/join-requests/${userId}/approve`,
     rejectJoin: (id: string, userId: string) =>
       `${V1}/groups/${id}/join-requests/${userId}/reject`,
+    // ── diffusion en direct (chaînes) ──────────────────────────────────
+    liveList: `${V1}/groups/live`,
+    live: (id: string) => `${V1}/groups/${id}/live`,
+    liveJoin: (id: string) => `${V1}/groups/${id}/live/join`,
+    liveStop: (id: string) => `${V1}/groups/${id}/live/stop`,
   },
   calls: {
     config: `${V1}/calls/config`,
