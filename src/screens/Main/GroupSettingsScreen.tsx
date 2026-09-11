@@ -16,7 +16,7 @@ import { groupRepo } from '@/db/repositories/groupRepo';
 import type { MainScreenProps } from '@/navigation/types';
 import { ApiError } from '@/api';
 import { groupService } from '@/services';
-import type { GroupSettings } from '@/types';
+import { GROUP_CATEGORIES, type GroupCategory, type GroupSettings } from '@/types';
 
 type Policy = 'all' | 'admins';
 
@@ -43,10 +43,40 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
   const [pending, setPending] = useState(0);
   const [denied, setDenied] = useState(false);
   const [isChannel, setIsChannel] = useState(false);
+  const [category, setCategory] = useState<GroupCategory | null>(null);
+  const [savingCategory, setSavingCategory] = useState(false);
 
   useEffect(() => {
-    void groupRepo.get(groupId).then((g) => setIsChannel(g?.kind === 'channel'));
+    void groupRepo.get(groupId).then((g) => {
+      setIsChannel(g?.kind === 'channel');
+      setCategory(g?.category ?? null);
+    });
   }, [groupId]);
+
+  const pickCategory = () => {
+    showSheet({
+      title: t('groups.categoryPick'),
+      actions: GROUP_CATEGORIES.map((cat) => ({
+        label: t(`groups.category_${cat}`) + (category === cat ? '  ✓' : ''),
+        onPress: () => {
+          const prev = category;
+          setCategory(cat);
+          setSavingCategory(true);
+          groupService
+            .update(groupId, { category: cat })
+            .then(() => {
+              void reloadGroups();
+              showToast(t('groupSettings.saved'));
+            })
+            .catch(() => {
+              setCategory(prev);
+              showToast(t('groupSettings.saveFailed'), { type: 'error' });
+            })
+            .finally(() => setSavingCategory(false));
+        },
+      })),
+    });
+  };
 
   useEffect(() => {
     let alive = true;
@@ -217,6 +247,24 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
               />
             ) : null}
           </SettingsSection>
+
+          {isChannel ? (
+            <SettingsSection title={t('groups.category')}>
+              <SettingsRow
+                icon="shape-outline"
+                label={t('groups.category')}
+                value={
+                  savingCategory
+                    ? t('common.loading')
+                    : category
+                      ? t(`groups.category_${category}`)
+                      : t('groups.categoryNone')
+                }
+                onPress={savingCategory ? undefined : pickCategory}
+                last
+              />
+            </SettingsSection>
+          ) : null}
 
           <SettingsSection
             title={isChannel ? t('groupSettings.ch_membership') : t('groupSettings.membership')}

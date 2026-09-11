@@ -15,7 +15,7 @@ import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav, MainScreenProps } from '@/navigation/types';
-import type { Group } from '@/types';
+import type { Group, GroupCategory } from '@/types';
 import { relativeTime } from '@/utils/time';
 
 /**
@@ -33,13 +33,27 @@ export const GroupsListScreen: React.FC<MainScreenProps<'GroupsList'>> = ({
   const c = theme.colors;
 
   const [refreshing, setRefreshing] = useState(false);
-  const data = kind === 'channel' ? channels : groups;
+  const [categoryFilter, setCategoryFilter] = useState<GroupCategory | null>(null);
+  const base = kind === 'channel' ? channels : groups;
 
   useFocusEffect(
     useCallback(() => {
       void reload();
     }, [reload]),
   );
+
+  // catégories réellement présentes parmi mes chaînes -> chips de tri.
+  const presentCategories = useMemo(() => {
+    if (kind !== 'channel') return [];
+    const set = new Set<GroupCategory>();
+    for (const g of channels) if (g.category) set.add(g.category);
+    return [...set];
+  }, [channels, kind]);
+
+  const data =
+    kind === 'channel' && categoryFilter
+      ? base.filter((g) => g.category === categoryFilter)
+      : base;
 
   const renderRow = ({ item }: { item: Group }) => (
     <Pressable
@@ -102,6 +116,32 @@ export const GroupsListScreen: React.FC<MainScreenProps<'GroupsList'>> = ({
         }
       />
 
+      {kind === 'channel' && presentCategories.length > 1 ? (
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={[null, ...presentCategories]}
+          keyExtractor={(item) => item ?? 'all'}
+          contentContainerStyle={styles.chipsRow}
+          renderItem={({ item }) => {
+            const on = categoryFilter === item;
+            return (
+              <Pressable
+                onPress={() => setCategoryFilter(item)}
+                style={[
+                  styles.chip,
+                  { borderColor: on ? c.primary : c.border, backgroundColor: on ? c.primary : 'transparent' },
+                ]}
+              >
+                <Text style={[styles.chipTxt, { color: on ? '#fff' : c.textMuted }]}>
+                  {item ? t(`groups.category_${item}`) : t('groups.categoryAll')}
+                </Text>
+              </Pressable>
+            );
+          }}
+        />
+      ) : null}
+
       {loading && data.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator color={c.primary} />
@@ -157,6 +197,9 @@ const styles = StyleSheet.create({
   hdrActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   hdrBtn: { padding: 4 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  chipsRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16, borderWidth: 1.5 },
+  chipTxt: { fontSize: 13, fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
   rowBody: { flex: 1, justifyContent: 'center' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

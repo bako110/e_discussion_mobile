@@ -11,13 +11,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, showSheet } from '@/components/common';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { groupService, userService } from '@/services';
-import type { GroupKind, UserPublic } from '@/types';
+import { GROUP_CATEGORIES, type GroupCategory, type GroupKind, type UserPublic } from '@/types';
 import { withOnline } from '@/utils/online';
 
 /**
@@ -39,6 +39,7 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
   const c = theme.colors;
 
   const [kind, setKind] = useState<GroupKind>(route.params?.kind ?? 'group');
+  const [category, setCategory] = useState<GroupCategory | null>(null);
   const [name, setName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [description, setDescription] = useState('');
@@ -90,6 +91,16 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
     if (up) setAvatarUrl(up.url);
   };
 
+  const pickCategory = () => {
+    showSheet({
+      title: t('groups.categoryPick'),
+      actions: GROUP_CATEGORIES.map((cat) => ({
+        label: t(`groups.category_${cat}`) + (category === cat ? '  ✓' : ''),
+        onPress: () => setCategory(cat),
+      })),
+    });
+  };
+
   const submit = async () => {
     const n = name.trim();
     if (!n || busy) return;
@@ -102,6 +113,7 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
           name: n,
           description: description.trim() || undefined,
           avatar_url: avatarUrl ?? undefined,
+          category: kind === 'channel' ? category : undefined,
           member_ids: Object.keys(selected),
         }),
       );
@@ -189,7 +201,10 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
               {(['group', 'channel'] as GroupKind[]).map((k) => (
                 <Pressable
                   key={k}
-                  onPress={() => setKind(k)}
+                  onPress={() => {
+                    setKind(k);
+                    if (k === 'group') setCategory(null);
+                  }}
                   style={[
                     styles.kindBtn,
                     { borderColor: kind === k ? c.primary : c.border },
@@ -241,6 +256,25 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
                 style={[styles.input, { color: c.text, minHeight: 40 }]}
               />
             </View>
+
+            {/* catégorie — chaîne uniquement */}
+            {kind === 'channel' ? (
+              <Pressable
+                onPress={pickCategory}
+                style={[styles.field, { backgroundColor: c.surface, borderColor: c.border }]}
+              >
+                <Icon name="shape-outline" size={18} color={c.textFaint} />
+                <Text
+                  style={[
+                    styles.input,
+                    { color: category ? c.text : c.textFaint, paddingVertical: 12 },
+                  ]}
+                >
+                  {category ? t(`groups.category_${category}`) : t('groups.categoryPick')}
+                </Text>
+                <Icon name="chevron-right" size={18} color={c.textFaint} />
+              </Pressable>
+            ) : null}
 
             {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
 

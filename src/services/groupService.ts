@@ -155,6 +155,7 @@ export const groupService = {
       description: input.description ?? undefined,
       avatar_url: input.avatar_url ?? undefined,
       is_public: input.is_public ?? true,
+      category: input.kind === 'channel' ? (input.category ?? undefined) : undefined,
       member_ids: input.member_ids ?? [],
     });
     await groupRepo.upsertFromServer(g);
@@ -168,7 +169,7 @@ export const groupService = {
    */
   async update(
     id: string,
-    patch: Partial<Pick<Group, 'name' | 'description' | 'avatar_url' | 'is_public'>>,
+    patch: Partial<Pick<Group, 'name' | 'description' | 'avatar_url' | 'is_public' | 'category'>>,
   ): Promise<void> {
     await groupRepo.patchLocal(id, patch);
     await outbox.enqueue('group_update', newClientId(), { groupId: id, patch });

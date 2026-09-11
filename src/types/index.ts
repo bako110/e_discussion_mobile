@@ -184,6 +184,40 @@ export interface CreateStoryInput {
 
 // ── Groupes & Chaînes ─────────────────────────────────────────────────────
 export type GroupKind = 'group' | 'channel';
+
+/** Catégorie d'une CHAÎNE — sert au tri / filtre. Sans objet pour un groupe. */
+export type GroupCategory =
+  | 'news'
+  | 'entertainment'
+  | 'sport'
+  | 'tech'
+  | 'education'
+  | 'business'
+  | 'lifestyle'
+  | 'music'
+  | 'gaming'
+  | 'art'
+  | 'science'
+  | 'politics'
+  | 'religion'
+  | 'other';
+
+export const GROUP_CATEGORIES: GroupCategory[] = [
+  'news',
+  'entertainment',
+  'sport',
+  'tech',
+  'education',
+  'business',
+  'lifestyle',
+  'music',
+  'gaming',
+  'art',
+  'science',
+  'politics',
+  'religion',
+  'other',
+];
 export type GroupRole = 'owner' | 'admin' | 'member' | 'subscriber';
 
 export interface Group {
@@ -195,6 +229,7 @@ export interface Group {
   owner_id: string;
   invite_code: string;
   is_public: boolean;
+  category: GroupCategory | null;
   created_at: string;
   last_message_at: string | null;
   member_count: number;
@@ -241,6 +276,7 @@ export interface GroupPreview {
   name: string;
   description: string | null;
   avatar_url: string | null;
+  category: GroupCategory | null;
   member_count: number;
   is_member: boolean;
 }
@@ -268,6 +304,8 @@ export interface CreateGroupInput {
   description?: string | null;
   avatar_url?: string | null;
   is_public?: boolean;
+  /** chaîne uniquement — sans objet pour un groupe. */
+  category?: GroupCategory | null;
   member_ids?: string[];
 }
 

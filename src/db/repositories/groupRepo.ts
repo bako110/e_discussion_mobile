@@ -5,7 +5,7 @@
  * par l'outbox (`send_group_message` / `upload_group_message`).
  */
 import { query, run } from '@/db';
-import type { Group, GroupKind, GroupMessage, GroupRole, MessageType, UserPublic } from '@/types';
+import type { Group, GroupCategory, GroupKind, GroupMessage, GroupRole, MessageType, UserPublic } from '@/types';
 
 interface GroupRow {
   id: string;
@@ -16,6 +16,7 @@ interface GroupRow {
   owner_id: string;
   invite_code: string;
   is_public: number;
+  category: string | null;
   created_at: string;
   last_message_at: string | null;
   last_message_preview: string | null;
@@ -63,6 +64,7 @@ function toGroup(r: GroupRow): LocalGroup {
     owner_id: r.owner_id,
     invite_code: r.invite_code,
     is_public: !!r.is_public,
+    category: (r.category as GroupCategory | null) ?? null,
     created_at: r.created_at,
     last_message_at: r.last_message_at,
     last_message_preview: r.last_message_preview,
@@ -127,14 +129,15 @@ export const groupRepo = {
     const P = "groups.sync_state='pending'";
     await run(
       `INSERT INTO groups
-        (id, kind, name, description, avatar_url, owner_id, invite_code, is_public,
+        (id, kind, name, description, avatar_url, owner_id, invite_code, is_public, category,
          created_at, last_message_at, last_message_preview, member_count, unread_count,
          my_role, can_post, muted, sync_state, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,'synced',?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,'synced',?)
        ON CONFLICT(id) DO UPDATE SET
          kind=excluded.kind, name=excluded.name, description=excluded.description,
          avatar_url=excluded.avatar_url, owner_id=excluded.owner_id,
          invite_code=excluded.invite_code, is_public=excluded.is_public,
+         category=excluded.category,
          last_message_at=COALESCE(excluded.last_message_at, groups.last_message_at),
          last_message_preview=CASE
            WHEN COALESCE(excluded.last_message_preview,'') <> '' THEN excluded.last_message_preview
@@ -153,6 +156,7 @@ export const groupRepo = {
         g.owner_id,
         g.invite_code,
         g.is_public ? 1 : 0,
+        g.category,
         g.created_at,
         g.last_message_at,
         g.last_message_preview,
@@ -178,7 +182,7 @@ export const groupRepo = {
     await run('UPDATE groups SET unread_count=? WHERE id=?', [count, id]);
   },
 
-  /** Édition optimiste locale du nom / description / avatar / is_public. */
+  /** Édition optimiste locale du nom / description / avatar / is_public / category. */
   async patchLocal(
     id: string,
     patch: Partial<{
@@ -186,6 +190,7 @@ export const groupRepo = {
       description: string | null;
       avatar_url: string | null;
       is_public: boolean;
+      category: GroupCategory | null;
     }>,
   ): Promise<void> {
     const sets: string[] = [];
@@ -205,6 +210,10 @@ export const groupRepo = {
     if (patch.is_public !== undefined) {
       sets.push('is_public=?');
       args.push(patch.is_public ? 1 : 0);
+    }
+    if (patch.category !== undefined) {
+      sets.push('category=?');
+      args.push(patch.category);
     }
     if (sets.length === 0) return;
     sets.push("sync_state='pending'");

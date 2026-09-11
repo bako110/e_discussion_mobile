@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -251,5 +251,11 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_notif_unread ON notifications(read);
+  `,
+
+  // ── v10 : catégorie d'une chaîne (tri / filtre). NULL pour un groupe.
+  `
+  ALTER TABLE groups ADD COLUMN category TEXT;
+  CREATE INDEX IF NOT EXISTS idx_group_category ON groups(category);
   `,
 ];
