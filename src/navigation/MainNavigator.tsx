@@ -18,6 +18,7 @@ import { GroupInfoScreen } from '@/screens/Main/GroupInfoScreen';
 import { GroupSettingsScreen } from '@/screens/Main/GroupSettingsScreen';
 import { GroupJoinRequestsScreen } from '@/screens/Main/GroupJoinRequestsScreen';
 import { AddGroupMembersScreen } from '@/screens/Main/AddGroupMembersScreen';
+import { ChannelLiveViewerScreen } from '@/screens/Main/ChannelLiveViewerScreen';
 import { ChatMediaPreviewScreen } from '@/screens/Main/ChatMediaPreviewScreen';
 import { GroupQrScreen } from '@/screens/Main/GroupQrScreen';
 import { GroupsListScreen } from '@/screens/Main/GroupsListScreen';
@@ -27,6 +28,7 @@ import { LinkIdentifierScreen } from '@/screens/Main/LinkIdentifierScreen';
 import { MediaViewerScreen } from '@/screens/Main/MediaViewerScreen';
 import { MessageInfoScreen } from '@/screens/Main/MessageInfoScreen';
 import { NewConversationScreen } from '@/screens/Main/NewConversationScreen';
+import { UserProfileScreen } from '@/screens/Main/UserProfileScreen';
 import { NotificationsSettingsScreen } from '@/screens/Main/NotificationsSettingsScreen';
 import { NotificationHistoryScreen } from '@/screens/Main/NotificationHistoryScreen';
 import { PrivacySettingsScreen } from '@/screens/Main/PrivacySettingsScreen';
@@ -51,6 +53,7 @@ export const MainNavigator: React.FC = () => (
     <Stack.Screen name="Tabs" component={TabNavigator} />
     <Stack.Screen name="Chat" component={ChatScreen} />
     <Stack.Screen name="ConversationInfo" component={ConversationInfoScreen} />
+    <Stack.Screen name="UserProfile" component={UserProfileScreen} />
     <Stack.Screen name="NewConversation" component={NewConversationScreen} />
     <Stack.Screen name="EditProfile" component={EditProfileScreen} />
     <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} />
@@ -112,6 +115,11 @@ export const MainNavigator: React.FC = () => (
     <Stack.Screen name="GroupJoinRequests" component={GroupJoinRequestsScreen} />
     <Stack.Screen name="AddGroupMembers" component={AddGroupMembersScreen} />
     <Stack.Screen name="GroupQr" component={GroupQrScreen} />
+    <Stack.Screen
+      name="ChannelLiveViewer"
+      component={ChannelLiveViewerScreen}
+      options={{ animation: 'fade', gestureEnabled: false }}
+    />
     <Stack.Screen
       name="Scanner"
       component={ScannerScreen}

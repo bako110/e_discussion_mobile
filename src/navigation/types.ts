@@ -37,6 +37,18 @@ export type MainStackParamList = {
     partnerName: string;
     partnerAvatar?: string | null;
   };
+  /** Aperçu du profil d'un utilisateur en lecture seule (photo, bio,
+   * présence) — ouvert en tapant un avatar hors du chat (recherche, membres
+   * de groupe…). `name`/`avatar` sont un repli affiché pendant le chargement.
+   * `group` : présent quand on arrive depuis la liste des membres d'un groupe
+   * — affiche le rôle et, si `canManage` (moi = admin/owner du groupe), les
+   * actions promouvoir / retirer pour CE membre. */
+  UserProfile: {
+    userId: string;
+    name?: string;
+    avatar?: string | null;
+    group?: { groupId: string; role: string; isChannel: boolean; canManage: boolean };
+  };
   /** `mode` : 'chat' (defaut) ouvre la conversation ; 'call' lance un appel. */
   NewConversation: { mode?: 'chat' | 'call' } | undefined;
   EditProfile: undefined;
@@ -99,6 +111,9 @@ export type MainStackParamList = {
   GroupJoinRequests: { groupId: string };
   /** QR code d'invitation d'un groupe / chaîne (à faire scanner). */
   GroupQr: { groupId: string };
+  /** Écran plein écran de la diffusion en direct d'une chaîne (spectateur
+   * ou diffuseur — `asBroadcaster` distingue les deux). */
+  ChannelLiveViewer: { groupId: string; asBroadcaster?: boolean };
   /** Scanner QR d'invitation (ou saisie manuelle du code). */
   Scanner: undefined;
   /** Aperçu avant d'accepter de rejoindre. */
