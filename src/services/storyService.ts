@@ -202,6 +202,51 @@ export const storyService = {
     }
   },
 
+  /**
+   * Réessaie une story en échec (façon WhatsApp : bouton « Réessayer » sur
+   * un envoi qui a échoué) — remet la ligne locale en « en attente » et
+   * ré-empile une entrée outbox à partir du fichier local déjà en cache
+   * (`media_url` pointe encore vers le fichier d'origine tant que la story
+   * n'a jamais été confirmée côté serveur). Ne fait rien si la story n'est
+   * plus en échec (déjà retirée, ou déjà republiée).
+   */
+  retryFailedLocal(story: Story): void {
+    if (!story.client_id || !story.failed) return;
+    const list = storage.getJSON<Story[]>(K_MINE) ?? [];
+    const idx = list.findIndex((s) => s.client_id === story.client_id);
+    if (idx === -1) return;
+    list[idx] = { ...list[idx]!, pending: true, failed: false };
+    storage.setJSON(K_MINE, list);
+
+    const hasMedia = story.media_type !== 'text' && !!story.media_url;
+    if (hasMedia) {
+      void outbox.enqueue('upload_story', story.client_id, {
+        client_id: story.client_id,
+        localFile: {
+          uri: story.media_url as string,
+          name: story.media_type === 'video' ? 'story.mp4' : 'story.jpg',
+          type: story.media_type === 'video' ? 'video/mp4' : 'image/jpeg',
+        },
+        media_type: story.media_type,
+        caption: story.caption ?? undefined,
+        background_color: story.background_color ?? undefined,
+        audience: story.audience,
+        duration_sec: story.duration_sec,
+        isAudio: story.media_type === 'audio',
+      });
+    } else {
+      void outbox.enqueue('create_story', story.client_id, {
+        client_id: story.client_id,
+        media_type: story.media_type,
+        caption: story.caption ?? undefined,
+        background_color: story.background_color ?? undefined,
+        font: story.font ?? undefined,
+        duration_sec: story.duration_sec,
+        audience: story.audience,
+      });
+    }
+  },
+
   /** Modifie une de mes stories. */
   update(
     id: string,

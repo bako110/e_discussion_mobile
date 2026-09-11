@@ -13,13 +13,14 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, confirmAlert, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, confirmAlert, Icon, Screen, showAlert, showSheet, showToast } from '@/components/common';
 import { fontStyle, paletteBySeed } from '@/components/story/storyConfig';
 import { useAuth } from '@/context/AuthContext';
 import { useStories } from '@/context/StoriesContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
 import { storyService } from '@/services';
+import { syncNow } from '@/sync/syncEngine';
 import type { Story } from '@/types';
 import { mediaUrl } from '@/utils/media';
 import { clockTime, relativeTime } from '@/utils/time';
@@ -98,6 +99,33 @@ export const MyStatusScreen: React.FC = () => {
   const openViewer = () => navigation.navigate('StoryViewer', { authorId: me!.id });
   const openViewers = (storyId: string) =>
     navigation.navigate('StoryViewers', { storyId });
+
+  // envoi échoué : on ré-empile l'entrée outbox à partir du fichier local
+  // déjà en cache — repart dès que le réseau revient, comme un message.
+  const retryStory = (story: Story) => {
+    storyService.retryFailedLocal(story);
+    void reload();
+    void syncNow();
+    showToast(t('stories.retrying'));
+  };
+
+  // façon WhatsApp : un envoi en échec propose Réessayer / Supprimer au lieu
+  // d'aller direct à la confirmation de suppression.
+  const onFailedTile = (story: Story) => {
+    showSheet({
+      title: t('stories.sendFailed'),
+      actions: [
+        { label: t('stories.retry'), icon: 'refresh', onPress: () => retryStory(story) },
+        {
+          label: t('common.delete'),
+          icon: 'delete-outline',
+          destructive: true,
+          onPress: () => confirmDelete(story),
+        },
+      ],
+      cancelLabel: t('common.cancel'),
+    });
+  };
 
   const confirmDelete = (story: Story) => {
     // story locale pas encore confirmée (en attente / échouée) : rien côté
@@ -255,11 +283,11 @@ export const MyStatusScreen: React.FC = () => {
                     style={styles.tile}
                     android_ripple={{ color: c.surfaceAlt }}
                     onPress={() => {
-                      if (story.failed) return confirmDelete(story);
+                      if (story.failed) return onFailedTile(story);
                       if (story.pending) return; // rien à voir tant que non publiée
                       openViewers(story.id);
                     }}
-                    onLongPress={() => confirmDelete(story)}
+                    onLongPress={() => (story.failed ? onFailedTile(story) : confirmDelete(story))}
                   >
                     <Cover story={story} name={myName} />
                     <View style={styles.tileShade} />
