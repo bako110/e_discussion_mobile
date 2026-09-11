@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -40,6 +42,50 @@ function activityLabel(
       return { icon: 'format-text', label: t('stories.activityText') };
   }
 }
+
+/** État vide de la section « Chaînes en direct » — un anneau qui pulse en
+ * boucle autour de l'icône, façon radar en attente de signal, au lieu d'un
+ * simple texte plat. */
+const LiveEmptyState: React.FC<{ color: string; textColor: string; hint: string }> = ({
+  color,
+  textColor,
+  hint,
+}) => {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(pulse, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  const ringScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] });
+  const ringOpacity = pulse.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0.35, 0.15, 0] });
+
+  return (
+    <View style={styles.liveEmptyWrap}>
+      <View style={styles.liveEmptyIconBox}>
+        <Animated.View
+          style={[
+            styles.liveEmptyRing,
+            { borderColor: color, opacity: ringOpacity, transform: [{ scale: ringScale }] },
+          ]}
+        />
+        <View style={[styles.liveEmptyDot, { backgroundColor: color + '1a' }]}>
+          <Icon name="access-point" size={26} color={color} />
+        </View>
+      </View>
+      <Text style={[styles.liveEmptyTxt, { color: textColor }]}>{hint}</Text>
+    </View>
+  );
+};
 
 export const StatusScreen: React.FC = () => {
   const { t } = useTranslation();
@@ -505,9 +551,11 @@ export const StatusScreen: React.FC = () => {
               </Pressable>
             ))
           ) : (
-            <Text style={[styles.popularHint, { color: c.textMuted }]}>
-              {t('channelLive.sectionEmpty')}
-            </Text>
+            <LiveEmptyState
+              color="#E0203D"
+              textColor={c.textMuted}
+              hint={t('channelLive.sectionEmpty')}
+            />
           )}
         </ScrollView>
       )}
@@ -691,4 +739,21 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 15, fontWeight: '700' },
   emptyHint: { fontSize: 13, textAlign: 'center' },
   liveDotSmall: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E0203D' },
+  liveEmptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 28, gap: 12 },
+  liveEmptyIconBox: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
+  liveEmptyRing: {
+    position: 'absolute',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1.5,
+  },
+  liveEmptyDot: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  liveEmptyTxt: { fontSize: 13, textAlign: 'center', paddingHorizontal: 32 },
 });
