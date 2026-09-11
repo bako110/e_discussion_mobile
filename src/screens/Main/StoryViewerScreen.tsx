@@ -75,6 +75,15 @@ const StoryVideo: React.FC<{
 
   return (
     <Video
+      // `key` sur la source réelle force react-native-video à REMONTER le
+      // lecteur natif dès que `src` change — y compris quand ce n'est PAS un
+      // changement de story mais juste la résolution asynchrone réseau ->
+      // cache local (useCachedMedia résout `localUri` un instant après le
+      // premier rendu, donc `source.uri` change en cours de route). Sans
+      // cette clé, react-native-video (6.x) peut ne pas recharger la
+      // nouvelle source et rester bloqué sur l'ancienne — le fichier était
+      // pourtant intact et bien mis en cache (vérifié octet à octet).
+      key={src}
       ref={videoRef}
       source={{ uri: src }}
       style={StyleSheet.absoluteFill}
