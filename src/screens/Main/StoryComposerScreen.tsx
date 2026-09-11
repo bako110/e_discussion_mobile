@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
+import Video from 'react-native-video';
 
 import { Icon } from '@/components/common';
 import {
@@ -24,6 +25,7 @@ import type { MainNav } from '@/navigation/types';
 import { storyService } from '@/services';
 import type { StoryAudienceMode } from '@/services/storyService';
 import { openStoryPrivacySheet } from '@/services/storyPrivacySheet';
+import { getVoiceState, stopVoice, subscribeVoice, toggleVoice } from '@/services/voicePlayer';
 import type { UploadedMedia } from '@/services';
 import type { StoryMediaType } from '@/types';
 import { mediaUrl } from '@/utils/media';
@@ -59,11 +61,22 @@ export const StoryComposerScreen: React.FC = () => {
     return unsub;
   }, [navigation]);
   const [media, setMedia] = useState<UploadedMedia | null>(null);
-  const [publishing, setPublishing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // aperçu vidéo : pause/lecture au tap (démarre en lecture, comme un aperçu).
+  const [videoPaused, setVideoPaused] = useState(false);
+  // aperçu audio : suit le lecteur singleton partagé (celui des vocaux de chat).
+  const [, forceAudioRender] = useState(0);
+  useEffect(() => subscribeVoice(() => forceAudioRender((n) => n + 1)), []);
+  // coupe l'aperçu audio en quittant l'écran (retour arrière, navigation vers
+  // l'éditeur média…) — sinon le son continue en fond.
+  useEffect(() => () => void stopVoice(), []);
+  const audioUrl = media?.media_type === 'audio' ? mediaUrl(media.url) : null;
+  const voiceState = getVoiceState();
+  const audioPreviewPlaying = !!audioUrl && voiceState.url === audioUrl && voiceState.playing;
 
   const fStyle = useMemo(() => fontStyle(font), [font]);
-  const busy = publishing || picker.busy;
+  // la publication est LOCAL-FIRST (instantanée, jamais bloquante) — seul
+  // l'enregistrement audio en cours occupe l'écran.
+  const busy = picker.busy;
 
   // Après sélection d'un média : on passe direct à l'éditeur plein écran
   // SANS uploader (recadrage / dessin / légende / stickers). L'upload se fait
@@ -103,42 +116,23 @@ export const StoryComposerScreen: React.FC = () => {
     ((mode === 'text' && text.trim().length > 0) ||
       ((mode === 'photo' || mode === 'video' || mode === 'audio') && !!media));
 
-  const publish = async () => {
-    if (!canPublish) return;
-    setPublishing(true);
-    setError(null);
-    try {
-      const caption = text.trim() || undefined;
-      if (mode === 'text') {
-        await storyService.create({
-          media_type: 'text' as StoryMediaType,
-          caption,
-          background_color: bg,
-          font,
-          duration_sec: Math.min(30, Math.max(5, Math.ceil((caption?.length ?? 0) / 20))),
-        });
-      } else if (media) {
-        await storyService.create({
-          media_type: media.media_type as StoryMediaType,
-          media_url: media.url,
-          thumbnail_url: media.thumbnail_url ?? undefined,
-          caption,
-          background_color: media.media_type === 'audio' ? bg : undefined,
-          font: media.media_type === 'audio' ? font : undefined,
-          audio_url: media.media_type === 'audio' ? media.url : undefined,
-          duration_sec:
-            media.media_type === 'video' || media.media_type === 'audio'
-              ? Math.max(3, Math.round(media.duration_sec ?? 15))
-              : 6,
-        });
-      }
-      await reload();
-      navigation.goBack();
-    } catch (e) {
-      console.warn('[story] publish failed:', e);
-      setError(t('errors.generic'));
-      setPublishing(false);
-    }
+  // LOCAL-FIRST (comme un message) : la story ⏱ apparaît tout de suite dans
+  // « Mes statuts », la publication réelle part par l'outbox et se rejoue
+  // au retour du réseau — jamais bloquant, jamais d'échec réseau ici.
+  // (photo/vidéo/audio publient depuis MediaEditorScreen, seul le texte est
+  // géré directement dans cet écran.)
+  const publish = () => {
+    if (!canPublish || mode !== 'text') return;
+    const caption = text.trim() || undefined;
+    storyService.createText({
+      media_type: 'text' as StoryMediaType,
+      caption,
+      background_color: bg,
+      font,
+      duration_sec: Math.min(30, Math.max(5, Math.ceil((caption?.length ?? 0) / 20))),
+    });
+    void reload();
+    navigation.goBack();
   };
 
   const rootBg = mode === 'photo' || mode === 'video' ? '#000' : bg;
@@ -208,28 +202,55 @@ export const StoryComposerScreen: React.FC = () => {
         ) : mode === 'photo' && media ? (
           <Image source={{ uri: mediaUrl(media.url) }} style={styles.preview} resizeMode="contain" />
         ) : mode === 'video' && media ? (
-          <View style={styles.mediaFallback}>
-            {media.thumbnail_url ? (
-              <Image source={{ uri: mediaUrl(media.thumbnail_url) }} style={styles.preview} resizeMode="contain" />
-            ) : (
-              <Icon name="video" size={72} color="#ffffffcc" />
-            )}
-            <View style={styles.playPill}>
-              <Icon name="play" size={16} color="#fff" />
-              <Text style={styles.playPillText}>
-                {Math.round(media.duration_sec ?? 0)}s
-              </Text>
-            </View>
-          </View>
+          // Aperçu vidéo — lecture réelle (avec le son), tap pour pause/reprise,
+          // au lieu de la simple vignette + pastille "▶ Xs" d'avant.
+          <Pressable
+            style={styles.videoPreviewWrap}
+            onPress={() => setVideoPaused((p) => !p)}
+          >
+            <Video
+              source={{ uri: mediaUrl(media.url) ?? media.url }}
+              style={styles.preview}
+              resizeMode="contain"
+              paused={videoPaused}
+              repeat
+              muted={false}
+              poster={media.thumbnail_url ? mediaUrl(media.thumbnail_url) ?? undefined : undefined}
+            />
+            {videoPaused ? (
+              <View style={styles.videoPauseOverlay} pointerEvents="none">
+                <Icon name="play" size={44} color="#fff" />
+              </View>
+            ) : null}
+          </Pressable>
         ) : mode === 'audio' ? (
           <View style={styles.mediaFallback}>
-            <View style={styles.audioBadge}>
+            <Pressable
+              style={styles.audioBadge}
+              disabled={!media}
+              onPress={() => {
+                if (!audioUrl) return;
+                void toggleVoice(audioUrl, {
+                  conversationId: null,
+                  title: t('stories.audioTrack'),
+                  durationMs: media?.duration_sec ? media.duration_sec * 1000 : null,
+                });
+              }}
+            >
               <Icon
-                name={picker.recording ? 'stop' : media ? 'music-note' : 'microphone'}
+                name={
+                  picker.recording
+                    ? 'stop'
+                    : audioPreviewPlaying
+                      ? 'pause'
+                      : media
+                        ? 'play'
+                        : 'microphone'
+                }
                 size={40}
                 color="#fff"
               />
-            </View>
+            </Pressable>
             <Text style={styles.audioLabel}>
               {picker.recording
                 ? `${t('stories.recording')} ${picker.recordSeconds}s`
@@ -237,6 +258,16 @@ export const StoryComposerScreen: React.FC = () => {
                   ? `${t('stories.audioTrack')} · ${Math.round(media.duration_sec ?? 0)}s`
                   : t('stories.tapMicToRecord')}
             </Text>
+            {media && audioPreviewPlaying && voiceState.duration > 0 ? (
+              <View style={styles.audioTrack}>
+                <View
+                  style={[
+                    styles.audioTrackFill,
+                    { width: `${Math.min(100, (voiceState.position / voiceState.duration) * 100)}%` },
+                  ]}
+                />
+              </View>
+            ) : null}
             {!media && !picker.recording ? (
               <Pressable onPress={toggleRecord} style={styles.recordBtn}>
                 <Text style={styles.recordBtnText}>{t('stories.startRecording')}</Text>
@@ -295,8 +326,6 @@ export const StoryComposerScreen: React.FC = () => {
           />
         </View>
       ) : null}
-
-      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {/* Barre de couleurs (texte / audio) */}
       {mode === 'text' || mode === 'audio' ? (
@@ -375,16 +404,13 @@ const styles = StyleSheet.create({
   input: { color: '#fff', fontSize: 26, textAlign: 'center', width: '100%', maxHeight: '80%' },
   preview: { width: '100%', height: '100%' },
   mediaFallback: { alignItems: 'center', gap: 16 },
-  playPill: {
-    flexDirection: 'row',
+  videoPreviewWrap: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+  videoPauseOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
   },
-  playPillText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   audioBadge: {
     width: 96,
     height: 96,
@@ -394,6 +420,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   audioLabel: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  audioTrack: {
+    width: 180,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    overflow: 'hidden',
+  },
+  audioTrackFill: { height: 3, backgroundColor: '#fff' },
   recordBtn: {
     backgroundColor: 'rgba(255,255,255,0.9)',
     paddingHorizontal: 22,

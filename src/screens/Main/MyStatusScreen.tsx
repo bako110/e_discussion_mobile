@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Image,
   Pressable,
   RefreshControl,
@@ -12,7 +13,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
+import { AppHeader, confirmAlert, Icon, Screen, showAlert } from '@/components/common';
 import { fontStyle, paletteBySeed } from '@/components/story/storyConfig';
 import { useAuth } from '@/context/AuthContext';
 import { useStories } from '@/context/StoriesContext';
@@ -23,42 +24,58 @@ import type { Story } from '@/types';
 import { mediaUrl } from '@/utils/media';
 import { clockTime, relativeTime } from '@/utils/time';
 
-/** Vignette rectangulaire 48x64 — miniature média ou fond coloré + aperçu texte. */
-const Preview: React.FC<{ story: Story; name: string }> = ({ story, name }) => {
+/** Fond d'une vignette : image de couverture OU dégradé + aperçu texte/icône. */
+const Cover: React.FC<{ story: Story; name: string; radius?: number }> = ({
+  story,
+  name,
+  radius = 14,
+}) => {
   const thumb =
     story.thumbnail_url ?? (story.media_type === 'image' ? story.media_url : null);
   const [g0, g1] = paletteBySeed(name + story.id);
 
   if (thumb) {
-    return <Image source={{ uri: mediaUrl(thumb) }} style={styles.previewImg} />;
+    return (
+      <Image
+        source={{ uri: mediaUrl(thumb) }}
+        style={[StyleSheet.absoluteFill, { borderRadius: radius }]}
+        resizeMode="cover"
+      />
+    );
   }
   return (
-    <View style={[styles.previewBox, { backgroundColor: story.background_color ?? g0 }]}>
+    <View
+      style={[
+        StyleSheet.absoluteFill,
+        { backgroundColor: story.background_color ?? g0, borderRadius: radius, overflow: 'hidden' },
+      ]}
+    >
       {!story.background_color ? (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: g1, opacity: 0.4, borderRadius: 8 }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: g1, opacity: 0.45 }]} />
       ) : null}
-      {story.media_type === 'text' && story.caption ? (
-        <Text style={[styles.previewText, fontStyle(story.font)]} numberOfLines={3}>
-          {story.caption}
-        </Text>
-      ) : story.media_type === 'video' ? (
-        <Icon name="play-circle" size={20} color="rgba(255,255,255,0.9)" />
-      ) : story.media_type === 'audio' || story.media_type === 'voice' ? (
-        <Icon name="music-note" size={18} color="rgba(255,255,255,0.9)" />
-      ) : (
-        <Icon name="camera-outline" size={18} color="rgba(255,255,255,0.7)" />
-      )}
+      <View style={styles.coverCenter}>
+        {story.media_type === 'text' && story.caption ? (
+          <Text style={[styles.coverText, fontStyle(story.font)]} numberOfLines={4}>
+            {story.caption}
+          </Text>
+        ) : story.media_type === 'video' ? (
+          <Icon name="play-circle" size={30} color="rgba(255,255,255,0.95)" />
+        ) : story.media_type === 'audio' || story.media_type === 'voice' ? (
+          <Icon name="music-note" size={26} color="rgba(255,255,255,0.95)" />
+        ) : (
+          <Icon name="camera-outline" size={24} color="rgba(255,255,255,0.8)" />
+        )}
+      </View>
     </View>
   );
 };
 
 /**
- * Page « Mes statuts » — façon WhatsApp.
+ * Page « Mes statuts » — design carte + grille façon WhatsApp.
  *
- * Liste chacune de mes stories actives avec sa miniature, son heure de
- * publication, son nombre de vues et de réactions. Un appui ouvre la liste des
- * spectateurs ; un appui long propose la suppression. Le bouton « + » du header
- * ouvre le composer. Se rafraîchit sur les events WS `story.*`.
+ *  - En-tête : grand aperçu du dernier statut, total de vues, accès au lecteur.
+ *  - Grille 2 colonnes : une vignette par statut actif, métriques en overlay,
+ *    appui = spectateurs, corbeille / appui long = suppression (avec alerte).
  */
 export const MyStatusScreen: React.FC = () => {
   const { t } = useTranslation();
@@ -83,24 +100,43 @@ export const MyStatusScreen: React.FC = () => {
     navigation.navigate('StoryViewers', { storyId });
 
   const confirmDelete = (story: Story) => {
-    showAlert(t('stories.deleteTitle'), t('stories.deleteConfirm'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await storyService.remove(story.id);
-            await reload();
-          } catch {
-            showAlert(t('errors.generic'));
-          }
+    // story locale pas encore confirmée (en attente / échouée) : rien côté
+    // serveur à supprimer, on retire juste le brouillon local + son entrée
+    // d'outbox si elle existe encore.
+    if (story.pending || story.failed) {
+      confirmAlert(
+        t('stories.deleteTitle'),
+        story.failed ? t('stories.deleteFailedConfirm') : t('stories.deleteConfirm'),
+        () => {
+          if (story.client_id) storyService.removePendingLocal(story.client_id);
+          void reload();
         },
+        { destructive: true, confirmText: t('common.delete'), cancelText: t('common.cancel') },
+      );
+      return;
+    }
+    confirmAlert(
+      t('stories.deleteTitle'),
+      t('stories.deleteConfirm'),
+      async () => {
+        try {
+          await storyService.remove(story.id);
+          await reload();
+        } catch {
+          showAlert(t('errors.generic'));
+        }
       },
-    ]);
+      {
+        destructive: true,
+        confirmText: t('common.delete'),
+        cancelText: t('common.cancel'),
+      },
+    );
   };
 
   const totalViews = mine.reduce((n, s) => n + s.view_count, 0);
+  const totalReactions = mine.reduce((n, s) => n + s.reaction_count, 0);
+  const latest = mine[0];
 
   return (
     <Screen edges={[]}>
@@ -159,71 +195,129 @@ export const MyStatusScreen: React.FC = () => {
             </View>
           ) : (
             <>
-              {/* Récapitulatif */}
-              <Pressable
-                style={[styles.summary, { backgroundColor: c.surfaceAlt }]}
-                onPress={openViewer}
-                android_ripple={{ color: c.surface }}
-              >
-                <Icon name="eye-outline" size={20} color={c.primary} />
-                <Text style={[styles.summaryText, { color: c.text }]}>
-                  {t('stories.viewsTotal', { count: totalViews })} ·{' '}
-                  {t('stories.count', { count: mine.length })}
-                </Text>
-                <Icon name="chevron-right" size={20} color={c.textMuted} />
-              </Pressable>
+              {/* ── Grande carte : aperçu du dernier statut + stats ─────── */}
+              {latest ? (
+                <Pressable
+                  style={styles.hero}
+                  onPress={openViewer}
+                  android_ripple={{ color: c.surfaceAlt }}
+                >
+                  <View style={styles.heroMedia}>
+                    <Cover story={latest} name={myName} radius={18} />
+                    <View style={styles.heroShade} />
+                    <View style={styles.heroTop}>
+                      <View style={[styles.heroPill, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+                        <Icon name="clock-outline" size={13} color="#fff" />
+                        <Text style={styles.heroPillTxt}>
+                          {relativeTime(latest.created_at)}
+                        </Text>
+                      </View>
+                      <View style={[styles.heroPill, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+                        <Text style={styles.heroPillTxt}>
+                          {t('stories.count', { count: mine.length })}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.heroBottom}>
+                      <Text style={styles.heroCaption} numberOfLines={1}>
+                        {latest.caption?.trim() ||
+                          t(`stories.mediaLabel_${latest.media_type}`)}
+                      </Text>
+                      <View style={styles.heroStats}>
+                        <View style={styles.heroStat}>
+                          <Icon name="eye" size={15} color="#fff" />
+                          <Text style={styles.heroStatTxt}>{totalViews}</Text>
+                        </View>
+                        {totalReactions > 0 ? (
+                          <View style={styles.heroStat}>
+                            <Icon name="heart" size={14} color="#fff" />
+                            <Text style={styles.heroStatTxt}>{totalReactions}</Text>
+                          </View>
+                        ) : null}
+                        <View style={{ flex: 1 }} />
+                        <Text style={styles.heroLink}>{t('stories.seeViewers')}</Text>
+                        <Icon name="chevron-right" size={18} color="#fff" />
+                      </View>
+                    </View>
+                  </View>
+                </Pressable>
+              ) : null}
 
               <Text style={[styles.section, { color: c.textMuted }]}>
                 {t('stories.updates')}
               </Text>
 
-              {mine.map((story) => (
-                <Pressable
-                  key={story.id}
-                  style={styles.row}
-                  android_ripple={{ color: c.surfaceAlt }}
-                  onPress={() => openViewers(story.id)}
-                  onLongPress={() => confirmDelete(story)}
-                >
-                  <Preview story={story} name={myName} />
-                  <View style={styles.rowBody}>
-                    <Text style={[styles.rowTitle, { color: c.text }]} numberOfLines={1}>
-                      {story.caption?.trim() || t(`stories.mediaLabel_${story.media_type}`)}
-                    </Text>
-                    <Text style={[styles.rowSub, { color: c.textMuted }]}>
-                      {clockTime(story.created_at)} · {relativeTime(story.created_at)}
-                    </Text>
-                    <View style={styles.metrics}>
-                      <View style={styles.metric}>
-                        <Icon name="eye-outline" size={15} color={c.textMuted} />
-                        <Text style={[styles.metricText, { color: c.textMuted }]}>
-                          {story.view_count}
-                        </Text>
-                      </View>
-                      {story.reaction_count > 0 ? (
-                        <View style={styles.metric}>
-                          <Icon name="heart-outline" size={15} color={c.textMuted} />
-                          <Text style={[styles.metricText, { color: c.textMuted }]}>
-                            {story.reaction_count}
-                          </Text>
-                        </View>
-                      ) : null}
-                      {story.edited_at ? (
-                        <Text style={[styles.editedTag, { color: c.textFaint }]}>
-                          {t('stories.edited')}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
+              {/* ── Grille 2 colonnes ──────────────────────────────────── */}
+              <View style={styles.grid}>
+                {mine.map((story) => (
                   <Pressable
-                    onPress={() => confirmDelete(story)}
-                    hitSlop={10}
-                    style={styles.rowAction}
+                    key={story.client_id ?? story.id}
+                    style={styles.tile}
+                    android_ripple={{ color: c.surfaceAlt }}
+                    onPress={() => {
+                      if (story.failed) return confirmDelete(story);
+                      if (story.pending) return; // rien à voir tant que non publiée
+                      openViewers(story.id);
+                    }}
+                    onLongPress={() => confirmDelete(story)}
                   >
-                    <Icon name="delete-outline" size={20} color={c.textMuted} />
+                    <Cover story={story} name={myName} />
+                    <View style={styles.tileShade} />
+
+                    <Pressable
+                      onPress={() => confirmDelete(story)}
+                      hitSlop={8}
+                      style={styles.tileDelete}
+                    >
+                      <Icon name="delete-outline" size={16} color="#fff" />
+                    </Pressable>
+
+                    {story.pending ? (
+                      <View style={styles.tilePendingOverlay}>
+                        <ActivityIndicator color="#fff" size="small" />
+                        <Text style={styles.tilePendingTxt}>{t('stories.sending')}</Text>
+                      </View>
+                    ) : story.failed ? (
+                      <View style={[styles.tilePendingOverlay, styles.tileFailedOverlay]}>
+                        <Icon name="alert-circle-outline" size={20} color="#fff" />
+                        <Text style={styles.tilePendingTxt}>{t('stories.sendFailed')}</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.tileBottom}>
+                        <Text style={styles.tileTime}>{clockTime(story.created_at)}</Text>
+                        <View style={styles.tileMetrics}>
+                          <Icon name="eye" size={13} color="#fff" />
+                          <Text style={styles.tileMetricTxt}>{story.view_count}</Text>
+                          {story.reaction_count > 0 ? (
+                            <View style={styles.tileReact}>
+                              <Icon name="heart" size={12} color="#fff" />
+                              <Text style={styles.tileMetricTxt}>{story.reaction_count}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </View>
+                    )}
+
+                    {story.edited_at ? (
+                      <View style={styles.tileEdited}>
+                        <Text style={styles.tileEditedTxt}>{t('stories.edited')}</Text>
+                      </View>
+                    ) : null}
                   </Pressable>
+                ))}
+
+                {/* Tuile « ajouter » */}
+                <Pressable
+                  style={[styles.tile, styles.tileAdd, { borderColor: c.border }]}
+                  onPress={openComposer}
+                  android_ripple={{ color: c.surfaceAlt }}
+                >
+                  <Icon name="plus" size={26} color={c.primary} />
+                  <Text style={[styles.tileAddTxt, { color: c.primary }]}>
+                    {t('stories.addStatus')}
+                  </Text>
                 </Pressable>
-              ))}
+              </View>
             </>
           )}
         </ScrollView>
@@ -232,50 +326,135 @@ export const MyStatusScreen: React.FC = () => {
   );
 };
 
+const GAP = 12;
+const H_PAD = 16;
+// largeur d'une tuile pour une grille 2 colonnes avec marges + gouttière
+const TILE_W = (Dimensions.get('window').width - H_PAD * 2 - GAP) / 2;
+
 const styles = StyleSheet.create({
   hdrBtn: { padding: 4 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  scroll: { paddingVertical: 8, paddingBottom: 28 },
-  summary: {
+  scroll: { paddingVertical: 10, paddingBottom: 32 },
+
+  // grande carte
+  hero: { marginHorizontal: 16, marginTop: 6 },
+  heroMedia: {
+    width: '100%',
+    aspectRatio: 16 / 10,
+    borderRadius: 18,
+    overflow: 'hidden',
+    justifyContent: 'space-between',
+    backgroundColor: '#0003',
+  },
+  heroShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.12)',
+  },
+  heroTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 10,
+  },
+  heroPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginHorizontal: 16,
-    marginTop: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  summaryText: { flex: 1, fontSize: 14, fontWeight: '600' },
+  heroPillTxt: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  heroBottom: {
+    padding: 12,
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+  },
+  heroCaption: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  heroStats: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  heroStat: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  heroStatTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  heroLink: { color: '#fff', fontSize: 12, fontWeight: '700', marginRight: 2 },
+
   section: {
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginTop: 20,
+    marginTop: 22,
     marginLeft: 18,
-    marginBottom: 4,
+    marginBottom: 8,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 10 },
-  previewImg: { width: 48, height: 64, borderRadius: 8, resizeMode: 'cover', backgroundColor: '#0003' },
-  previewBox: {
-    width: 48,
-    height: 64,
-    borderRadius: 8,
+
+  // grille
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: H_PAD,
+    gap: GAP,
+  },
+  tile: {
+    width: TILE_W,
+    aspectRatio: 3 / 4,
+    borderRadius: 14,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+    backgroundColor: '#0003',
+  },
+  tileShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.10)',
+  },
+  coverCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 10 },
+  coverText: { color: '#fff', fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  tileDelete: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-    padding: 4,
   },
-  previewText: { color: '#fff', fontSize: 7, fontWeight: '700', textAlign: 'center' },
-  rowBody: { flex: 1, gap: 2 },
-  rowTitle: { fontSize: 15, fontWeight: '700' },
-  rowSub: { fontSize: 12 },
-  metrics: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 3 },
-  metric: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  metricText: { fontSize: 12, fontWeight: '600' },
-  editedTag: { fontSize: 11, fontStyle: 'italic' },
-  rowAction: { padding: 4 },
+  tileBottom: {
+    padding: 8,
+    gap: 2,
+    backgroundColor: 'rgba(0,0,0,0.30)',
+  },
+  tileTime: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  tileMetrics: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  tileReact: { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 6 },
+  tileMetricTxt: { color: '#fff', fontSize: 11.5, fontWeight: '700' },
+  tileEdited: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  tileEditedTxt: { color: '#fff', fontSize: 9.5, fontWeight: '700', fontStyle: 'italic' },
+  tilePendingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  tileFailedOverlay: { backgroundColor: 'rgba(120,0,0,0.45)' },
+  tilePendingTxt: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  tileAdd: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  tileAddTxt: { fontSize: 12, fontWeight: '700' },
+
   empty: { alignItems: 'center', gap: 10, paddingVertical: 60, paddingHorizontal: 40 },
   emptyIcon: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 15, fontWeight: '700' },

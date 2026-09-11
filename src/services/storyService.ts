@@ -1,4 +1,4 @@
-import { apiClient, Endpoints } from '@/api';
+import { apiClient, Endpoints, type UploadFile } from '@/api';
 import { storage } from '@/utils/storage';
 import { mediaCache } from '@/services/mediaCache';
 import { newClientId, outbox } from '@/sync/outbox';
@@ -77,23 +77,129 @@ export const storyService = {
     return m;
   },
 
-  /** Publie une story (en ligne obligatoire). Met à jour le cache `mine`. */
-  async create(input: CreateStoryInput): Promise<Story> {
-    const story = await apiClient.post<Story>(Endpoints.stories.create, {
+  /**
+   * Publie une story SANS média (texte) — LOCAL-FIRST comme un message :
+   * une story ⏱ « en attente » apparaît tout de suite dans « Mes statuts »,
+   * la publication réelle part par l'outbox et se rejoue au retour du
+   * réseau. Ne lève jamais pour une raison réseau.
+   */
+  createText(input: CreateStoryInput): Story {
+    const clientId = newClientId();
+    const now = new Date().toISOString();
+    const pending: Story = {
+      id: `local:${clientId}`,
+      client_id: clientId,
+      author_id: '',
       media_type: input.media_type ?? 'text',
-      media_url: input.media_url ?? undefined,
-      caption: input.caption ?? undefined,
-      background_color: input.background_color ?? undefined,
-      font: input.font ?? undefined,
+      media_url: input.media_url ?? null,
+      caption: input.caption ?? null,
+      background_color: input.background_color ?? null,
+      font: input.font ?? null,
       duration_sec: input.duration_sec ?? 5,
-      thumbnail_url: input.thumbnail_url ?? undefined,
-      audio_url: input.audio_url ?? undefined,
-      audio_name: input.audio_name ?? undefined,
-      audience: input.audience ?? 'everyone',
+      thumbnail_url: input.thumbnail_url ?? null,
+      audio_url: input.audio_url ?? null,
+      audio_name: input.audio_name ?? null,
+      audience: (input.audience as Story['audience']) ?? 'everyone',
+      created_at: now,
+      expires_at: new Date(Date.now() + 24 * 3600_000).toISOString(),
+      edited_at: null,
+      view_count: 0,
+      reaction_count: 0,
+      seen_by_me: true,
+      my_reaction: null,
+      is_mine: true,
+      pending: true,
+    };
+    storage.setJSON(K_MINE, [pending, ...(storage.getJSON<Story[]>(K_MINE) ?? [])]);
+    void outbox.enqueue('create_story', clientId, {
+      client_id: clientId,
+      media_type: pending.media_type,
+      caption: pending.caption ?? undefined,
+      background_color: pending.background_color ?? undefined,
+      font: pending.font ?? undefined,
+      duration_sec: pending.duration_sec,
+      audience: pending.audience,
     });
-    storage.setJSON(K_MINE, [story, ...(storage.getJSON<Story[]>(K_MINE) ?? [])]);
-    warmMedia([story]);
-    return story;
+    return pending;
+  },
+
+  /**
+   * Publie une story AVEC média local (photo/vidéo/audio) — LOCAL-FIRST :
+   * l'upload ET la publication sont différés dans l'outbox (rejoués au
+   * retour du réseau, avec retry automatique). `localFile` sert d'aperçu
+   * immédiat (miniature) tant que le média n'est pas encore sur le serveur.
+   */
+  createMedia(input: CreateStoryInput, localFile: UploadFile): Story {
+    const clientId = newClientId();
+    const now = new Date().toISOString();
+    const pending: Story = {
+      id: `local:${clientId}`,
+      client_id: clientId,
+      author_id: '',
+      media_type: input.media_type ?? 'image',
+      media_url: localFile.uri, // aperçu local en attendant l'upload
+      caption: input.caption ?? null,
+      background_color: input.background_color ?? null,
+      font: input.font ?? null,
+      duration_sec: input.duration_sec ?? 5,
+      thumbnail_url: input.thumbnail_url ?? localFile.uri,
+      audio_url: input.audio_url ?? null,
+      audio_name: input.audio_name ?? null,
+      audience: (input.audience as Story['audience']) ?? 'everyone',
+      created_at: now,
+      expires_at: new Date(Date.now() + 24 * 3600_000).toISOString(),
+      edited_at: null,
+      view_count: 0,
+      reaction_count: 0,
+      seen_by_me: true,
+      my_reaction: null,
+      is_mine: true,
+      pending: true,
+    };
+    storage.setJSON(K_MINE, [pending, ...(storage.getJSON<Story[]>(K_MINE) ?? [])]);
+    void outbox.enqueue('upload_story', clientId, {
+      client_id: clientId,
+      localFile,
+      media_type: pending.media_type,
+      caption: pending.caption ?? undefined,
+      background_color: pending.background_color ?? undefined,
+      audience: pending.audience,
+      duration_sec: pending.duration_sec,
+      isAudio: pending.media_type === 'audio',
+    });
+    return pending;
+  },
+
+  /** Retire une story locale « en attente » du cache (rejeu réussi ou annulé). */
+  removePendingLocal(clientId: string): void {
+    const list = storage.getJSON<Story[]>(K_MINE) ?? [];
+    storage.setJSON(
+      K_MINE,
+      list.filter((s) => s.client_id !== clientId),
+    );
+  },
+
+  /** Remplace une story locale « en attente » par la version confirmée serveur. */
+  confirmPendingLocal(clientId: string, saved: Story): void {
+    const list = storage.getJSON<Story[]>(K_MINE) ?? [];
+    const idx = list.findIndex((s) => s.client_id === clientId);
+    if (idx === -1) {
+      storage.setJSON(K_MINE, [saved, ...list]);
+    } else {
+      list[idx] = saved;
+      storage.setJSON(K_MINE, list);
+    }
+    warmMedia([saved]);
+  },
+
+  /** Marque une story locale « en attente » comme définitivement échouée. */
+  markPendingFailedLocal(clientId: string): void {
+    const list = storage.getJSON<Story[]>(K_MINE) ?? [];
+    const idx = list.findIndex((s) => s.client_id === clientId);
+    if (idx !== -1) {
+      list[idx] = { ...list[idx]!, pending: false, failed: true };
+      storage.setJSON(K_MINE, list);
+    }
   },
 
   /** Modifie une de mes stories. */

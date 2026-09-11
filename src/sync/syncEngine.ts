@@ -20,7 +20,8 @@ import { groupRepo } from '@/db/repositories/groupRepo';
 import { messageService as netMessages } from '@/services/messageService.net';
 import { mediaService } from '@/services/mediaService';
 import { mediaCache } from '@/services/mediaCache';
-import type { ChatMessage, ConversationSummary, Group, GroupMessage } from '@/types';
+import { storyService } from '@/services/storyService';
+import type { ChatMessage, ConversationSummary, Group, GroupMessage, Story } from '@/types';
 
 import { notifyMutationApplied, outbox, setOnEnqueued, type OutboxEntry } from './outbox';
 
@@ -216,6 +217,60 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
       }
       break;
     }
+    case 'create_story': {
+      // idempotent cote serveur par client_id : un rejeu (retry apres
+      // reconnexion) renvoie la story deja creee au lieu d'en publier une 2e.
+      const saved = await apiClient.post<Story>(Endpoints.stories.create, {
+        client_id: entry.client_id,
+        media_type: p.media_type ?? 'text',
+        caption: p.caption ?? undefined,
+        background_color: p.background_color ?? undefined,
+        font: p.font ?? undefined,
+        duration_sec: p.duration_sec ?? 5,
+        audience: p.audience ?? 'everyone',
+      });
+      storyService.confirmPendingLocal(entry.client_id, saved);
+      break;
+    }
+    case 'upload_story': {
+      // meme logique que `upload_message` : upload MAINTENANT (reseau
+      // revenu) puis publication. Idempotent : si l'upload a deja reussi
+      // lors d'une tentative precedente, l'URL est memorisee dans le payload.
+      const localFile = p.localFile as UploadFile | undefined;
+      let mediaUrlOut = p.mediaUrl as string | undefined;
+      let thumbOut = p.thumbnailUrl as string | undefined;
+
+      if (!mediaUrlOut) {
+        if (!localFile?.uri) {
+          throw new ApiError(422, 'fichier local manquant', 'local_file_missing');
+        }
+        const up = await mediaService.upload(localFile);
+        mediaUrlOut = up.url;
+        thumbOut = up.thumbnail_url ?? undefined;
+        // memorise l'URL pour ne pas re-uploader si la publication echoue ensuite
+        p.mediaUrl = mediaUrlOut;
+        p.thumbnailUrl = thumbOut;
+        await run('UPDATE outbox SET payload_json=? WHERE id=?', [
+          JSON.stringify(p),
+          entry.id,
+        ]);
+        await mediaCache.adopt(mediaUrlOut, localFile.uri);
+      }
+
+      const saved = await apiClient.post<Story>(Endpoints.stories.create, {
+        client_id: entry.client_id,
+        media_type: p.media_type ?? 'image',
+        media_url: mediaUrlOut,
+        thumbnail_url: thumbOut,
+        caption: p.caption ?? undefined,
+        background_color: p.background_color ?? undefined,
+        audio_url: p.isAudio ? mediaUrlOut : undefined,
+        duration_sec: p.duration_sec ?? 5,
+        audience: p.audience ?? 'everyone',
+      });
+      storyService.confirmPendingLocal(entry.client_id, saved);
+      break;
+    }
     case 'update_privacy_field': {
       // un PUT par champ ; dernier état d'un même champ gagne
       const dueList = await outbox.due();
@@ -380,9 +435,11 @@ export async function pushOutbox(): Promise<void> {
       const isMsgKind = entry.kind === 'send_message' || entry.kind === 'upload_message';
       const isGroupMsgKind =
         entry.kind === 'send_group_message' || entry.kind === 'upload_group_message';
+      const isStoryKind = entry.kind === 'create_story' || entry.kind === 'upload_story';
       const markFailed = async () => {
         if (isMsgKind) await messageRepo.markFailed(entry.client_id);
         else if (isGroupMsgKind) await groupRepo.markFailed(entry.client_id);
+        else if (isStoryKind) storyService.markPendingFailedLocal(entry.client_id);
       };
       if (isClient) {
         // Erreur définitive (validation, conflit non idempotent, droit) :
@@ -391,7 +448,7 @@ export async function pushOutbox(): Promise<void> {
         await markFailed();
       } else {
         const outcome = await outbox.retryLater(entry, (err as Error).message);
-        if (outcome === 'gaveup' && (isMsgKind || isGroupMsgKind)) {
+        if (outcome === 'gaveup' && (isMsgKind || isGroupMsgKind || isStoryKind)) {
           await markFailed();
           await outbox.remove(entry.id);
         }

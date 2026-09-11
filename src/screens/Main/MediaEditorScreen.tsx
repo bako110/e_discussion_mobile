@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import Svg, { Path } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 import ViewShot from 'react-native-view-shot';
+import Video from 'react-native-video';
 
 import { Icon, showAlert } from '@/components/common';
 import { asDisplayUri, cropImage, getImageSize } from '@/utils/imageEdit';
@@ -26,9 +27,10 @@ import {
 } from '@/components/story/storyConfig';
 import { useStories } from '@/context/StoriesContext';
 import type { MainScreenProps } from '@/navigation/types';
-import { mediaService, storyService } from '@/services';
+import { storyService } from '@/services';
 import type { StoryAudienceMode } from '@/services/storyService';
 import { openStoryPrivacySheet } from '@/services/storyPrivacySheet';
+import { getVoiceState, stopVoice, subscribeVoice, toggleVoice } from '@/services/voicePlayer';
 import type { StoryMediaType } from '@/types';
 
 type Stroke = { color: string; width: number; d: string };
@@ -131,6 +133,18 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   const [publishing, setPublishing] = useState(false);
   const [cropping, setCropping] = useState(false);
 
+  // ── aperçu vidéo : lecture réelle (tap = pause/reprise), au lieu de l'icône
+  // ▶ statique d'avant — on voit ce qu'on va publier. ────────────────────
+  const [videoPaused, setVideoPaused] = useState(false);
+
+  // ── aperçu audio : lecture via le lecteur singleton partagé ─────────────
+  const [, forceAudioRender] = useState(0);
+  useEffect(() => subscribeVoice(() => forceAudioRender((n) => n + 1)), []);
+  useEffect(() => () => void stopVoice(), []); // coupe en quittant l'écran
+  const audioSrc = mediaType === 'audio' ? local.file.uri : null;
+  const voiceState = getVoiceState();
+  const audioPlaying = !!audioSrc && voiceState.url === audioSrc && voiceState.playing;
+
   // ── dessin ────────────────────────────────────────────────────────────
   const drawResponder = useMemo(
     () =>
@@ -224,51 +238,50 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   const moveSticker = (id: string, x: number, y: number) =>
     setStickers((all) => all.map((s) => (s.id === id ? { ...s, x, y } : s)));
 
-  // ── publication : c'est ICI (et seulement ici) qu'on uploade ──────────
+  // ── publication : LOCAL-FIRST (comme un message) ──────────────────────
+  // La capture du canvas annoté (dessin + stickers) reste ICI et SEULEMENT
+  // ICI — c'est une opération locale (écrit un JPG sur disque), pas un appel
+  // réseau. L'upload proprement dit et la publication serveur sont différés
+  // dans l'outbox (storyService.createMedia) : la story ⏱ apparaît tout de
+  // suite dans « Mes statuts », jamais bloquant si le réseau est absent.
   const publish = async () => {
     if (publishing) return;
     setPublishing(true);
+    void stopVoice(); // coupe l'aperçu audio avant l'upload
     try {
-      let finalUrl = '';
-      let finalThumb: string | undefined;
-      let audioUrl: string | undefined;
+      let uploadFile: { uri: string; name: string; type: string };
 
       if (isImage && shotRef.current) {
-        // grave dessin + stickers sur l'image locale -> capture -> UPLOAD unique.
         // Le canvas est au ratio exact de l'image : la capture == ce qu'on voit.
         const shotUri = await captureRef(shotRef, { format: 'jpg', quality: 0.92 });
-        const up = await mediaService.upload({
+        uploadFile = {
           uri: asDisplayUri(shotUri),
           name: `story_${Date.now()}.jpg`,
           type: 'image/jpeg',
-        });
-        finalUrl = up.url;
-        finalThumb = up.thumbnail_url ?? undefined;
+        };
       } else {
-        // vidéo (éventuellement découpée) / audio : upload du fichier local
-        const up = await mediaService.upload(isVideo ? videoFile : local.file);
-        finalUrl = up.url;
-        finalThumb = up.thumbnail_url ?? undefined;
-        if (mediaType === 'audio') audioUrl = up.url;
+        // vidéo (éventuellement découpée) / audio : fichier local tel quel
+        uploadFile = isVideo ? videoFile : local.file;
       }
 
-      await storyService.create({
-        media_type: mediaType,
-        media_url: finalUrl,
-        thumbnail_url: finalThumb,
-        caption: caption.trim() || undefined,
-        background_color: isImage ? undefined : bg,
-        audio_url: audioUrl,
-        // visibilité = confidentialité globale des statuts (écran StoryPrivacy)
-        // pas de plafond : l'utilisateur a déjà choisi le segment via la découpe
-        duration_sec:
-          mediaType === 'video' || mediaType === 'audio'
-            ? Math.max(3, Math.round((isVideo ? videoDurationSec : local.durationSec) ?? 15))
-            : 6,
-      });
+      storyService.createMedia(
+        {
+          media_type: mediaType,
+          caption: caption.trim() || undefined,
+          background_color: isImage ? undefined : bg,
+          // visibilité = confidentialité globale des statuts (écran StoryPrivacy)
+          // pas de plafond : l'utilisateur a déjà choisi le segment via la découpe
+          duration_sec:
+            mediaType === 'video' || mediaType === 'audio'
+              ? Math.max(3, Math.round((isVideo ? videoDurationSec : local.durationSec) ?? 15))
+              : 6,
+        },
+        uploadFile,
+      );
       await reload();
       navigation.navigate('Tabs', { screen: 'StatusTab' });
     } catch (e) {
+      // seule la capture locale (dessin/stickers) peut échouer ici — pas le réseau.
       console.warn('[editor] publish failed:', e);
       showAlert(t('errors.generic'));
       setPublishing(false);
@@ -304,21 +317,46 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
           resizeMode={shotBox ? 'cover' : 'contain'}
         />
       ) : mediaType === 'video' ? (
-        <View style={styles.mediaFallback}>
-          <Image
-            source={{ uri: imageUri }}
-            style={[styles.media, { opacity: 0.5 }]}
+        <Pressable style={styles.mediaFallback} onPress={() => setVideoPaused((p) => !p)}>
+          <Video
+            source={{ uri: videoFile.uri }}
+            style={styles.media}
             resizeMode="contain"
+            paused={videoPaused}
+            repeat
+            muted={false}
           />
-          <View style={styles.playOnTop}>
-            <Icon name="play-circle" size={72} color="#ffffffcc" />
-          </View>
-        </View>
+          {videoPaused ? (
+            <View style={styles.playOnTop} pointerEvents="none">
+              <Icon name="play-circle" size={72} color="#ffffffcc" />
+            </View>
+          ) : null}
+        </Pressable>
       ) : (
         <View style={styles.mediaFallback}>
-          <View style={styles.audioBadge}>
-            <Icon name="microphone" size={44} color="#fff" />
-          </View>
+          <Pressable
+            style={styles.audioBadge}
+            onPress={() => {
+              if (!audioSrc) return;
+              void toggleVoice(audioSrc, {
+                conversationId: null,
+                title: t('stories.audioTrack'),
+                durationMs: local.durationSec ? local.durationSec * 1000 : null,
+              });
+            }}
+          >
+            <Icon name={audioPlaying ? 'pause' : 'play'} size={44} color="#fff" />
+          </Pressable>
+          {audioPlaying && voiceState.duration > 0 ? (
+            <View style={styles.audioTrack}>
+              <View
+                style={[
+                  styles.audioTrackFill,
+                  { width: `${Math.min(100, (voiceState.position / voiceState.duration) * 100)}%` },
+                ]}
+              />
+            </View>
+          ) : null}
         </View>
       )}
 
@@ -527,6 +565,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  audioTrack: {
+    width: 180,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    overflow: 'hidden',
+    marginTop: 16,
+  },
+  audioTrackFill: { height: 3, backgroundColor: '#fff' },
   captionOverlay: {
     position: 'absolute',
     left: 0,

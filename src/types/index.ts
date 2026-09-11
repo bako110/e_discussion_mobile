@@ -154,6 +154,14 @@ export interface Story {
   seen_by_me: boolean;
   my_reaction: string | null;
   is_mine: boolean;
+  /** LOCAL uniquement : en attente d'envoi (outbox, pas encore confirmée par
+   * le serveur — comme un message ⏱). Absent/false une fois publiée. */
+  pending?: boolean;
+  /** LOCAL uniquement : l'envoi a échoué définitivement (outbox épuisée). */
+  failed?: boolean;
+  /** id généré côté client pour une story pas encore confirmée — sert de clé
+   * stable dans les listes tant que l'id serveur n'existe pas. */
+  client_id?: string;
 }
 
 export interface StoryFeedItem {
