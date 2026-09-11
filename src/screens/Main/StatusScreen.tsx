@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -17,8 +17,10 @@ import { openStoryPrivacySheet } from '@/services/storyPrivacySheet';
 import { useAuth } from '@/context/AuthContext';
 import { useStories } from '@/context/StoriesContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useWs } from '@/context/WebSocketContext';
+import { channelLiveService } from '@/services';
 import type { MainNav } from '@/navigation/types';
-import type { Story, StoryFeedItem } from '@/types';
+import type { ChannelLive, Story, StoryFeedItem } from '@/types';
 import { relativeTime } from '@/utils/time';
 
 /** Libellé « activité » selon le type du dernier média publié. */
@@ -44,23 +46,42 @@ export const StatusScreen: React.FC = () => {
   const { theme } = useTheme();
   const { me } = useAuth();
   const { feed, mine, loading, myViews, reload } = useStories();
+  const { addListener } = useWs();
   const navigation = useNavigation<MainNav>();
   const c = theme.colors;
   const myName = me?.display_name || me?.username || t('stories.myStatus');
 
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
+  const [liveChannels, setLiveChannels] = useState<ChannelLive[]>([]);
+
+  const reloadLive = useCallback(() => {
+    void channelLiveService.listLive().then(setLiveChannels).catch(() => undefined);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       void reload();
-    }, [reload]),
+      reloadLive();
+    }, [reload, reloadLive]),
+  );
+
+  // rafraîchit dès qu'une chaîne abonnée démarre/arrête un direct — pas
+  // besoin d'attendre le prochain focus de cet écran.
+  useEffect(
+    () =>
+      addListener((e) => {
+        if (String(e.type).startsWith('channel.live.')) reloadLive();
+      }),
+    [addListener, reloadLive],
   );
 
   const openComposer = () => navigation.navigate('StoryComposer');
   const openViewer = (authorId: string) => navigation.navigate('StoryViewer', { authorId });
   const openMyStatus = () => navigation.navigate('MyStatus');
   const openScanner = () => navigation.navigate('Scanner');
+  const openLiveChannel = (groupId: string) =>
+    navigation.navigate('ChannelLiveViewer', { groupId });
 
   const myLatest = mine[0];
 
@@ -438,15 +459,56 @@ export const StatusScreen: React.FC = () => {
             </View>
           ) : null}
 
-          {/* CTA bas */}
-          <Pressable
-            onPress={openComposer}
-            style={[styles.cta, { backgroundColor: c.primary }]}
-            android_ripple={{ color: '#ffffff30' }}
-          >
-            <Icon name="plus" size={18} color="#fff" />
-            <Text style={styles.ctaText}>{t('stories.newStatus')}</Text>
-          </Pressable>
+          {/* ── CHAÎNES EN DIRECT ────────────────────────────────────── */}
+          <View style={styles.sectionHead}>
+            <View style={styles.sectionTitleRow}>
+              <Icon name="access-point" size={19} color={c.primary} />
+              <Text style={[styles.sectionTitle, { color: c.text }]}>
+                {t('channelLive.sectionTitle')}
+              </Text>
+            </View>
+          </View>
+          {liveChannels.length > 0 ? (
+            liveChannels.map((live, i) => (
+              <Pressable
+                key={live.id}
+                onPress={() => openLiveChannel(live.group_id)}
+                android_ripple={{ color: c.surfaceAlt }}
+                style={[
+                  styles.actRow,
+                  i < liveChannels.length - 1 && {
+                    borderBottomColor: c.divider,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                  },
+                ]}
+              >
+                <View style={[styles.actRing, { borderColor: '#E0203D' }]}>
+                  <Avatar uri={live.channel_avatar_url} name={live.channel_name ?? '?'} size={40} />
+                </View>
+                <View style={styles.actBody}>
+                  <Text style={[styles.actName, { color: c.text }]} numberOfLines={1}>
+                    {live.channel_name}
+                  </Text>
+                  <View style={styles.actSubRow}>
+                    <View style={styles.liveDotSmall} />
+                    <Text style={[styles.actSub, { color: '#E0203D' }]} numberOfLines={1}>
+                      {t('channelLive.live')}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.viewsPill}>
+                  <Icon name="account-multiple" size={14} color={c.textMuted} />
+                  <Text style={[styles.viewsTxt, { color: c.textMuted }]}>
+                    {live.subscriber_count}
+                  </Text>
+                </View>
+              </Pressable>
+            ))
+          ) : (
+            <Text style={[styles.popularHint, { color: c.textMuted }]}>
+              {t('channelLive.sectionEmpty')}
+            </Text>
+          )}
         </ScrollView>
       )}
     </Screen>
@@ -628,15 +690,5 @@ const styles = StyleSheet.create({
   emptyIcon: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 15, fontWeight: '700' },
   emptyHint: { fontSize: 13, textAlign: 'center' },
-  cta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 24,
-    paddingVertical: 13,
-    borderRadius: 24,
-  },
-  ctaText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  liveDotSmall: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E0203D' },
 });
