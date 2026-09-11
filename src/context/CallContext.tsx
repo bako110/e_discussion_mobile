@@ -443,19 +443,37 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const acceptCall = useCallback(async (opts?: { asAudio?: boolean }) => {
     const c = callRef.current;
-    if (!c || phaseRef.current !== 'incoming') return;
+    // callId : depuis l'état posé par `call.incoming`, ou depuis l'intention
+    // « Répondre » tapée sur la notif app-tuée (voir l'effet dédié plus bas,
+    // qui appelle acceptCall AVANT même que call.incoming n'existe côté WS).
+    const callId = c?.callId ?? pendingAcceptRef.current;
+    if (!callId) return;
+    if (phaseRef.current !== 'incoming' && phaseRef.current !== 'idle') return;
+    pendingAcceptRef.current = null;
     void clearIncomingCall();
-    void notificationRepo.markRead(`call-${c.callId}`);
+    void notificationRepo.markRead(`call-${callId}`);
     setPhase('connecting');
     try {
-      const res = await callService.accept(c.callId);
+      const res = await callService.accept(callId);
       // « répondre en audio » à un appel vidéo : on rejoint en voix (pas de
       // caméra), l'autre peut toujours envoyer sa vidéo.
       const callType = opts?.asAudio ? 'voice' : res.call_type;
+      // pas d'état `call` existant (accepté direct depuis la notif) -> on le
+      // construit entièrement à partir de la réponse serveur.
+      if (!c) {
+        setCall({
+          callId,
+          roomName: res.room_name,
+          callType: res.call_type,
+          peer: res.peer,
+          outgoing: false,
+          e2eeKey: res.e2ee_key,
+        });
+      }
       await connectRoom({
         livekitUrl: res.livekit_url,
         token: res.token,
-        e2eeKey: c.e2eeKey ?? res.e2ee_key,
+        e2eeKey: c?.e2eeKey ?? res.e2ee_key,
         callType,
       });
       if (opts?.asAudio && res.call_type === 'video') {
@@ -470,6 +488,18 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [connectRoom, teardown, resetToIdle]);
 
   acceptCallRef.current = acceptCall;
+
+  // ── acceptation directe depuis la notif « Répondre » (app tuée) ───────
+  // On n'attend PAS `call.incoming` : le serveur ne le rejoue pas à la
+  // reconnexion, donc si l'app était tuée cet event est déjà manqué pour de
+  // bon. `POST /calls/{id}/accept` marche indépendamment du WS et renvoie
+  // tout ce qu'il faut (peer, room, type, clé E2EE) pour rejoindre l'appel.
+  useEffect(() => {
+    if (!me || !pendingAcceptRef.current) return;
+    if (phaseRef.current !== 'idle') return;
+    setPhase('connecting');
+    void acceptCallRef.current?.().catch(() => undefined);
+  }, [me]);
 
   const rejectCall = useCallback(async () => {
     const c = callRef.current;
@@ -614,7 +644,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       switch (e.type) {
         case 'call.incoming': {
           const cid = String(e.call_id);
-          // déjà en appel -> refus automatique avec le motif "occupé".
+          // en train d'accepter CET appel directement (notif « Répondre »,
+          // app tuée) -> le WS a juste rattrapé l'event en retard, on ignore.
+          if (callRef.current?.callId === cid && phaseRef.current === 'connecting') {
+            return;
+          }
+          // déjà en appel (un AUTRE) -> refus automatique, motif "occupé".
           if (phaseRef.current !== 'idle') {
             void callService.reject(cid, 'busy').catch(() => undefined);
             return;
