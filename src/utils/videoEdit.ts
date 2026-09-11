@@ -121,6 +121,14 @@ export async function trimVideo(
         saveButtonText: 'OK',
         theme: 'dark',
         trimmerColor: '#1E6FE0',
+        // Par défaut la lib coupe au keyframe le plus proche (stream copy,
+        // rapide mais imprécis — peut dériver de plusieurs secondes selon
+        // l'espacement des keyframes de la vidéo). On force le ré-encodage
+        // pour que le segment envoyé soit EXACTEMENT celui choisi.
+        enablePreciseTrimming: true,
+        // ne lance pas la lecture à l'ouverture — laisse le temps de
+        // positionner les poignées avant que la vidéo ne défile toute seule.
+        autoplay: false,
       });
     } catch (e) {
       console.warn('[videoEdit] showEditor a échoué:', e);
