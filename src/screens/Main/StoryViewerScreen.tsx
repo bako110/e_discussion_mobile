@@ -83,6 +83,7 @@ const StoryVideo: React.FC<{
       muted={false}
       repeat={false}
       onLoad={onReady}
+      onError={(e) => console.warn('[storyViewer] échec lecture vidéo:', src, e)}
     />
   );
 };
