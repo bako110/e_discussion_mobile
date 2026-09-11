@@ -211,10 +211,17 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
   // ── découpe vidéo : l'utilisateur choisit le segment à montrer ──────────
   const cut = async () => {
     if (!isVideo || trimming) return;
+    // coupe l'aperçu de CET écran avant d'ouvrir l'éditeur natif — sinon les
+    // deux lectures (celle-ci + celle de l'éditeur de découpe) tournent en
+    // même temps, avec le son des deux qui se mélange.
+    setVideoPaused(true);
     setTrimming(true);
     try {
       const res = await trimVideo(videoFile.uri, { headerText: t('stories.trimVideo') });
       if (res) {
+        // le segment découpé REMPLACE entièrement l'original — c'est
+        // désormais le seul fichier gardé, celui qui sera prévisualisé ET
+        // envoyé (voir publish()).
         setVideoFile((f) => ({ ...f, uri: res.uri }));
         if (res.durationSec > 0) setVideoDurationSec(res.durationSec);
         setImageUri(asDisplayUri(res.uri)); // rafraîchit l'aperçu
@@ -223,6 +230,10 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
       console.warn('[editor] trim failed:', e);
     } finally {
       setTrimming(false);
+      // reprend l'aperçu (celui du segment découpé si la coupe a réussi,
+      // sinon l'original tel quel) — jamais figé en pause après un aller-
+      // retour dans l'éditeur de découpe.
+      setVideoPaused(false);
     }
   };
 
