@@ -24,8 +24,14 @@ import { notificationRepo } from '@/db/repositories/notificationRepo';
 
 import { getNotifPrefs } from './notificationPrefs';
 
-const CH_CALLS = 'calls_v1';
-const CH_MESSAGES = 'messages_v1';
+// v2 : un NotificationChannel Android est IMMUABLE une fois créé (son,
+// vibration, importance ne sont plus modifiables par le code après coup —
+// seul l'utilisateur peut les changer dans les réglages système). Les
+// premières versions de ces canaux ont été créées avec un vibrationPattern
+// invalide -> Android a pu les enregistrer sans son. On renomme les IDs
+// pour forcer la création de canaux propres ; ne JAMAIS réutiliser ces IDs.
+const CH_CALLS = 'calls_v2';
+const CH_MESSAGES = 'messages_v2';
 
 /**
  * Le son et la vibration sont fixés AU NIVEAU DU CANAL sur Android (immuables
@@ -35,9 +41,9 @@ const CH_MESSAGES = 'messages_v1';
  */
 function messageChannelId(sound: boolean, vibrate: boolean): string {
   if (sound && vibrate) return CH_MESSAGES;
-  if (sound && !vibrate) return 'messages_novib';
-  if (!sound && vibrate) return 'messages_silent';
-  return 'messages_quiet';
+  if (sound && !vibrate) return 'messages_novib_v2';
+  if (!sound && vibrate) return 'messages_silent_v2';
+  return 'messages_quiet_v2';
 }
 
 /** id fixe pour la notif de sonnerie : permet de l'annuler à la réponse. */
@@ -79,7 +85,7 @@ export async function ensureNotificationSetup(): Promise<void> {
       visibility: AndroidVisibility.PRIVATE,
     },
     {
-      id: 'messages_novib',
+      id: 'messages_novib_v2',
       name: 'Messages (sans vibreur)',
       importance: AndroidImportance.HIGH,
       sound: 'default',
@@ -87,14 +93,14 @@ export async function ensureNotificationSetup(): Promise<void> {
       visibility: AndroidVisibility.PRIVATE,
     },
     {
-      id: 'messages_silent',
+      id: 'messages_silent_v2',
       name: 'Messages (silencieux)',
       importance: AndroidImportance.HIGH,
       vibration: true,
       visibility: AndroidVisibility.PRIVATE,
     },
     {
-      id: 'messages_quiet',
+      id: 'messages_quiet_v2',
       name: 'Messages (discret)',
       importance: AndroidImportance.DEFAULT,
       vibration: false,
