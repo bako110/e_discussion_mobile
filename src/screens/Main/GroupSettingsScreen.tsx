@@ -8,15 +8,15 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, showAlert, showSheet, showToast } from '@/components/common';
+import { AppHeader, Icon, Screen, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
 import { groupRepo } from '@/db/repositories/groupRepo';
 import type { MainScreenProps } from '@/navigation/types';
 import { ApiError } from '@/api';
-import { groupService } from '@/services';
-import { GROUP_CATEGORIES, type GroupCategory, type GroupSettings } from '@/types';
+import { channelLiveService, groupService } from '@/services';
+import { GROUP_CATEGORIES, type ChannelLive, type GroupCategory, type GroupSettings } from '@/types';
 
 type Policy = 'all' | 'admins';
 
@@ -45,6 +45,8 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
   const [isChannel, setIsChannel] = useState(false);
   const [category, setCategory] = useState<GroupCategory | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
+  const [channelLive, setChannelLive] = useState<ChannelLive | null>(null);
+  const [liveBusy, setLiveBusy] = useState(false);
 
   useEffect(() => {
     void groupRepo.get(groupId).then((g) => {
@@ -52,6 +54,34 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
       setCategory(g?.category ?? null);
     });
   }, [groupId]);
+
+  useEffect(() => {
+    if (!isChannel) return;
+    void channelLiveService.getForChannel(groupId).then(setChannelLive).catch(() => undefined);
+  }, [groupId, isChannel]);
+
+  const goLive = () => {
+    confirmAlert(
+      t('channelLive.startTitle'),
+      t('channelLive.startBody'),
+      () => {
+        setLiveBusy(true);
+        channelLiveService
+          .start(groupId)
+          .then(() => {
+            showToast(t('channelLive.started'));
+            navigation.navigate('ChannelLiveViewer', { groupId, asBroadcaster: true });
+          })
+          .catch((e) => {
+            showAlert(e instanceof ApiError && e.status === 409
+              ? t('channelLive.alreadyLive')
+              : t('errors.generic'));
+          })
+          .finally(() => setLiveBusy(false));
+      },
+      { confirmText: t('channelLive.startConfirm'), cancelText: t('common.cancel') },
+    );
+  };
 
   const pickCategory = () => {
     showSheet({
@@ -172,9 +202,9 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
     showAlert(t(labelKey), t('common.comingSoonBody'));
 
   /** Fonctionnalités propres à une chaîne (façon Telegram). `soon: true`
-   *  -> pas encore implémenté, alerte « À venir » au tap. */
+   *  -> pas encore implémenté, alerte « À venir » au tap. La diffusion en
+   *  direct (ch_liveStream) est livrée -> gérée séparément (voir goLive). */
   const CHANNEL_FEATURES: { icon: string; key: string; soon: boolean }[] = [
-    { icon: 'video-wireless-outline', key: 'ch_liveStream', soon: true },
     { icon: 'message-reply-text-outline', key: 'ch_discussion', soon: true },
     { icon: 'emoticon-outline', key: 'ch_reactions', soon: true },
     { icon: 'chart-box-outline', key: 'ch_stats', soon: true },
@@ -304,6 +334,30 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
               last
             />
           </SettingsSection>
+
+          {/* Diffusion en direct — n'importe quel admin peut démarrer/arrêter. */}
+          {isChannel ? (
+            <SettingsSection title={t('groupSettings.ch_liveStream')}>
+              {channelLive ? (
+                <SettingsRow
+                  icon="access-point"
+                  label={t('channelLive.live')}
+                  value={t('channelLive.viewers', { count: channelLive.subscriber_count })}
+                  onPress={() =>
+                    navigation.navigate('ChannelLiveViewer', { groupId, asBroadcaster: true })
+                  }
+                  last
+                />
+              ) : (
+                <SettingsRow
+                  icon="video-wireless-outline"
+                  label={t('channelLive.goLive')}
+                  onPress={liveBusy ? undefined : goLive}
+                  last
+                />
+              )}
+            </SettingsSection>
+          ) : null}
 
           {/* Fonctionnalités propres à une chaîne (Telegram-like). */}
           {isChannel ? (
