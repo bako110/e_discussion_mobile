@@ -224,7 +224,6 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
         // envoyé (voir publish()).
         setVideoFile((f) => ({ ...f, uri: res.uri }));
         if (res.durationSec > 0) setVideoDurationSec(res.durationSec);
-        setImageUri(asDisplayUri(res.uri)); // rafraîchit l'aperçu
       }
     } catch (e) {
       console.warn('[editor] trim failed:', e);
@@ -330,12 +329,18 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
       ) : mediaType === 'video' ? (
         <Pressable style={styles.mediaFallback} onPress={() => setVideoPaused((p) => !p)}>
           <Video
+            // `key` sur l'uri force react-native-video à REMONTER le lecteur
+            // natif quand le fichier change (après un découpage) — sans ça
+            // le composant peut réutiliser son instance native existante et
+            // continuer d'afficher/jouer l'ancien fichier (6.x).
+            key={videoFile.uri}
             source={{ uri: videoFile.uri }}
             style={styles.media}
             resizeMode="contain"
             paused={videoPaused}
             repeat
             muted={false}
+            onError={(e) => console.warn('[editor] lecture aperçu échouée:', e)}
           />
           {videoPaused ? (
             <View style={styles.playOnTop} pointerEvents="none">
