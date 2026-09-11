@@ -109,11 +109,24 @@ export async function trimVideo(
       endTime: number;
       duration: number;
     }) => {
+      // BUG CONFIRMÉ de react-native-video-trim (8.2.2, natif Android) :
+      // `duration` dans l'event onFinishTrimming est la durée du FICHIER
+      // ORIGINAL (mDuration, passée telle quelle à VideoTrimmerUtil.trim()
+      // puis renvoyée sans recalcul dans onFinishTrim), PAS celle du segment
+      // réellement coupé. Repéré via une story publiée avec `duration_sec:
+      // 90` (durée de la source de 90s) alors que le clip coupé ne fait que
+      // ~13s — la vidéo terminait de jouer bien avant la fin du timer
+      // d'affichage du statut, donnant l'impression qu'elle ne jouait pas
+      // du tout. `startTime`/`endTime` (les poignées choisies), eux, sont
+      // corrects — on calcule la vraie durée à partir d'eux, jamais de
+      // `duration`.
+      const startSec = (p.startTime ?? 0) / 1000;
+      const endSec = (p.endTime ?? 0) / 1000;
       finish({
         uri: asDisplayUri(p.outputPath),
-        durationSec: Math.max(0, Math.round((p.duration ?? 0) / 1000)),
-        startSec: (p.startTime ?? 0) / 1000,
-        endSec: (p.endTime ?? 0) / 1000,
+        durationSec: Math.max(0, Math.round(endSec - startSec)),
+        startSec,
+        endSec,
       });
     };
     const onErr = (p: { message?: string }) => {
