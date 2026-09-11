@@ -69,12 +69,22 @@ export const storyService = {
     return f;
   },
 
-  /** Mes stories actives. */
+  /**
+   * Mes stories actives. Préserve les brouillons locaux `pending`/`failed`
+   * du cache (une publication encore en cours ou en échec dans l'outbox) —
+   * le serveur ne les connaît pas encore, écraser le cache avec sa seule
+   * réponse les ferait disparaître de l'écran alors que l'envoi est
+   * toujours en cours (ou à réessayer), façon WhatsApp.
+   */
   async mine(): Promise<Story[]> {
     const m = await apiClient.get<Story[]>(Endpoints.stories.mine);
-    storage.setJSON(K_MINE, m);
+    const localDrafts = (storage.getJSON<Story[]>(K_MINE) ?? []).filter(
+      (s) => s.pending || s.failed,
+    );
+    const merged = [...localDrafts, ...m];
+    storage.setJSON(K_MINE, merged);
     warmMedia(m);
-    return m;
+    return merged;
   },
 
   /**
