@@ -125,7 +125,6 @@ export const StatusScreen: React.FC = () => {
   const openComposer = () => navigation.navigate('StoryComposer');
   const openViewer = (authorId: string) => navigation.navigate('StoryViewer', { authorId });
   const openMyStatus = () => navigation.navigate('MyStatus');
-  const openScanner = () => navigation.navigate('Scanner');
   const openLiveChannel = (groupId: string) =>
     navigation.navigate('ChannelLiveViewer', { groupId });
 
@@ -248,9 +247,6 @@ export const StatusScreen: React.FC = () => {
         }
         right={
           <View style={styles.hdrActions}>
-            <Pressable onPress={openScanner} hitSlop={10} style={styles.hdrBtn}>
-              <Icon name="qrcode-scan" size={21} color={c.onHeader} />
-            </Pressable>
             <Pressable onPress={openComposer} hitSlop={10} style={styles.hdrBtn}>
               <Icon name="plus-circle-outline" size={23} color={c.onHeader} />
             </Pressable>
