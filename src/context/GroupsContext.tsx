@@ -18,6 +18,7 @@ import React, {
 import { useWs } from '@/context/WebSocketContext';
 import { groupService } from '@/services';
 import { groupRepo, type LocalGroup } from '@/db/repositories/groupRepo';
+import { onUnreadChanged } from '@/services/notificationService';
 
 interface GroupsContextValue {
   groups: LocalGroup[];
@@ -68,6 +69,12 @@ export const GroupsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }),
     [addListener, reload],
   );
+
+  // `groupService.markRead()` (ouvrir un groupe) est une mutation 100%
+  // LOCALE — aucun event WebSocket associé — sans quoi `groupsUnread`
+  // restait affiché tel quel après avoir lu les messages tant qu'aucun
+  // event `group.*` n'arrivait entre-temps.
+  useEffect(() => onUnreadChanged(readLocal), [readLocal]);
 
   const value = useMemo<GroupsContextValue>(() => {
     const groups = all.filter((g) => g.kind === 'group');

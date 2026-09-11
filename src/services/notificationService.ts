@@ -421,6 +421,26 @@ export async function clearGroupNotification(groupId: string, conversationId: st
   await clearConversationNotification(conversationId);
 }
 
+// Abonnés à « le total de non-lus vient de changer » (badge de l'onglet
+// Discussions dans TabNavigator, etc.) — sans ça, un `markRead()` local
+// (aucun event WebSocket associé) ne redéclenchait la relecture du badge
+// dans les écrans abonnés seulement aux events WS : le nombre restait figé
+// à l'écran après avoir lu les messages, alors que la DB était bien à jour.
+const unreadListeners = new Set<() => void>();
+export function onUnreadChanged(fn: () => void): () => void {
+  unreadListeners.add(fn);
+  return () => unreadListeners.delete(fn);
+}
+function emitUnreadChanged(): void {
+  for (const cb of unreadListeners) {
+    try {
+      cb();
+    } catch {
+      /* un abonné ne casse pas les autres */
+    }
+  }
+}
+
 /**
  * Recale le badge de l'icône de l'app (écran d'accueil) sur le VRAI total de
  * messages non lus — conversations 1-1 + groupes/chaînes — façon WhatsApp,
@@ -428,6 +448,8 @@ export async function clearGroupNotification(groupId: string, conversationId: st
  * notif marquée lue dans l'historique ne veut pas dire la conversation est
  * lue, et inversement). Reste à jour même app fermée/en arrière-plan tant
  * que ce code tourne (appelé après chaque écriture pertinente en base).
+ * Notifie aussi `onUnreadChanged` pour que les badges en mémoire (barre
+ * d'onglets) se recalculent immédiatement, sans attendre un event WS.
  */
 export async function refreshBadge(): Promise<void> {
   try {
@@ -438,6 +460,8 @@ export async function refreshBadge(): Promise<void> {
     await notifee.setBadgeCount(n).catch(() => undefined);
   } catch {
     /* noop */
+  } finally {
+    emitUnreadChanged();
   }
 }
 

@@ -10,6 +10,7 @@ import { useStories } from '@/context/StoriesContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
+import { onUnreadChanged } from '@/services/notificationService';
 import { CallsScreen } from '@/screens/Main/CallsScreen';
 import { ConversationsScreen } from '@/screens/Main/ConversationsScreen';
 import { GroupsTabScreen } from '@/screens/Main/GroupsListScreen';
@@ -108,9 +109,15 @@ function useChatsUnread(): number {
       const type = String(e.type);
       if (type === 'message.new' || type.startsWith('conversation.')) reload();
     });
+    // `markRead()` (ouvrir une conversation) est une mutation 100% LOCALE —
+    // aucun event WebSocket associé — donc sans cet abonnement le badge
+    // restait affiché tel quel après avoir lu les messages tant qu'aucun
+    // nouvel event WS n'arrivait entre-temps.
+    const unsubUnread = onUnreadChanged(reload);
     return () => {
       alive = false;
       unsub();
+      unsubUnread();
     };
   }, [addListener]);
 
