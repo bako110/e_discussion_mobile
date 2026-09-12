@@ -107,6 +107,63 @@ const StoryVideo: React.FC<{
 };
 
 /**
+ * Légende d'un média (image/vidéo) — bande OPAQUE fixe SOUS l'image, jamais
+ * superposée dessus : le visuel reste entièrement dégagé, comme une légende
+ * de photo classique. Texte tronqué à 2 lignes avec « voir plus / voir moins »
+ * s'il dépasse (au lieu d'une coupe silencieuse à 4 lignes).
+ */
+const CAPTION_COLLAPSED_LINES = 2;
+
+/**
+ * Légende d'une story — rendue UNE SEULE FOIS, dans le flux normal juste
+ * au-dessus du pied (jamais en overlay `position:absolute` par-dessus
+ * l'image/le footer : ça créait un chevauchement qui donnait l'impression
+ * de deux légendes différentes affichées côte à côte).
+ *
+ * Repliée sur 2 lignes avec « Voir plus » si le texte déborde ; en état
+ * déplié (`onExpandChange(true)`), l'appelant met la story en PAUSE — sans
+ * ça la barre de progression continuait d'avancer et changeait de story
+ * pendant qu'on lisait la légende complète.
+ */
+const StoryCaption: React.FC<{
+  caption: string;
+  onExpandChange: (expanded: boolean) => void;
+}> = ({ caption, onExpandChange }) => {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    onExpandChange(next);
+  };
+
+  return (
+    <View style={styles.captionBand}>
+      <Text
+        style={styles.mediaCaption}
+        numberOfLines={expanded ? undefined : CAPTION_COLLAPSED_LINES}
+        onTextLayout={(e) => {
+          if (!expanded && e.nativeEvent.lines.length > CAPTION_COLLAPSED_LINES) {
+            setOverflows(true);
+          }
+        }}
+      >
+        {caption}
+      </Text>
+      {overflows ? (
+        <Pressable onPress={toggle} hitSlop={8}>
+          <Text style={styles.captionToggle}>
+            {expanded ? t('common.seeLess') : t('common.seeMore')}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+};
+
+/**
  * Lecteur de stories plein écran pour UN auteur :
  *  - barres de progression animées (une par story), auto-avance en fin de barre ;
  *  - tap gauche/droite pour naviguer, appui prolongé pour mettre en pause ;
@@ -132,6 +189,9 @@ export const StoryViewerScreen: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [replied, setReplied] = useState(false);
   const [paused, setPaused] = useState(false);
+  // « Voir plus » ouvert sur la légende -> la story ne doit PAS avancer/
+  // disparaître pendant qu'on lit le texte complet.
+  const [captionExpanded, setCaptionExpanded] = useState(false);
   const [myReaction, setMyReaction] = useState<string | null>(null);
 
   const progress = useRef(new Animated.Value(0)).current;
@@ -303,6 +363,7 @@ export const StoryViewerScreen: React.FC = () => {
     if (!current) return;
 
     setMyReaction(current.my_reaction ?? null);
+    setCaptionExpanded(false);
 
     if (!isMine && !current.seen_by_me) {
       void storyService.markViewed(current.id).catch(() => undefined);
@@ -331,10 +392,13 @@ export const StoryViewerScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, isMine]);
 
-  // pause / reprise — reprend depuis progressVal.current
+  // pause / reprise — reprend depuis progressVal.current. `captionExpanded`
+  // (légende « Voir plus » ouverte) pause l'avancement au même titre qu'un
+  // appui maintenu — sans ça la story changeait pendant qu'on lisait le
+  // texte complet.
   useEffect(() => {
     if (!anim.current || !current) return;
-    if (paused) {
+    if (paused || captionExpanded) {
       anim.current.stop();
       return;
     }
@@ -350,7 +414,7 @@ export const StoryViewerScreen: React.FC = () => {
       if (finished) goNextRef.current();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paused]);
+  }, [paused, captionExpanded]);
 
   // ── lecture audio réelle (statut audio/vocal) ────────────────────────────
   // démarre dès que le fichier local est prêt (télécharge si besoin) ; suit
@@ -397,6 +461,9 @@ export const StoryViewerScreen: React.FC = () => {
   // jouer en arrière-plan après avoir quitté le viewer.
   useFocusEffect(
     useCallback(() => {
+      // reprend la lecture au retour de focus (ex: on revient de l'écran de
+      // repartage sans avoir publié) — sinon la story reste figée en pause.
+      setPaused(false);
       return () => {
         safePause(videoRef.current);
         void stopVoice();
@@ -483,6 +550,15 @@ export const StoryViewerScreen: React.FC = () => {
     );
   }, [current, doRemoveOwn, t]);
 
+  /** Ouvre l'écran de repartage (« Ajouter à mon statut ») pour la story
+   * courante — met en pause (repris au retour si on annule, comme la
+   * suppression). */
+  const openReshare = useCallback(() => {
+    if (!current) return;
+    setPaused(true);
+    navigation.navigate('StoryReshare', { story: current });
+  }, [current, navigation]);
+
   // ── rendu ──────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -508,16 +584,20 @@ export const StoryViewerScreen: React.FC = () => {
 
   return (
     <View style={[styles.root, { backgroundColor: bg }]} {...swipe.panHandlers}>
-      {/* image : PLEIN ÉCRAN (cover, façon Instagram) — tout en fond, sous
-          les zones de tap / barres / en-tête / pied qui gardent leur zIndex. */}
+      {/* image : format ORIGINAL entièrement visible (façon WhatsApp) — jamais
+          rognée ni déformée. Un fond flouté de la même image (agrandie en
+          `cover`) comble les bandes quand le ratio ne remplit pas l'écran,
+          au lieu de laisser du noir/couleur uni brut. */}
       {current.media_type === 'image' && current.media_url ? (
         <>
-          <CachedImage uri={current.media_url} style={styles.mediaFull} resizeMode="cover" />
-          {current.caption ? (
-            <View style={styles.mediaCaptionWrap} pointerEvents="none">
-              <Text style={styles.mediaCaption}>{current.caption}</Text>
-            </View>
-          ) : null}
+          <CachedImage
+            uri={current.media_url}
+            style={styles.mediaBackdrop}
+            resizeMode="cover"
+            blurRadius={35}
+          />
+          <View style={styles.mediaBackdropDim} pointerEvents="none" />
+          <CachedImage uri={current.media_url} style={styles.mediaFull} resizeMode="contain" />
         </>
       ) : null}
 
@@ -540,11 +620,6 @@ export const StoryViewerScreen: React.FC = () => {
               <View style={[styles.center, StyleSheet.absoluteFillObject]}>
                 <ActivityIndicator color="#fff" />
               </View>
-            </View>
-          ) : null}
-          {current.caption ? (
-            <View style={styles.mediaCaptionWrap} pointerEvents="none">
-              <Text style={styles.mediaCaption}>{current.caption}</Text>
             </View>
           ) : null}
         </>
@@ -608,6 +683,9 @@ export const StoryViewerScreen: React.FC = () => {
             {current.edited_at ? ` · ${t('stories.edited')}` : ''}
           </Text>
         </View>
+        <Pressable onPress={openReshare} hitSlop={12} style={styles.iconBtn}>
+          <Icon name="repeat-variant" size={22} color="#fff" />
+        </Pressable>
         {isMine ? (
           <Pressable onPress={removeOwn} hitSlop={12} style={styles.iconBtn}>
             <Icon name="delete-outline" size={22} color="#fff" />
@@ -622,7 +700,9 @@ export const StoryViewerScreen: React.FC = () => {
       <View style={styles.content}>
         {current.media_type === 'text' ? (
           <Text style={[styles.storyText, fontStyle(current.font)]}>{current.caption}</Text>
-        ) : current.media_type === 'video' ? null /* rendu plein écran plus haut */ : (
+        ) : current.media_type === 'video' || current.media_type === 'image' ? (
+          null /* rendu plein écran plus haut (image/vidéo) */
+        ) : (
           /* audio / voice : lecture réelle via le lecteur partagé — icône et
              barre suivent l'état de lecture au lieu d'être statiques. */
           <View style={styles.mediaFallback}>
@@ -665,10 +745,16 @@ export const StoryViewerScreen: React.FC = () => {
                 />
               </View>
             ) : null}
-            {current.caption ? <Text style={styles.mediaCaption}>{current.caption}</Text> : null}
           </View>
         )}
       </View>
+
+      {current.caption ? (
+        <StoryCaption
+          caption={current.caption}
+          onExpandChange={(expanded) => setCaptionExpanded(expanded)}
+        />
+      ) : null}
 
       {/* pied : MA story -> stats cliquables ; story d'autrui -> réponse */}
       {isMine ? (
@@ -761,17 +847,34 @@ const styles = StyleSheet.create({
   // image plein écran (façon Instagram) : remplit tout le cadre, rogne au
   // besoin (cover) plutôt que de laisser des bandes vides autour.
   mediaFull: { ...StyleSheet.absoluteFillObject },
-  mediaCaptionWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+  // fond flouté (image agrandie en cover) qui comble les bandes quand le
+  // ratio de l'image ne remplit pas l'écran — l'image nette au-dessus garde
+  // TOUJOURS son format d'origine (contain), jamais rognée ni déformée.
+  mediaBackdrop: { ...StyleSheet.absoluteFillObject, transform: [{ scale: 1.15 }] },
+  mediaBackdropDim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
+  // bande dans le FLUX NORMAL, juste au-dessus du pied — jamais en overlay
+  // par-dessus l'image/le footer (ça créait un chevauchement qui donnait
+  // l'impression fausse de deux légendes affichées côte à côte).
+  captionBand: {
     paddingHorizontal: 22,
-    paddingTop: 60,
-    paddingBottom: 110,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingTop: 14,
+    paddingBottom: 4,
+    gap: 4,
   },
-  mediaCaption: { color: '#fff', fontSize: 16, textAlign: 'center' },
+  mediaCaption: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  captionToggle: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 2,
+  },
   mediaFallback: { alignItems: 'center', gap: 14 },
   audioBadge: {
     width: 96,
