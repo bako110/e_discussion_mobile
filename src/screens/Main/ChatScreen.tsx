@@ -4,7 +4,6 @@ import {
   FlatList,
   Linking,
   KeyboardAvoidingView,
-  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -113,7 +112,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [requestStatus, setRequestStatus] = useState<RequestStatus>('accepted');
+  // Plus de barre "Accepter / Refuser" qui bloque la saisie (comme WhatsApp :
+  // écrire à quelqu'un qui vous a contacté accepte la demande implicitement,
+  // voir `ensureAccepted`). On garde le statut en ref (pas de re-render) —
+  // il ne sert plus qu'à savoir s'il faut encore appeler `accept()`.
+  const requestStatusRef = useRef<RequestStatus>('accepted');
+  const setRequestStatus = useCallback((v: RequestStatus) => {
+    requestStatusRef.current = v;
+  }, []);
   const [partnerOnline, setPartnerOnline] = useState(false);
   const [partnerLastSeen, setPartnerLastSeen] = useState<string | null>(null);
   const [partnerTyping, setPartnerTyping] = useState(false);
@@ -152,7 +158,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       unreadCaptured.current = true;
     }
     setLoading(false);
-  }, [conversationId]);
+  }, [conversationId, setRequestStatus]);
 
   // rafraîchit le détail serveur (statut de demande, présence) à l'ouverture —
   // best-effort, l'affichage local reste la source si hors-ligne.
@@ -170,7 +176,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     } catch {
       /* hors-ligne — on garde le cache local */
     }
-  }, [conversationId, partnerId]);
+  }, [conversationId, partnerId, setRequestStatus]);
 
   useEffect(() => {
     // 1) on lit d'abord le compteur non-lus + les messages, PUIS on marque lu
@@ -257,7 +263,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       off();
       if (partnerTypingTtl.current) clearTimeout(partnerTypingTtl.current);
     };
-  }, [addListener, conversationId, partnerId, myId, reload]);
+  }, [addListener, conversationId, partnerId, myId, reload, setRequestStatus]);
 
   const onChangeText = (v: string) => {
     setText(v);
@@ -266,9 +272,19 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     typingTimeout.current = setTimeout(() => sendTyping(conversationId, 'stop'), 1500);
   };
 
+  /** Répondre à une demande de message l'accepte implicitement (comme
+   * WhatsApp : pas de barre Accepter/Refuser qui bloque la saisie — écrire
+   * suffit). Best-effort, silencieux si hors-ligne (l'outbox rejouera). */
+  const ensureAccepted = useCallback(() => {
+    if (requestStatusRef.current !== 'pending_incoming') return;
+    requestStatusRef.current = 'accepted';
+    void conversationService.accept(conversationId).catch(() => undefined);
+  }, [conversationId]);
+
   const send = async () => {
     const body = text.trim();
     if (!body || sending) return;
+    ensureAccepted();
 
     // mode édition : on applique la modification au lieu d'un nouvel envoi
     if (editing) {
@@ -329,6 +345,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       body = '',
     ) => {
       setSendError(null);
+      ensureAccepted();
       try {
         await messageService.send({
           conversationId,
@@ -346,13 +363,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         setSendError(t('errors.generic'));
       }
     },
-    [conversationId, partnerId, myId, reload, t],
+    [conversationId, partnerId, myId, reload, t, ensureAccepted],
   );
 
   /** Envoi offline-first d'un fichier local (upload différé par l'outbox). */
   const sendLocalMedia = useCallback(
     async (local: LocalMediaFile) => {
       setSendError(null);
+      ensureAccepted();
       try {
         await pendingMediaService.sendMedia({
           conversationId,
@@ -367,7 +385,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         setSendError(t('errors.generic'));
       }
     },
-    [conversationId, partnerId, myId, reload, t],
+    [conversationId, partnerId, myId, reload, t, ensureAccepted],
   );
 
   const openPreview = useCallback(
@@ -464,59 +482,36 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     );
   }, []);
 
-  // ── Enregistrement d'une note vocale (façon WhatsApp) ─────────────────────
-  //   - appui maintenu sur le micro pour démarrer ;
-  //   - glisser VERS LE HAUT  -> verrouille (on peut lâcher le doigt) ;
-  //   - glisser VERS LA GAUCHE -> annule ;
-  //   - une fois verrouillé : barre avec corbeille / pause-reprise / envoyer.
+  // ── Enregistrement d'une note vocale — UN TAP démarre (verrouillé
+  // d'emblée : corbeille / pause-reprise / envoyer), un second tap envoie.
+  // Plus d'appui maintenu ni de glisser pour verrouiller/annuler.
   const recStartedRef = useRef(false);
-  const recLockedRef = useRef(false);
   const cancelledRef = useRef(false);
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const releasedBeforeStart = useRef(false);
-  const [recLocked, setRecLocked] = useState(false);
+  const [recLocked, setRecLocked] = useState(true);
 
   const stopTyping = useCallback(() => {
     sendTyping(conversationId, 'stop', 'audio');
   }, [sendTyping, conversationId]);
 
-  // le doigt s'est posé : on ARME le démarrage après une courte tempo (évite
-  // un enregistrement fantôme sur un simple tap).
-  const armRecording = useCallback(() => {
+  /** Tap sur le micro : démarre l'enregistrement immédiatement, direct en
+   * mode verrouillé (pas d'étape « glisser pour verrouiller »). */
+  const startVoiceTap = useCallback(async () => {
+    if (recStartedRef.current) return;
     cancelledRef.current = false;
-    releasedBeforeStart.current = false;
-    recLockedRef.current = false;
-    setRecLocked(false);
+    setRecLocked(true);
     if (typingTimeout.current) {
       clearTimeout(typingTimeout.current);
       typingTimeout.current = null;
     }
-    if (holdTimer.current) clearTimeout(holdTimer.current);
-    holdTimer.current = setTimeout(async () => {
-      holdTimer.current = null;
-      if (releasedBeforeStart.current) return; // relâché avant la tempo
-      const ok = await picker.startRecording();
-      recStartedRef.current = ok;
-      if (ok && releasedBeforeStart.current) {
-        // relâché pendant le démarrage -> on annule tout de suite
-        recStartedRef.current = false;
-        await picker.cancelRecording();
-        return;
-      }
-      if (ok) sendTyping(conversationId, 'start', 'audio');
-    }, 160);
+    const ok = await picker.startRecording();
+    recStartedRef.current = ok;
+    if (ok) sendTyping(conversationId, 'start', 'audio');
   }, [picker, sendTyping, conversationId]);
 
+  /** Bouton envoyer de la barre verrouillée : arrête et envoie la note. */
   const finalizeRecording = useCallback(async () => {
-    if (holdTimer.current) {
-      clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-    }
-    releasedBeforeStart.current = true;
     if (!recStartedRef.current) return;
     recStartedRef.current = false;
-    recLockedRef.current = false;
-    setRecLocked(false);
     stopTyping();
     if (cancelledRef.current || picker.recordSeconds < 1) {
       await picker.cancelRecording();
@@ -526,52 +521,13 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     if (local) await sendLocalMedia(local);
   }, [picker, sendLocalMedia, stopTyping]);
 
+  /** Bouton corbeille de la barre verrouillée : annule sans envoyer. */
   const cancelVoice = useCallback(async () => {
-    if (holdTimer.current) {
-      clearTimeout(holdTimer.current);
-      holdTimer.current = null;
-    }
-    releasedBeforeStart.current = true;
     cancelledRef.current = true;
     recStartedRef.current = false;
-    recLockedRef.current = false;
-    setRecLocked(false);
     stopTyping();
     await picker.cancelRecording();
   }, [picker, stopTyping]);
-
-  const lockVoice = useCallback(() => {
-    if (!recStartedRef.current || recLockedRef.current) return;
-    recLockedRef.current = true;
-    setRecLocked(true);
-  }, []);
-
-  // Gestes sur le bouton micro : slide haut = lock, slide gauche = cancel.
-  // Les handlers sont dans des refs (le PanResponder est créé une seule fois
-  // et fige sinon les closures du 1er rendu).
-  const voiceFns = useRef({ armRecording, finalizeRecording, cancelVoice, lockVoice });
-  voiceFns.current = { armRecording, finalizeRecording, cancelVoice, lockVoice };
-
-  const micPan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        voiceFns.current.armRecording();
-      },
-      onPanResponderMove: (_e, g) => {
-        if (recLockedRef.current || !recStartedRef.current) return;
-        if (g.dy < -70) voiceFns.current.lockVoice();
-        else if (g.dx < -90) void voiceFns.current.cancelVoice();
-      },
-      onPanResponderRelease: () => {
-        if (!recLockedRef.current) void voiceFns.current.finalizeRecording();
-      },
-      onPanResponderTerminate: () => {
-        if (!recLockedRef.current) void voiceFns.current.finalizeRecording();
-      },
-    }),
-  ).current;
 
   /** Appui long sur un message -> feuille d'actions. */
   const onMessageLongPress = (m: LocalMessage) => {
@@ -612,6 +568,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   /** Envoi direct d'une suggestion de réponse rapide (conversation vide). */
   const sendQuick = useCallback(
     async (body: string) => {
+      ensureAccepted();
       try {
         await messageService.send({ conversationId, partnerId, senderId: myId, body });
         await reload();
@@ -621,7 +578,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         setSendError(t('errors.generic'));
       }
     },
-    [conversationId, partnerId, myId, reload, t],
+    [conversationId, partnerId, myId, reload, t, ensureAccepted],
   );
 
   const retry = async (m: LocalMessage) => {
@@ -671,16 +628,6 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     await messageRepo.markDeleted(m.id); // masque l'ancienne ligne "failed"
     await reload();
     void syncNow({ force: true });
-  };
-
-  const accept = async () => {
-    await conversationService.accept(conversationId);
-    setRequestStatus('accepted');
-    void syncNow({ force: true });
-  };
-  const decline = async () => {
-    await conversationService.decline(conversationId);
-    navigation.goBack();
   };
 
   const placeCall = (kind: 'voice' | 'video') => {
@@ -892,8 +839,15 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       ) : (
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          // Android : l'activité est déjà en `windowSoftInputMode="adjustResize"`
+          // (voir AndroidManifest) — le système redimensionne la fenêtre tout
+          // seul. Ajouter behavior="height" par-dessus fait cumuler DEUX
+          // redimensionnements qui se désynchronisent à la fermeture du
+          // clavier : le composer reste "flottant" au lieu de redescendre à
+          // sa place. Sur Android on laisse donc `undefined` (pas d'action
+          // de KeyboardAvoidingView, le système gère tout).
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={0}
         >
           <FlatList
             data={items}
@@ -923,7 +877,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               ) : null
             }
             ListEmptyComponent={
-              requestStatus === 'accepted' ? (
+              !blocked ? (
                 <QuickReplies partnerName={partnerName} onSend={(txt) => void sendQuick(txt)} />
               ) : null
             }
@@ -996,26 +950,6 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               </Text>
               <Button label={t('chat.unblock')} variant="secondary" onPress={doUnblock} />
             </View>
-          ) : requestStatus === 'pending_incoming' ? (
-            <View
-              style={[
-                styles.requestBar,
-                {
-                  backgroundColor: c.surface,
-                  borderTopColor: c.divider,
-                  paddingBottom: 16 + insets.bottom,
-                },
-              ]}
-            >
-              <Text style={{ color: c.textMuted, marginBottom: 10 }}>
-                {t('conversations.acceptRequestHint', { name: partnerName })}
-              </Text>
-              <View style={styles.requestActions}>
-                <Button label={t('conversations.decline')} variant="secondary" onPress={decline} style={styles.flex} />
-                <View style={{ width: 10 }} />
-                <Button label={t('conversations.accept')} onPress={accept} style={styles.flex} />
-              </View>
-            </View>
           ) : (
             <View
               style={[
@@ -1029,18 +963,6 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             >
               {sendError ? (
                 <Text style={[styles.sendError, { color: c.danger }]}>{sendError}</Text>
-              ) : null}
-              {picker.recording && !recLocked ? (
-                <View style={[styles.recBar, { backgroundColor: c.danger + '18' }]}>
-                  <View style={[styles.recDot, { backgroundColor: c.danger }]} />
-                  <Text style={[styles.recText, { color: c.danger }]}>
-                    {Math.floor(picker.recordSeconds / 60)}:
-                    {String(picker.recordSeconds % 60).padStart(2, '0')}
-                  </Text>
-                  <Text style={[styles.recHint, { color: c.textMuted }]}>
-                    {t('chat.voiceSlideHint')}
-                  </Text>
-                </View>
               ) : null}
               {editing ? (
                 <View style={[styles.editBar, { borderLeftColor: c.primary }]}>
@@ -1157,22 +1079,12 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                       <Icon name="send" size={19} color="#fff" />
                     </Pressable>
                   ) : (
-                    <View
-                      {...micPan.panHandlers}
-                      style={[
-                        styles.sendBtn,
-                        {
-                          backgroundColor: picker.recording ? c.danger : c.primary,
-                          transform: [{ scale: picker.recording ? 1.25 : 1 }],
-                        },
-                      ]}
+                    <Pressable
+                      onPress={() => void startVoiceTap()}
+                      style={[styles.sendBtn, { backgroundColor: c.primary }]}
                     >
-                      <Icon
-                        name={picker.recording ? 'lock-open-variant-outline' : 'microphone'}
-                        size={19}
-                        color="#fff"
-                      />
-                    </View>
+                      <Icon name="microphone" size={19} color="#fff" />
+                    </Pressable>
                   )}
                 </>
               )}
@@ -1322,7 +1234,6 @@ const styles = StyleSheet.create({
   },
   sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   requestBar: { padding: 16, borderTopWidth: StyleSheet.hairlineWidth },
-  requestActions: { flexDirection: 'row' },
   encBanner: {
     flexDirection: 'row',
     alignSelf: 'center',
