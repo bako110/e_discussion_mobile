@@ -41,6 +41,10 @@ interface Props {
   onFirstPlay?: () => void;
   /** contexte pour le mini-lecteur global (conversation + titre affiché). */
   playerMeta?: PlayMeta;
+  /** menu contextuel (répondre/copier/supprimer) — appliqué ICI (même
+   * Pressable que le tap play) plutôt que sur un parent englobant, pour
+   * éviter la compétition de gestes entre deux Pressable imbriqués. */
+  onLongPress?: () => void;
 }
 
 function humanSize(bytes: number | null | undefined): string {
@@ -65,6 +69,7 @@ export const VoiceNoteBubble: React.FC<Props> = ({
   played = true,
   onFirstPlay,
   playerMeta,
+  onLongPress,
 }) => {
   const { theme } = useTheme();
   const c = theme.colors;
@@ -142,7 +147,12 @@ export const VoiceNoteBubble: React.FC<Props> = ({
       : label;
 
   return (
-    <Pressable onPress={onPress} style={styles.row} disabled={cached.downloading}>
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={styles.row}
+      disabled={cached.downloading}
+    >
       <View
         style={[
           styles.playBtn,

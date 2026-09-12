@@ -50,17 +50,21 @@ function humanSize(bytes: number | null): string {
 }
 
 /** Coche d'état pour mes messages : en attente / envoyé / remis / lu / échec.
- * `readColor` : teinte accentuée quand le message est LU (double coche colorée
- * façon WhatsApp) ; le reste garde la teinte discrète `color`. */
-const StatusTick: React.FC<{ m: LocalMessage; color: string; readColor: string }> = ({
-  m,
-  color,
-  readColor,
-}) => {
+ * `readColor` : teinte pleine quand le message est LU (double coche accentuée
+ * façon WhatsApp) ; `deliveredColor` (plus sourde) marque "remis" seulement.
+ * Sur une bulle sortante COLORÉE (fond bleu), un bleu clair par-dessus devient
+ * illisible — dans ce cas les deux appelants passent du blanc à opacités
+ * différentes, pour que "remis" reste visiblement plus discret que "lu". */
+const StatusTick: React.FC<{
+  m: LocalMessage;
+  color: string;
+  deliveredColor: string;
+  readColor: string;
+}> = ({ m, color, deliveredColor, readColor }) => {
   if (m.sync_state === 'failed') return <Icon name="alert-circle-outline" size={13} color={color} />;
   if (m.sync_state === 'pending') return <Icon name="clock-outline" size={12} color={color} />;
   if (m.read) return <Icon name="check-all" size={14} color={readColor} />;
-  if (m.delivered) return <Icon name="check-all" size={14} color={color} />;
+  if (m.delivered) return <Icon name="check-all" size={14} color={deliveredColor} />;
   return <Icon name="check" size={13} color={color} />;
 };
 
@@ -209,6 +213,7 @@ export const MessageBubble: React.FC<Props> = ({
           messageId={message.id}
           played={mine || message.voicePlayed !== false}
           onFirstPlay={onVoicePlayed ? () => onVoicePlayed(message.id) : undefined}
+          onLongPress={onLongPress}
           playerMeta={{
             conversationId: message.conversation_id,
             title: voiceTitle ?? null,
@@ -280,7 +285,13 @@ export const MessageBubble: React.FC<Props> = ({
 
   return (
     <Pressable
-      onLongPress={onLongPress}
+      // Le vocal gère lui-même onLongPress sur SON propre Pressable (celui du
+      // bouton play) — un Pressable(onLongPress) imbriquant un autre
+      // Pressable(onPress) crée une compétition de gestes peu fiable sur RN
+      // (le parent peut retenir le responder tactile le temps de trancher
+      // court/long, faisant sembler le tap simple ignoré/"il faut appuyer
+      // plus fort"). Pour tout le reste (texte, image, fichier...), inchangé.
+      onLongPress={isVoice ? undefined : onLongPress}
       onPress={failed ? onRetry : undefined}
       style={[styles.row, mine ? styles.rowMine : styles.rowTheirs, { marginTop: grouped ? 2 : 6 }]}
     >
@@ -340,7 +351,12 @@ export const MessageBubble: React.FC<Props> = ({
               <StatusTick
                 m={message}
                 color={failed ? c.danger : bareMedia ? '#fff' : fg}
-                readColor={bareMedia ? '#fff' : '#7FD0FF'}
+                // fond bleu (bulle sortante) ou média sombre -> le bleu clair
+                // "lu" habituel devient illisible dessus. On reste en blanc
+                // mais on distingue remis/lu par l'opacité : "remis" reste
+                // discret (comme les coches par défaut), "lu" ressort net.
+                deliveredColor={bareMedia || mine ? 'rgba(255,255,255,0.65)' : fg}
+                readColor={bareMedia || mine ? '#ffffff' : '#7FD0FF'}
               />
             </View>
           ) : null}
