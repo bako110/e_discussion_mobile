@@ -497,8 +497,23 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (!me || !pendingAcceptRef.current) return;
     if (phaseRef.current !== 'idle') return;
+    const attemptedCallId = pendingAcceptRef.current;
     setPhase('connecting');
-    void acceptCallRef.current?.().catch(() => undefined);
+    void acceptCallRef.current?.().catch(() => {
+      // l'acceptation auto (depuis la notif « Répondre », app tuée) a
+      // échoué (token pas encore rafraîchi, appel déjà terminé côté
+      // serveur, réseau indisponible au démarrage…) : `acceptCall` remet
+      // déjà `phase` à 'idle', mais SANS feedback l'utilisateur se
+      // retrouve juste sur l'accueil sans comprendre que son appel a été
+      // manqué — on trace donc explicitement un « appel manqué ».
+      void displayMissedCall({
+        callId: attemptedCallId,
+        callType: 'voice',
+        peerId: '',
+        peerName: 'Appel',
+        peerAvatar: null,
+      });
+    });
   }, [me]);
 
   const rejectCall = useCallback(async () => {

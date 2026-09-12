@@ -72,6 +72,11 @@ export function registerBackgroundNotificationHandler(): void {
       (type === EventType.PRESS && (pressId === 'incoming-call' || data.kind === 'call'))
     ) {
       if (callId) setPendingAcceptCallId(callId);
+      // annule tout de suite la sonnerie visible (ongoing/autoCancel:false) —
+      // `acceptCall()` le refera de toute façon au démarrage de l'app, mais
+      // sur un demarrage lent la notif resterait sinon visible plusieurs
+      // secondes après le tap, donnant l'impression que rien ne s'est passé.
+      await notifee.cancelNotification(INCOMING_CALL_NOTIF_ID);
       // `launchActivity: 'default'` ouvre l'app ; CallContext prend le relais.
       return;
     }

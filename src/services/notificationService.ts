@@ -301,9 +301,28 @@ const threads = new Map<
   { title: string; messages: { text: string; time: number; sender: string }[] }
 >();
 
+// Un même message peut arriver par DEUX chemins presque simultanés : notre
+// WebSocket (foreground) ET un push FCM data-only (course réseau, cf.
+// `subscribeFcmForeground`) — sans garde, la ligne du message serait ajoutée
+// deux fois au fil de la conversation. On retient les derniers messageId déjà
+// affichés (mémoire courte, suffisante le temps d'une course réseau).
+const recentlyShown = new Set<string>();
+function alreadyShown(messageId: string): boolean {
+  if (!messageId) return false; // pas d'id -> pas de dédup possible, on affiche
+  if (recentlyShown.has(messageId)) return true;
+  recentlyShown.add(messageId);
+  // fenêtre large mais bornée : évite une fuite mémoire si l'app tourne des jours
+  if (recentlyShown.size > 200) {
+    const first = recentlyShown.values().next().value;
+    if (first) recentlyShown.delete(first);
+  }
+  return false;
+}
+
 export async function displayMessageNotification(d: MessageNotifData): Promise<void> {
   const prefs = getNotifPrefs();
   if (!prefs.messages) return;
+  if (alreadyShown(d.messageId)) return;
 
   await ensureNotificationSetup();
 
@@ -322,47 +341,87 @@ export async function displayMessageNotification(d: MessageNotifData): Promise<v
   threads.set(convKey, th);
 
   const count = th.messages.length;
-  await notifee.displayNotification({
-    id: `msg-${d.conversationId}`,
-    title,
-    body: isGroup ? `${d.senderName} : ${line}` : line,
-    subtitle: count > 1 ? `${count} messages` : undefined,
-    data: {
-      kind: 'message',
-      conversationId: d.conversationId,
-      ...(d.groupId ? { groupId: d.groupId } : {}),
-    },
-    android: {
-      channelId: messageChannelId(prefs.sound, prefs.vibrate),
-      category: AndroidCategory.MESSAGE,
-      importance:
-        prefs.sound || prefs.vibrate
-          ? AndroidImportance.HIGH
-          : AndroidImportance.DEFAULT,
-      pressAction: { id: 'open-chat', launchActivity: 'default' },
-      groupId: GROUP_KEY,
-      largeIcon: iconUri(d.senderAvatar),
-      style: {
-        type: AndroidStyle.MESSAGING,
-        // « person » = le destinataire (moi) ; chaque message porte son émetteur.
-        person: { id: 'me', name: 'Moi' },
-        title: isGroup ? title : undefined,
-        messages: th.messages.map((m) => ({
-          text: m.text,
-          timestamp: m.time,
-          person: { name: isGroup ? m.sender : title },
-        })),
-        group: isGroup,
+  const largeIcon = iconUri(d.senderAvatar);
+
+  // Notification complète (bulle « MESSAGING » façon appli de messagerie),
+  // avec repli sur une version SIMPLE si l'affichage avancé échoue — vécu
+  // en pratique sur un push FCM reçu à froid (process tout juste relancé en
+  // headless) : `displayNotification` a planté avec « largeIcon expected a
+  // React Native ImageResource value or a valid string URL » même avec
+  // `largeIcon: undefined` explicite, ce qui empêchait TOUTE notification de
+  // s'afficher — mieux vaut un affichage dégradé qu'aucun affichage du tout.
+  try {
+    await notifee.displayNotification({
+      id: `msg-${d.conversationId}`,
+      title,
+      body: isGroup ? `${d.senderName} : ${line}` : line,
+      subtitle: count > 1 ? `${count} messages` : undefined,
+      data: {
+        kind: 'message',
+        conversationId: d.conversationId,
+        ...(d.groupId ? { groupId: d.groupId } : {}),
       },
-      timestamp: Date.now(),
-      showTimestamp: true,
-      onlyAlertOnce: false,
-    },
-    ios: {
-      threadId: d.conversationId,
-      sound: prefs.sound ? 'default' : undefined,
-    },
-  });
+      android: {
+        channelId: messageChannelId(prefs.sound, prefs.vibrate),
+        category: AndroidCategory.MESSAGE,
+        importance:
+          prefs.sound || prefs.vibrate
+            ? AndroidImportance.HIGH
+            : AndroidImportance.DEFAULT,
+        pressAction: { id: 'open-chat', launchActivity: 'default' },
+        groupId: GROUP_KEY,
+        // clé OMISE (pas juste `undefined`) si pas d'avatar valide.
+        ...(largeIcon ? { largeIcon } : {}),
+        style: {
+          type: AndroidStyle.MESSAGING,
+          // « person » = le destinataire (moi) ; chaque message porte son émetteur.
+          person: { id: 'me', name: 'Moi' },
+          title: isGroup ? title : undefined,
+          messages: th.messages.map((m) => ({
+            text: m.text,
+            timestamp: m.time,
+            person: { name: isGroup ? m.sender : title },
+          })),
+          group: isGroup,
+        },
+        timestamp: Date.now(),
+        showTimestamp: true,
+        onlyAlertOnce: false,
+      },
+      ios: {
+        threadId: d.conversationId,
+        sound: prefs.sound ? 'default' : undefined,
+      },
+    });
+  } catch (e) {
+    console.warn('[notif] displayNotification avancé a échoué, repli simple:', String(e));
+    await notifee
+      .displayNotification({
+        id: `msg-${d.conversationId}`,
+        title,
+        body: isGroup ? `${d.senderName} : ${line}` : line,
+        data: {
+          kind: 'message',
+          conversationId: d.conversationId,
+          ...(d.groupId ? { groupId: d.groupId } : {}),
+        },
+        android: {
+          channelId: messageChannelId(prefs.sound, prefs.vibrate),
+          category: AndroidCategory.MESSAGE,
+          importance:
+            prefs.sound || prefs.vibrate
+              ? AndroidImportance.HIGH
+              : AndroidImportance.DEFAULT,
+          pressAction: { id: 'open-chat', launchActivity: 'default' },
+          groupId: GROUP_KEY,
+        },
+        ios: {
+          threadId: d.conversationId,
+          sound: prefs.sound ? 'default' : undefined,
+        },
+      })
+      .catch(() => undefined);
+  }
 
   // notif de résumé (regroupe les conversations sous une seule tête sur Android)
   await notifee
@@ -516,16 +575,9 @@ export function onNotificationAction(handler: (a: NotifAction) => void): () => v
   });
 }
 
-/** À enregistrer une seule fois, au niveau module (hors composant). */
-export function registerBackgroundNotificationHandler(
-  handler: (a: NotifAction) => Promise<void>,
-): void {
-  notifee.onBackgroundEvent(async (event) => {
-    const a = toAction(event);
-    if (a) await handler(a);
-    // pour la sonnerie : si l'utilisateur balaie la notif, on l'annule aussi
-    if (event.type === EventType.DISMISSED) {
-      await clearIncomingCall();
-    }
-  });
-}
+// NB : le VRAI handler `notifee.onBackgroundEvent` (app tuée/arrière-plan)
+// vit dans `./notificationBackground.ts` (enregistré une seule fois au
+// scope module par `src/bootstrap.js`). Une fonction du même nom existait
+// ici en double, jamais appelée — supprimée pour éviter qu'un futur appel
+// écrase silencieusement le vrai handler (notifee n'accepte qu'un seul
+// callback `onBackgroundEvent` global).
