@@ -129,6 +129,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [muted, setMuted] = useState(false);
   const [speaker, setSpeaker] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
+  // true = caméra avant (selfie). On la traque nous-mêmes car `switchCamera`
+  // doit RECRÉER la piste (désactiver/réactiver) plutôt que reconfigurer
+  // l'existante — voir `switchCamera` plus bas pour le pourquoi.
+  const [frontCamera, setFrontCamera] = useState(true);
   // appel sortant : le destinataire a-t-il un WS actif ? -> tonalité de
   // retour d'appel « normale » vs « indisponible ».
   const [calleeOnline, setCalleeOnline] = useState(true);
@@ -203,6 +207,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setMuted(false);
     setSpeaker(false);
     setCameraEnabled(false);
+    setFrontCamera(true);
 
     const r = roomRef.current;
     roomRef.current = null;
@@ -617,16 +622,30 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const r = roomRef.current;
     if (!r) return;
     const pub = r.localParticipant.getTrackPublication(Track.Source.Camera);
-    const track = pub?.videoTrack;
-    if (!track) return;
-    // @livekit/react-native-webrtc expose _switchCamera() sur la piste native.
+    if (!pub?.videoTrack) return;
+    const next = !frontCamera;
+    // NB : sur Android, `@livekit/react-native-webrtc` (CameraCaptureController)
+    // ignore délibérément un nouveau facingMode passé après coup via
+    // applyConstraints (« constraint violation to change these through
+    // applyConstraints », cf. son code natif) — que ce soit via l'ancienne
+    // `_switchCamera()` (OK sur iOS seulement) ou `LocalVideoTrack.restartTrack`
+    // (qui, sous le capot, rappelle applyConstraints sur la piste existante).
+    // Le SEUL chemin qui redemande vraiment une caméra différente est une
+    // acquisition neuve (`createVideoCapturer`) : on désactive donc la
+    // caméra puis on la réactive avec le facingMode opposé, ce qui force
+    // `setCameraEnabled` à recréer la piste au lieu de juste l'unmute.
     try {
-      const mst = track.mediaStreamTrack as unknown as { _switchCamera?: () => void };
-      mst?._switchCamera?.();
+      await r.localParticipant.setCameraEnabled(false);
+      await r.localParticipant.setCameraEnabled(true, {
+        facingMode: next ? 'user' : 'environment',
+        resolution: VideoPresets.h720.resolution,
+      });
+      setFrontCamera(next);
+      setCameraEnabled(true);
     } catch {
-      /* ignore */
+      /* caméra indisponible (device à une seule caméra, etc.) */
     }
-  }, []);
+  }, [frontCamera]);
 
   const setVideo = useCallback(async (enabled: boolean) => {
     const r = roomRef.current;
