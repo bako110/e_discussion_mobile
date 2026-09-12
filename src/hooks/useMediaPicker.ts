@@ -141,6 +141,9 @@ export interface MediaPicker {
   // ── offline-first : renvoient le fichier local, aucun réseau ──
   pickImageLocal: (opts?: { camera?: boolean }) => Promise<LocalMediaFile | null>;
   pickVideoLocal: (opts?: { camera?: boolean }) => Promise<LocalMediaFile | null>;
+  /** Ouvre directement l'appareil photo natif — photo OU vidéo (bascule
+   * intégrée à l'interface caméra de l'OS). */
+  pickCameraLocal: () => Promise<LocalMediaFile | null>;
   pickDocumentLocal: () => Promise<LocalMediaFile | null>;
   stopRecordingLocal: () => Promise<LocalMediaFile | null>;
   /**
@@ -321,7 +324,7 @@ export function useMediaPicker(): MediaPicker {
 
   // ── offline-first : sélectionne le fichier SANS l'uploader ──────────────
   const runPickLocal = useCallback(
-    async (kind: 'photo' | 'video', camera: boolean): Promise<LocalMediaFile | null> => {
+    async (kind: 'photo' | 'video' | 'mixed', camera: boolean): Promise<LocalMediaFile | null> => {
       if (camera && !(await ensureAndroidCameraPermission())) {
         showAlert('Caméra', 'Autorisez la caméra dans les réglages pour continuer.');
         return null;
@@ -343,11 +346,15 @@ export function useMediaPicker(): MediaPicker {
           return null;
         }
         const asset = res.assets?.[0];
-        const file = assetToFile(asset, kind === 'photo' ? 'image/jpeg' : 'video/mp4');
+        // `mixed` (caméra native, bascule photo/vidéo intégrée à l'OS) : le
+        // type réel n'est connu qu'après coup, via le type MIME de l'asset.
+        const isVideo =
+          kind === 'video' || (kind === 'mixed' && !!asset?.type?.startsWith('video/'));
+        const file = assetToFile(asset, isVideo ? 'video/mp4' : 'image/jpeg');
         if (!file) return null;
         return {
           file,
-          kind: kind === 'photo' ? 'image' : 'video',
+          kind: isVideo ? 'video' : 'image',
           size: asset?.fileSize ?? null,
           width: asset?.width ?? null,
           height: asset?.height ?? null,
@@ -372,6 +379,9 @@ export function useMediaPicker(): MediaPicker {
     (opts?: { camera?: boolean }) => runPickLocal('video', !!opts?.camera),
     [runPickLocal],
   );
+  /** Ouvre directement l'appareil photo natif (photo ET vidéo — bascule
+   * intégrée à l'interface caméra de l'OS, pas gérée par nous). */
+  const pickCameraLocal = useCallback(() => runPickLocal('mixed', true), [runPickLocal]);
 
   const pickDocumentLocal = useCallback(async (): Promise<LocalMediaFile | null> => {
     const picker = await import('@react-native-documents/picker');
@@ -679,6 +689,7 @@ export function useMediaPicker(): MediaPicker {
     recordSeconds,
     pickImageLocal,
     pickVideoLocal,
+    pickCameraLocal,
     pickDocumentLocal,
     stopRecordingLocal,
     pickAvatar,

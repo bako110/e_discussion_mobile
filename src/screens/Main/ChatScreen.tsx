@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner, confirmAlert, showAlert, showToast } from '@/components/common';
 import { AttachMenu, type AttachKind } from '@/components/chat/AttachMenu';
 import { ChatMenuSheet, type ChatMenuAction } from '@/components/chat/ChatMenuSheet';
+import { EmojiSheet } from '@/components/chat/EmojiSheet';
 import { EncryptionInfoModal } from '@/components/chat/EncryptionInfoModal';
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
 import { MessageBubble } from '@/components/chat/MessageBubble';
@@ -125,6 +126,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [partnerActivity, setPartnerActivity] = useState<'text' | 'audio'>('text');
   const [attachOpen, setAttachOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const picker = useMediaPicker();
   // message en cours d'édition (null = mode envoi normal)
   const [editing, setEditing] = useState<LocalMessage | null>(null);
@@ -265,12 +267,15 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     };
   }, [addListener, conversationId, partnerId, myId, reload, setRequestStatus]);
 
-  const onChangeText = (v: string) => {
-    setText(v);
-    sendTyping(conversationId, 'start');
-    if (typingTimeout.current) clearTimeout(typingTimeout.current);
-    typingTimeout.current = setTimeout(() => sendTyping(conversationId, 'stop'), 1500);
-  };
+  const onChangeText = useCallback(
+    (v: string) => {
+      setText(v);
+      sendTyping(conversationId, 'start');
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      typingTimeout.current = setTimeout(() => sendTyping(conversationId, 'stop'), 1500);
+    },
+    [sendTyping, conversationId],
+  );
 
   /** Répondre à une demande de message l'accepte implicitement (comme
    * WhatsApp : pas de barre Accepter/Refuser qui bloque la saisie — écrire
@@ -398,6 +403,20 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       }),
     [navigation, conversationId, partnerId, myId],
   );
+
+  const onPickEmoji = useCallback(
+    (emoji: string) => {
+      onChangeText(text + emoji);
+    },
+    [text, onChangeText],
+  );
+
+  /** Icône caméra du composer : ouvre directement l'appareil photo natif
+   * (photo ET vidéo, bascule intégrée à l'interface caméra de l'OS). */
+  const onCameraPick = useCallback(async () => {
+    const local = await picker.pickCameraLocal();
+    if (local) openPreview(local);
+  }, [picker, openPreview]);
 
   const onAttachPick = useCallback(
     async (kind: AttachKind) => {
@@ -1046,7 +1065,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               ) : (
                 <>
                   <View style={[styles.inputWrap, { backgroundColor: c.surface }]}>
-                    <Pressable hitSlop={8}>
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => setEmojiOpen(true)}
+                      disabled={picker.recording}
+                    >
                       <Icon name="emoticon-happy-outline" size={22} color={c.textFaint} />
                     </Pressable>
                     <TextInput
@@ -1063,6 +1086,13 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                       onSubmitEditing={enterToSend ? () => void send() : undefined}
                       style={[styles.input, { color: c.text }]}
                     />
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => void onCameraPick()}
+                      disabled={picker.recording}
+                    >
+                      <Icon name="camera-outline" size={21} color={c.textFaint} />
+                    </Pressable>
                     <Pressable
                       hitSlop={8}
                       onPress={() => setAttachOpen(true)}
@@ -1097,6 +1127,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         visible={attachOpen}
         onPick={(k) => void onAttachPick(k)}
         onClose={() => setAttachOpen(false)}
+      />
+      <EmojiSheet
+        visible={emojiOpen}
+        onPick={onPickEmoji}
+        onClose={() => setEmojiOpen(false)}
       />
       <ChatMenuSheet
         visible={menuOpen}
