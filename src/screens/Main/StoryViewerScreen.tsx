@@ -682,6 +682,19 @@ export const StoryViewerScreen: React.FC = () => {
             {relativeTime(current.created_at)}
             {current.edited_at ? ` · ${t('stories.edited')}` : ''}
           </Text>
+          {current.reshared_from_author ? (
+            <View style={styles.resharedRow}>
+              <Icon name="repeat-variant" size={13} color="#fff" />
+              <Text style={styles.resharedText} numberOfLines={1}>
+                {t('stories.resharedFrom', {
+                  name:
+                    current.reshared_from_author.display_name ||
+                    current.reshared_from_author.username ||
+                    '—',
+                })}
+              </Text>
+            </View>
+          ) : null}
         </View>
         <Pressable onPress={openReshare} hitSlop={12} style={styles.iconBtn}>
           <Icon name="repeat-variant" size={22} color="#fff" />
@@ -772,6 +785,12 @@ export const StoryViewerScreen: React.FC = () => {
               <Text style={styles.statText}>{current.reaction_count}</Text>
             </View>
           ) : null}
+          {current.reshare_count > 0 ? (
+            <View style={styles.reactStat}>
+              <Icon name="repeat-variant" size={18} color="#fff" />
+              <Text style={styles.statText}>{current.reshare_count}</Text>
+            </View>
+          ) : null}
           <View style={{ flex: 1 }} />
           <Text style={styles.viewersLink}>{t('stories.seeViewers')}</Text>
           <Icon name="chevron-right" size={20} color="#fff" />
@@ -841,6 +860,8 @@ const styles = StyleSheet.create({
   },
   authorName: { color: '#fff', fontWeight: '700', fontSize: 14 },
   time: { color: '#ffffffcc', fontSize: 12 },
+  resharedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  resharedText: { color: '#ffffffcc', fontSize: 12, fontStyle: 'italic', flexShrink: 1 },
   iconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 26 },
   storyText: { color: '#fff', fontSize: 26, fontWeight: '700', textAlign: 'center' },

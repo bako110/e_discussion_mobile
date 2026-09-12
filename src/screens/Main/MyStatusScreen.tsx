@@ -164,6 +164,7 @@ export const MyStatusScreen: React.FC = () => {
 
   const totalViews = mine.reduce((n, s) => n + s.view_count, 0);
   const totalReactions = mine.reduce((n, s) => n + s.reaction_count, 0);
+  const totalReshares = mine.reduce((n, s) => n + s.reshare_count, 0);
   const latest = mine[0];
 
   return (
@@ -262,6 +263,12 @@ export const MyStatusScreen: React.FC = () => {
                             <Text style={styles.heroStatTxt}>{totalReactions}</Text>
                           </View>
                         ) : null}
+                        {totalReshares > 0 ? (
+                          <View style={styles.heroStat}>
+                            <Icon name="repeat-variant" size={14} color="#fff" />
+                            <Text style={styles.heroStatTxt}>{totalReshares}</Text>
+                          </View>
+                        ) : null}
                         <View style={{ flex: 1 }} />
                         <Text style={styles.heroLink}>{t('stories.seeViewers')}</Text>
                         <Icon name="chevron-right" size={18} color="#fff" />
@@ -320,6 +327,12 @@ export const MyStatusScreen: React.FC = () => {
                             <View style={styles.tileReact}>
                               <Icon name="heart" size={12} color="#fff" />
                               <Text style={styles.tileMetricTxt}>{story.reaction_count}</Text>
+                            </View>
+                          ) : null}
+                          {story.reshare_count > 0 ? (
+                            <View style={styles.tileReact}>
+                              <Icon name="repeat-variant" size={12} color="#fff" />
+                              <Text style={styles.tileMetricTxt}>{story.reshare_count}</Text>
                             </View>
                           ) : null}
                         </View>

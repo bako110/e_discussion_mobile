@@ -151,9 +151,18 @@ export interface Story {
   edited_at: string | null;
   view_count: number;
   reaction_count: number;
+  /** nombre de fois que CETTE story a été repartagée par d'autres — visible
+   * par l'auteur, même logique que view_count/reaction_count. */
+  reshare_count: number;
   seen_by_me: boolean;
   my_reaction: string | null;
   is_mine: boolean;
+  /** renseigné si cette story est un REPARTAGE d'une autre — id de la story
+   * d'origine (peut ne plus exister si expirée/supprimée depuis). */
+  reshared_from_id?: string | null;
+  /** auteur de la story d'origine, pour l'affichage « Repartagé depuis... »
+   * — absent si l'originale n'est plus disponible. */
+  reshared_from_author?: UserPublic | null;
   /** LOCAL uniquement : en attente d'envoi (outbox, pas encore confirmée par
    * le serveur — comme un message ⏱). Absent/false une fois publiée. */
   pending?: boolean;
