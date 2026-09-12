@@ -89,23 +89,46 @@ export async function toggleVoice(url: string, meta: PlayMeta = {}): Promise<voi
     return;
   }
 
+  // Reprise après pause (même note) : on retient la position ATTEINTE pour
+  // pouvoir s'y replacer si le "vrai" resume (ci-dessous) échoue.
+  const resumeFromPosition = state.url === url && !state.playing ? state.position : 0;
+
   if (state.url === url && !state.playing) {
+    // react-native-audio-recorder-player garde son PROPRE état interne
+    // (_isPlaying/_hasPaused) séparé du nôtre — s'ils divergent (ex: un
+    // stopPlayer() natif appelé entre-temps, comme lors d'un enregistrement
+    // démarré pendant la pause), resumePlayer() renvoie un texte du genre
+    // "No audio playing" SANS jamais reprendre la lecture, mais sans lever
+    // d'erreur non plus — notre state passait quand même à playing:true,
+    // donnant l'impression que le clic "ne fait rien" (rien ne joue, l'UI
+    // dit pourtant que si). On vérifie maintenant le résultat au lieu de le
+    // supposer, et on retombe sur un vrai redémarrage + seek si ça a échoué.
     try {
-      await player.resumePlayer();
+      const res = await player.resumePlayer();
+      if (res && res.toLowerCase().includes('no audio')) {
+        throw new Error('resumePlayer: lecteur natif déjà arrêté');
+      }
       state = { ...state, playing: true };
       emit();
       return;
     } catch {
-      /* on relance depuis le début ci-dessous */
+      /* on retombe sur le redémarrage ci-dessous, avec seek à la position */
     }
   }
 
   await stopVoice();
   try {
     await player.startPlayer(url);
+    if (resumeFromPosition > 0) {
+      try {
+        await player.seekToPlayer(resumeFromPosition);
+      } catch {
+        /* tant pis, ça rejoue depuis le début plutôt que d'échouer */
+      }
+    }
     state = {
       url,
-      position: 0,
+      position: resumeFromPosition,
       duration: meta.durationMs ?? 0,
       playing: true,
       ...nextMeta,
