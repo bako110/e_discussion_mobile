@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
 import { alertError, showAlert } from '@/components/common';
+import { stopVoice } from '@/services/voicePlayer';
 import {
   launchCamera,
   launchImageLibrary,
@@ -525,6 +526,13 @@ export function useMediaPicker(): MediaPicker {
       showAlert('Micro', "L'accès au micro est nécessaire pour enregistrer.");
       return false;
     }
+    // Le lecteur de vocaux (voicePlayer.ts) utilise sa PROPRE instance de
+    // react-native-audio-recorder-player — la lib gère un seul module audio
+    // natif partagé en interne, donc écouter un vocal puis tenter d'ENREGISTRER
+    // aussitôt après pouvait faire échouer startRecorder() (la ressource
+    // audio native restait tenue par le lecteur, invisible depuis cette
+    // instance JS séparée). On la libère explicitement avant de démarrer.
+    await stopVoice();
 
     const ok = await withRecLock(async () => {
       await ensureRecDir();
