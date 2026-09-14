@@ -63,6 +63,7 @@ export const Endpoints = {
     viewers: (id: string) => `${V1}/stories/${id}/viewers`,
     react: (id: string) => `${V1}/stories/${id}/react`,
     reply: (id: string) => `${V1}/stories/${id}/reply`,
+    reshare: (id: string) => `${V1}/stories/${id}/reshare`,
   },
   media: {
     upload: `${V1}/media/upload`,
@@ -82,6 +83,8 @@ export const Endpoints = {
     mute: (id: string) => `${V1}/groups/${id}/mute`,
     unmute: (id: string) => `${V1}/groups/${id}/unmute`,
     messages: (id: string) => `${V1}/groups/${id}/messages`,
+    reactMessage: (id: string, messageId: string) =>
+      `${V1}/groups/${id}/messages/${messageId}/react`,
     read: (id: string) => `${V1}/groups/${id}/read`,
     settings: (id: string) => `${V1}/groups/${id}/settings`,
     joinRequests: (id: string) => `${V1}/groups/${id}/join-requests`,

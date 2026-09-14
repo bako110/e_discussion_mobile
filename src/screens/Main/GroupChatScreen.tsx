@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Avatar, Icon, Screen, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
 import { GroupAttachment } from '@/components/chat/GroupAttachment';
+import { QuickReactionSheet } from '@/components/chat/QuickReactionSheet';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
@@ -67,6 +68,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   const [sending, setSending] = useState(false);
   const [channelLive, setChannelLive] = useState<ChannelLive | null>(null);
   const [liveBusy, setLiveBusy] = useState(false);
+  const [reactMsg, setReactMsg] = useState<LocalGroupMessage | null>(null);
 
   /** Lecture locale (instantanée, hors-ligne OK). */
   const reload = useCallback(async () => {
@@ -130,6 +132,15 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
           e.group_id === groupId
         ) {
           void groupService.refreshMessages(groupId).then(reload).catch(() => undefined);
+        }
+        // réaction d'un AUTRE membre — la mienne est déjà à jour localement
+        // (voir doReact -> groupRepo.updateReactions), pas besoin de refetch.
+        if (e.type === 'group.message.reaction' && e.group_id === groupId) {
+          const reactions = (e.reactions ?? {}) as Record<string, number>;
+          void groupRepo
+            .updateReactions(String(e.message_id), reactions)
+            .then(reload)
+            .catch(() => undefined);
         }
       }),
     [addListener, groupId, reload],
@@ -237,6 +248,14 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
       },
       { confirmText: t('channelLive.startConfirm'), cancelText: t('common.cancel') },
     );
+  };
+
+  const doReact = (emoji: string | null) => {
+    if (!reactMsg) return;
+    void groupService
+      .react(groupId, reactMsg.id, emoji)
+      .then(reload)
+      .catch(() => showToast(t('errors.generic'), { type: 'error' }));
   };
 
   const pickAttachment = () => {
@@ -409,13 +428,19 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
       !older ||
       new Date(item.created_at).toDateString() !== new Date(older.created_at).toDateString();
 
+    const reactionEntries = Object.entries(item.reactions ?? {});
+
     return (
       <View>
         <View style={[styles.bubbleRow, mine ? styles.rowMine : styles.rowTheirs]}>
           {!mine ? (
             <Avatar uri={senderAvatar} name={senderName} size={28} />
           ) : null}
-          <View
+          <Pressable
+            onLongPress={() => {
+              if (item.deleted_at) return;
+              setReactMsg(item);
+            }}
             style={[
               styles.bubble,
               mine
@@ -459,8 +484,32 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
             >
               {item.pending ? t('common.loading') : clockTime(item.created_at)}
             </Text>
-          </View>
+          </Pressable>
         </View>
+        {reactionEntries.length > 0 ? (
+          <View
+            style={[
+              styles.reactionsRow,
+              mine ? styles.reactionsRowMine : styles.reactionsRowTheirs,
+            ]}
+          >
+            {reactionEntries.map(([emoji, count]) => (
+              <View
+                key={emoji}
+                style={[
+                  styles.reactionPill,
+                  { backgroundColor: c.surfaceAlt, borderColor: c.border },
+                  item.my_reaction === emoji && { borderColor: c.primary },
+                ]}
+              >
+                <Text style={styles.reactionEmoji}>{emoji}</Text>
+                {count > 1 ? (
+                  <Text style={[styles.reactionCount, { color: c.textMuted }]}>{count}</Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
         {showDay ? (
           <View style={styles.dayWrap}>
             <Text style={[styles.dayText, { backgroundColor: c.surfaceAlt, color: c.textMuted }]}>
@@ -591,6 +640,12 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
           )}
         </KeyboardAvoidingView>
       )}
+      <QuickReactionSheet
+        visible={!!reactMsg}
+        currentReaction={reactMsg?.my_reaction ?? null}
+        onReact={doReact}
+        onClose={() => setReactMsg(null)}
+      />
     </Screen>
   );
 };
@@ -613,6 +668,20 @@ const styles = StyleSheet.create({
   bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, marginVertical: 2 },
   rowMine: { justifyContent: 'flex-end' },
   rowTheirs: { justifyContent: 'flex-start' },
+  reactionsRow: { flexDirection: 'row', gap: 4, marginTop: -6, marginBottom: 4 },
+  reactionsRowMine: { justifyContent: 'flex-end', marginRight: 12 },
+  reactionsRowTheirs: { justifyContent: 'flex-start', marginLeft: 40 },
+  reactionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  reactionEmoji: { fontSize: 13 },
+  reactionCount: { fontSize: 11, fontWeight: '700' },
   bubble: { maxWidth: '78%', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 7 },
   sender: { fontSize: 12, fontWeight: '800', marginBottom: 2 },
   body: { fontSize: 15, lineHeight: 20 },

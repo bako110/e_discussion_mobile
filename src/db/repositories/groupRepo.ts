@@ -42,6 +42,8 @@ interface GMsgRow {
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;
+  reactions_json: string | null;
+  my_reaction: string | null;
   sync_state: string;
 }
 
@@ -105,6 +107,8 @@ function toGMsg(r: GMsgRow): LocalGroupMessage {
     edited_at: r.edited_at,
     deleted_at: r.deleted_at,
     created_at: r.created_at,
+    reactions: r.reactions_json ? (JSON.parse(r.reactions_json) as Record<string, number>) : {},
+    my_reaction: r.my_reaction,
     pending: r.sync_state !== 'synced',
     sync_state: r.sync_state as 'synced' | 'pending' | 'failed',
   };
@@ -329,14 +333,15 @@ export const groupRepo = {
     await run(
       `INSERT INTO group_messages
         (id, client_id, group_id, sender_id, sender_json, type, body, attachment_url,
-         attachment_meta, edited_at, deleted_at, created_at, sync_state)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'synced')
+         attachment_meta, edited_at, deleted_at, created_at, reactions_json, my_reaction, sync_state)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced')
        ON CONFLICT(id) DO UPDATE SET
          sender_json=COALESCE(excluded.sender_json, group_messages.sender_json),
          body=excluded.body,
          attachment_url=COALESCE(excluded.attachment_url, group_messages.attachment_url),
          attachment_meta=COALESCE(excluded.attachment_meta, group_messages.attachment_meta),
          edited_at=excluded.edited_at, deleted_at=excluded.deleted_at,
+         reactions_json=excluded.reactions_json, my_reaction=excluded.my_reaction,
          sync_state='synced'`,
       [
         m.id,
@@ -351,6 +356,8 @@ export const groupRepo = {
         m.edited_at,
         m.deleted_at,
         m.created_at,
+        m.reactions && Object.keys(m.reactions).length ? JSON.stringify(m.reactions) : null,
+        m.my_reaction,
       ],
     );
   },
@@ -373,6 +380,29 @@ export const groupRepo = {
         clientId,
       ],
     );
+  },
+
+  /** Met à jour les réactions agrégées d'un message (après un react() réussi
+   * ou un event WS group.message.reaction). `myReaction` omis (event WS
+   * d'un AUTRE membre, qui ne connaît pas ma propre réaction) -> inchangée. */
+  async updateReactions(
+    messageId: string,
+    reactions: Record<string, number>,
+    myReaction?: string | null,
+  ): Promise<void> {
+    const reactionsJson = Object.keys(reactions).length ? JSON.stringify(reactions) : null;
+    if (myReaction === undefined) {
+      await run('UPDATE group_messages SET reactions_json=? WHERE id=?', [
+        reactionsJson,
+        messageId,
+      ]);
+      return;
+    }
+    await run('UPDATE group_messages SET reactions_json=?, my_reaction=? WHERE id=?', [
+      reactionsJson,
+      myReaction,
+      messageId,
+    ]);
   },
 
   async setAttachment(

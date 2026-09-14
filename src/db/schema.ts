@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -257,5 +257,12 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE groups ADD COLUMN category TEXT;
   CREATE INDEX IF NOT EXISTS idx_group_category ON groups(category);
+  `,
+
+  // ── v11 : réactions sur les messages de groupe/chaîne (agrégées côté
+  // serveur — {emoji: count} en JSON — + ma propre réaction).
+  `
+  ALTER TABLE group_messages ADD COLUMN reactions_json TEXT;
+  ALTER TABLE group_messages ADD COLUMN my_reaction TEXT;
   `,
 ];

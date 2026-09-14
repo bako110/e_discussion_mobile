@@ -315,6 +315,9 @@ export interface GroupMessage {
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;
+  // réactions agrégées — {emoji: count}
+  reactions: Record<string, number>;
+  my_reaction: string | null;
   // client-only
   pending?: boolean;
 }

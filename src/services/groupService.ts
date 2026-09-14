@@ -146,6 +146,24 @@ export const groupService = {
     });
   },
 
+  /** Réagit (ou retire sa réaction si emoji=null) sur un message de groupe/
+   * chaîne. Appel réseau direct (pas d'outbox) : contrairement à l'envoi
+   * d'un message, le compte AGRÉGÉ (pas juste "ma réaction") dépend des
+   * autres utilisateurs — impossible à prédire correctement en local-first
+   * sans revalider ensuite auprès du serveur, donc pas d'optimisme ici. */
+  async react(
+    groupId: string,
+    messageId: string,
+    emoji: string | null,
+  ): Promise<GroupMessage> {
+    const msg = await apiClient.post<GroupMessage>(
+      Endpoints.groups.reactMessage(groupId, messageId),
+      { emoji },
+    );
+    await groupRepo.updateReactions(messageId, msg.reactions, msg.my_reaction);
+    return msg;
+  },
+
   async markRead(id: string): Promise<void> {
     await groupRepo.setUnread(id, 0);
     await outbox.enqueue('group_mark_read', newClientId(), { groupId: id });
