@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
 import { alertError, showAlert } from '@/components/common';
+import { activateKeepAwake, deactivateKeepAwake } from '@/services/keepAwake';
 import { stopVoice } from '@/services/voicePlayer';
 import {
   launchCamera,
@@ -581,6 +582,10 @@ export function useMediaPicker(): MediaPicker {
     setRecordSeconds(0);
     recordSecondsRef.current = 0;
     startTick();
+    // évite que l'écran s'éteigne pendant l'enregistrement (l'utilisateur
+    // tient le téléphone en main mais peut ne pas toucher l'écran assez
+    // souvent pour empêcher la mise en veille automatique).
+    void activateKeepAwake();
     return true;
   }, [startTick]);
 
@@ -615,6 +620,7 @@ export function useMediaPicker(): MediaPicker {
     setRecording(false);
     setRecordingPaused(false);
     pausedRef.current = false;
+    void deactivateKeepAwake();
     if (!activeRecording.current) return { path: null, seconds };
     activeRecording.current = false;
     return withRecLock(async () => {

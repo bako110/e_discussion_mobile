@@ -1,3 +1,4 @@
+export { AppErrorBoundary } from './AppErrorBoundary';
 export { AppHeader } from './AppHeader';
 export {
   AppAlertHost,

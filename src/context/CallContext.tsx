@@ -29,7 +29,7 @@ import {
   RNKeyProvider,
   registerGlobals,
 } from '@livekit/react-native';
-import { Room, RoomEvent, Track, VideoPresets } from 'livekit-client';
+import { createLocalVideoTrack, Room, RoomEvent, Track, VideoPresets } from 'livekit-client';
 
 import { useAuth } from '@/context/AuthContext';
 import { useCallPrefs } from '@/context/CallPrefsContext';
@@ -43,6 +43,7 @@ import {
   onNotificationAction,
 } from '@/services/notificationService';
 import { notificationRepo } from '@/db/repositories/notificationRepo';
+import { activateKeepAwake, deactivateKeepAwake } from '@/services/keepAwake';
 import { takePendingAcceptCallId } from '@/services/notificationBackground';
 import type { CallType, UserPublic } from '@/types';
 
@@ -130,7 +131,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [speaker, setSpeaker] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   // true = caméra avant (selfie). On la traque nous-mêmes car `switchCamera`
-  // doit RECRÉER la piste (désactiver/réactiver) plutôt que reconfigurer
+  // doit RECRÉER la piste (désinscrire + republier) plutôt que muter/démuter
   // l'existante — voir `switchCamera` plus bas pour le pourquoi.
   const [frontCamera, setFrontCamera] = useState(true);
   // appel sortant : le destinataire a-t-il un WS actif ? -> tonalité de
@@ -157,6 +158,19 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     keepAlive(phase !== 'idle' && phase !== 'ended');
   }, [phase, keepAlive]);
 
+  // Idem pour l'écran : sonnerie entrante/sortante, connexion, appel actif —
+  // à tout moment sauf 'idle'/'ended', on empêche la mise en veille
+  // automatique. Sans ça l'écran s'éteint en pleine sonnerie/conversation
+  // (l'appel continue en arrière-plan, mais l'utilisateur se retrouve avec
+  // un écran noir et doit rallumer manuellement pour voir les contrôles).
+  useEffect(() => {
+    if (phase !== 'idle' && phase !== 'ended') {
+      void activateKeepAwake();
+    } else {
+      void deactivateKeepAwake();
+    }
+  }, [phase]);
+
   // ── disponibilité (config serveur) + setup notifications ─────────────
   // On réessaie quelques fois (réseau lent au lancement) et on revérifie
   // quand l'app repasse au premier plan : un premier échec ne doit pas
@@ -176,10 +190,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const check = async (attempt = 0): Promise<void> => {
       try {
         const cfg = await callService.config();
-        console.warn('[calls] config OK ->', JSON.stringify(cfg));
         if (alive) setAvailable(cfg.enabled);
-      } catch (e) {
-        console.warn('[calls] config check a échoué (tentative', attempt, '):', String(e));
+      } catch {
         if (!alive) return;
         if (attempt < 4) {
           setTimeout(() => void check(attempt + 1), 2 ** attempt * 1500);
@@ -201,6 +213,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // ── nettoyage complet ────────────────────────────────────────────────
   const teardown = useCallback(async () => {
+    void deactivateKeepAwake();
     if (tickRef.current) {
       clearInterval(tickRef.current);
       tickRef.current = null;
@@ -506,25 +519,34 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   acceptCallRef.current = acceptCall;
 
-  // ── acceptation directe depuis la notif « Répondre » (app tuée) ───────
+  // ── acceptation directe depuis la notif « Répondre » ──────────────────
   // On n'attend PAS `call.incoming` : le serveur ne le rejoue pas à la
   // reconnexion, donc si l'app était tuée cet event est déjà manqué pour de
   // bon. `POST /calls/{id}/accept` marche indépendamment du WS et renvoie
   // tout ce qu'il faut (peer, room, type, clé E2EE) pour rejoindre l'appel.
-  useEffect(() => {
-    if (!me || !pendingAcceptRef.current) return;
+  //
+  // IMPORTANT : Notifee route un tap sur une notif vers `onBackgroundEvent`
+  // dès que l'app n'est pas au premier plan visible (état RESUMED) — MÊME SI
+  // le process JS est déjà vivant (app juste minimisée, pas tuée). Dans ce
+  // cas, `CallProvider` ne remonte PAS (pas de cold start) : le `useRef`
+  // n'est initialisé qu'une fois, donc `pendingAcceptRef.current` resterait
+  // bloqué à sa valeur (souvent `null`) du tout premier montage si on ne le
+  // relit jamais après coup. On relit donc explicitement MMKV à chaque
+  // retour au premier plan, pas seulement au montage du provider.
+  const tryAutoAccept = useCallback(() => {
+    const pending = pendingAcceptRef.current ?? takePendingAcceptCallId();
+    if (!me || !pending) return;
     if (phaseRef.current !== 'idle') return;
-    const attemptedCallId = pendingAcceptRef.current;
+    pendingAcceptRef.current = null;
     setPhase('connecting');
     void acceptCallRef.current?.().catch(() => {
-      // l'acceptation auto (depuis la notif « Répondre », app tuée) a
-      // échoué (token pas encore rafraîchi, appel déjà terminé côté
-      // serveur, réseau indisponible au démarrage…) : `acceptCall` remet
+      // l'acceptation auto a échoué (token pas encore rafraîchi, appel déjà
+      // terminé côté serveur, réseau indisponible…) : `acceptCall` remet
       // déjà `phase` à 'idle', mais SANS feedback l'utilisateur se
       // retrouve juste sur l'accueil sans comprendre que son appel a été
       // manqué — on trace donc explicitement un « appel manqué ».
       void displayMissedCall({
-        callId: attemptedCallId,
+        callId: pending,
         callType: 'voice',
         peerId: '',
         peerName: 'Appel',
@@ -532,6 +554,17 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     });
   }, [me]);
+
+  useEffect(() => {
+    tryAutoAccept();
+  }, [tryAutoAccept]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') tryAutoAccept();
+    });
+    return () => sub.remove();
+  }, [tryAutoAccept]);
 
   const rejectCall = useCallback(async () => {
     const c = callRef.current;
@@ -636,21 +669,27 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const pub = r.localParticipant.getTrackPublication(Track.Source.Camera);
     if (!pub?.videoTrack) return;
     const next = !frontCamera;
-    // NB : sur Android, `@livekit/react-native-webrtc` (CameraCaptureController)
-    // ignore délibérément un nouveau facingMode passé après coup via
+    // NB : `setCameraEnabled(false)` puis `setCameraEnabled(true, {facingMode})`
+    // ne recrée PAS la piste comme on pourrait le croire — LiveKit réutilise la
+    // MÊME publication (mute() puis unmute() -> restartTrack() SANS options),
+    // et sur Android, `@livekit/react-native-webrtc` (CameraCaptureController)
+    // ignore explicitement tout `facingMode`/`deviceId` passé après coup via
     // applyConstraints (« constraint violation to change these through
-    // applyConstraints », cf. son code natif) — que ce soit via l'ancienne
-    // `_switchCamera()` (OK sur iOS seulement) ou `LocalVideoTrack.restartTrack`
-    // (qui, sous le capot, rappelle applyConstraints sur la piste existante).
+    // applyConstraints », cf. son code natif) : la caméra ne changeait donc
+    // jamais réellement de face, silencieusement (aucune erreur levée).
     // Le SEUL chemin qui redemande vraiment une caméra différente est une
-    // acquisition neuve (`createVideoCapturer`) : on désactive donc la
-    // caméra puis on la réactive avec le facingMode opposé, ce qui force
-    // `setCameraEnabled` à recréer la piste au lieu de juste l'unmute.
+    // acquisition neuve via `getUserMedia` : on désinscrit explicitement
+    // l'ancienne piste puis on en crée + publie une toute nouvelle avec le
+    // facingMode opposé.
     try {
-      await r.localParticipant.setCameraEnabled(false);
-      await r.localParticipant.setCameraEnabled(true, {
+      const oldTrack = pub.videoTrack;
+      const newTrack = await createLocalVideoTrack({
         facingMode: next ? 'user' : 'environment',
         resolution: VideoPresets.h720.resolution,
+      });
+      await r.localParticipant.unpublishTrack(oldTrack, true);
+      await r.localParticipant.publishTrack(newTrack, {
+        source: Track.Source.Camera,
       });
       setFrontCamera(next);
       setCameraEnabled(true);

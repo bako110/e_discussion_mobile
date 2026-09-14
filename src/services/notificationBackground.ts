@@ -67,10 +67,7 @@ export function registerBackgroundNotificationHandler(): void {
       return;
     }
 
-    if (
-      (type === EventType.ACTION_PRESS && pressId === 'call-accept') ||
-      (type === EventType.PRESS && (pressId === 'incoming-call' || data.kind === 'call'))
-    ) {
+    if (type === EventType.ACTION_PRESS && pressId === 'call-accept') {
       if (callId) setPendingAcceptCallId(callId);
       // annule tout de suite la sonnerie visible (ongoing/autoCancel:false) —
       // `acceptCall()` le refera de toute façon au démarrage de l'app, mais
@@ -78,6 +75,15 @@ export function registerBackgroundNotificationHandler(): void {
       // secondes après le tap, donnant l'impression que rien ne s'est passé.
       await notifee.cancelNotification(INCOMING_CALL_NOTIF_ID);
       // `launchActivity: 'default'` ouvre l'app ; CallContext prend le relais.
+      return;
+    }
+
+    // Tap simple sur le CORPS de la notification (pas le bouton "Répondre") :
+    // ramène juste l'app au premier plan (launchActivity s'en charge déjà),
+    // SANS accepter l'appel à sa place — un simple coup d'œil ne doit pas
+    // décrocher. `CallContext` affiche déjà l'écran d'appel entrant normal
+    // (le WS a déjà posé `phase: 'incoming'`) dès que l'app est ramenée.
+    if (type === EventType.PRESS && (pressId === 'incoming-call' || data.kind === 'call')) {
       return;
     }
 

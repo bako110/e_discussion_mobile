@@ -164,6 +164,23 @@ export const ChannelLiveViewerScreen: React.FC<MainScreenProps<'ChannelLiveViewe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, asBroadcaster]);
 
+  // Rafraîchit périodiquement le nombre de spectateurs courants — LiveKit
+  // ne pousse pas cette info en temps réel, on la ré-interroge simplement
+  // (léger : un GET par intervalle, uniquement pendant que cet écran est
+  // ouvert) le temps que le live tourne.
+  useEffect(() => {
+    if (connecting) return;
+    const id = setInterval(() => {
+      channelLiveService
+        .getForChannel(groupId)
+        .then((live) => {
+          if (alive.current && live) setChannelLive(live);
+        })
+        .catch(() => undefined);
+    }, 8000);
+    return () => clearInterval(id);
+  }, [groupId, connecting]);
+
   const toggleMute = useCallback(async () => {
     const r = roomRef.current;
     if (!r) return;
@@ -227,6 +244,12 @@ export const ChannelLiveViewerScreen: React.FC<MainScreenProps<'ChannelLiveViewe
         <Text style={styles.channelName} numberOfLines={1}>
           {channelLive?.channel_name ?? ''}
         </Text>
+        {channelLive && channelLive.current_viewers > 0 ? (
+          <View style={styles.viewersBadge}>
+            <Icon name="eye" size={13} color="#fff" />
+            <Text style={styles.viewersTxt}>{channelLive.current_viewers}</Text>
+          </View>
+        ) : null}
         <Pressable onPress={close} hitSlop={12} style={styles.closeBtn}>
           <Icon name="close" size={24} color="#fff" />
         </Pressable>
@@ -284,6 +307,16 @@ const styles = StyleSheet.create({
   },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' },
   liveTxt: { color: '#fff', fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+  viewersBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  viewersTxt: { color: '#fff', fontSize: 12, fontWeight: '700' },
   channelName: { flex: 1, color: '#fff', fontSize: 15, fontWeight: '700' },
   closeBtn: {
     width: 36,

@@ -387,6 +387,8 @@ export interface ChannelLive {
   room_name: string;
   title: string | null;
   peak_viewers: number;
+  /** spectateurs connectés MAINTENANT (0 si le live n'est plus actif). */
+  current_viewers: number;
   started_at: string;
   ended_at: string | null;
   channel_name: string | null;
