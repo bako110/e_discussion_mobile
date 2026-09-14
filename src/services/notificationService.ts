@@ -32,8 +32,17 @@ import { getNotifPrefs } from './notificationPrefs';
 // premières versions de ces canaux ont été créées avec un vibrationPattern
 // invalide -> Android a pu les enregistrer sans son. On renomme les IDs
 // pour forcer la création de canaux propres ; ne JAMAIS réutiliser ces IDs.
-const CH_CALLS = 'calls_v2';
+//
+// v3 (CH_CALLS uniquement) : le canal 'calls_v2' pointait vers
+// `res/raw/ringtone.mp3`, supprimé depuis (la sonnerie utilise maintenant
+// le son système par défaut) — sur les appareils où ce canal avait déjà
+// été créé, il restait figé sur ce fichier qui n'existe plus, Android
+// échouant alors SILENCIEUSEMENT à jouer un son (juste vibreur/notification
+// muette, plus de vraie sonnerie). Nouveau nom pour forcer un canal propre
+// avec `sound: 'default'`.
+const CH_CALLS = 'calls_v3';
 const CH_MESSAGES = 'messages_v2';
+const CH_STORIES = 'stories_v2';
 
 /**
  * Le son et la vibration sont fixés AU NIVEAU DU CANAL sur Android (immuables
@@ -106,6 +115,14 @@ export async function ensureNotificationSetup(): Promise<void> {
       id: 'messages_quiet_v2',
       name: 'Messages (discret)',
       importance: AndroidImportance.DEFAULT,
+      vibration: false,
+      visibility: AndroidVisibility.PRIVATE,
+    },
+    {
+      id: CH_STORIES,
+      name: 'Statuts',
+      importance: AndroidImportance.DEFAULT,
+      sound: 'default',
       vibration: false,
       visibility: AndroidVisibility.PRIVATE,
     },
@@ -269,6 +286,41 @@ export async function displayMissedCall(d: MissedCallNotifData): Promise<void> {
         largeIcon: iconUri(d.peerAvatar),
         pressAction: { id: 'open-missed-call', launchActivity: 'default' },
         actions: [{ title: 'Rappeler', pressAction: { id: 'call-back', launchActivity: 'default' } }],
+        timestamp: Date.now(),
+        showTimestamp: true,
+      },
+      ios: { sound: undefined },
+    })
+    .catch(() => undefined);
+}
+
+// ── Statuts (stories) ────────────────────────────────────────────────────
+export interface StoryNotifData {
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string | null;
+}
+
+/** Affiche une notif discrète « nouveau statut ». À appeler sur l'event WS
+ * `story.new` / le push FCM `type: 'story.new'`, si activé dans les réglages. */
+export async function displayStoryNotification(d: StoryNotifData): Promise<void> {
+  if (!getNotifPrefs().stories) return;
+
+  await ensureNotificationSetup();
+  await notifee
+    .displayNotification({
+      // id stable PAR AUTEUR : plusieurs statuts publiés d'affilée par la
+      // même personne ne créent pas une pile de notifs redondantes.
+      id: `story-${d.authorId}`,
+      title: d.authorName,
+      body: 'a publié un nouveau statut',
+      data: { kind: 'story', authorId: d.authorId },
+      android: {
+        channelId: CH_STORIES,
+        category: AndroidCategory.SOCIAL,
+        importance: AndroidImportance.DEFAULT,
+        largeIcon: iconUri(d.authorAvatar),
+        pressAction: { id: 'open-story', launchActivity: 'default' },
         timestamp: Date.now(),
         showTimestamp: true,
       },
@@ -537,6 +589,7 @@ export type NotifAction =
   | { kind: 'open-chat'; conversationId: string }
   | { kind: 'open-incoming-call'; callId: string }
   | { kind: 'open-chats' }
+  | { kind: 'open-story'; authorId: string }
   | { kind: 'call-back'; peerId: string; callType: 'voice' | 'video' };
 
 function toAction(event: Event): NotifAction | null {
@@ -565,6 +618,9 @@ function toAction(event: Event): NotifAction | null {
     }
     if (pressId === 'open-chats') {
       return { kind: 'open-chats' };
+    }
+    if (pressId === 'open-story' || data.kind === 'story') {
+      return { kind: 'open-story', authorId: String(data.authorId ?? '') };
     }
     if (data.kind === 'message') {
       return { kind: 'open-chat', conversationId: String(data.conversationId) };
