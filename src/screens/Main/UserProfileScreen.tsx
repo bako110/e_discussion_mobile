@@ -325,20 +325,31 @@ export const UserProfileScreen: React.FC<MainScreenProps<'UserProfile'>> = ({
           <View style={{ flex: 1 }} />
 
           {/* Zone sensible */}
-          <Pressable
-            onPress={toggleBlock}
-            disabled={busy === 'block'}
-            style={[styles.dangerRow, { borderTopColor: c.divider }]}
-          >
-            <Icon
-              name={blocked ? 'account-check-outline' : 'account-cancel-outline'}
-              size={20}
-              color={c.danger}
-            />
-            <Text style={[styles.dangerTxt, { color: c.danger }]}>
-              {blocked ? t('chat.unblock') : t('chat.block')}
-            </Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row' }}>
+            <Pressable
+              onPress={toggleBlock}
+              disabled={busy === 'block'}
+              style={[styles.dangerRow, { flex: 1, borderTopColor: c.divider }]}
+            >
+              <Icon
+                name={blocked ? 'account-check-outline' : 'account-cancel-outline'}
+                size={20}
+                color={c.danger}
+              />
+              <Text style={[styles.dangerTxt, { color: c.danger }]}>
+                {blocked ? t('chat.unblock') : t('chat.block')}
+              </Text>
+            </Pressable>
+            {!isMe ? (
+              <Pressable
+                onPress={() => navigation.navigate('ReportProfile', { userId, name })}
+                style={[styles.dangerRow, { flex: 1, borderTopColor: c.divider, borderLeftColor: c.divider, borderLeftWidth: StyleSheet.hairlineWidth }]}
+              >
+                <Icon name="flag-outline" size={20} color={c.danger} />
+                <Text style={[styles.dangerTxt, { color: c.danger }]}>{t('chat.report')}</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       )}
     </Screen>

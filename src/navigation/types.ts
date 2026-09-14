@@ -1,7 +1,7 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import type { GroupKind, GroupPreview } from '@/types';
+import type { GroupKind, GroupPreview, Story } from '@/types';
 import type { LocalMediaFile } from '@/hooks/useMediaPicker';
 
 export type AuthStackParamList = {
@@ -71,6 +71,16 @@ export type MainStackParamList = {
   StorageSettings: undefined;
   HelpSettings: undefined;
   AboutSettings: undefined;
+  /** FAQ / centre d'aide — contenu statique natif. */
+  FaqSettings: undefined;
+  /** Formulaire « Nous contacter » (motif + message -> e-mail support). */
+  ContactUs: undefined;
+  /** Conditions d'utilisation — texte statique natif. */
+  TermsOfService: undefined;
+  /** Politique de confidentialité — texte statique natif. */
+  PrivacyPolicy: undefined;
+  /** Signaler un profil : motif + détails libres. */
+  ReportProfile: { userId: string; name: string };
   StoryComposer: undefined;
   /** Sélection multiple de contacts. `token` relie l'appel à sa réponse. */
   SelectContacts: {
@@ -90,6 +100,10 @@ export type MainStackParamList = {
     local: LocalMediaFile;
   };
   StoryViewer: { authorId: string };
+  /** Repartage d'une story existante (mienne ou d'un contact) comme nouveau
+   * statut, façon WhatsApp « Ajouter à mon statut » — légende éditable avant
+   * publication. */
+  StoryReshare: { story: Story };
   /** Page « Mes statuts » facon WhatsApp : liste de mes stories + leurs vues. */
   MyStatus: undefined;
   /** Liste des personnes ayant vu une de mes stories (+ leur reaction). */

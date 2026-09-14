@@ -182,21 +182,7 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
   };
 
   const report = () => {
-    confirmAlert(
-      t('chat.reportTitle', { name }),
-      t('chat.reportBody'),
-      async () => {
-        // pas d'endpoint dédié : on bloque + message d'accusé
-        try {
-          await userService.block(partnerId);
-          setBlocked(true);
-        } catch {
-          /* ignore */
-        }
-        showAlert(t('chat.reportDone'));
-      },
-      { destructive: true, confirmText: t('chat.report') },
-    );
+    navigation.navigate('ReportProfile', { userId: partnerId, name });
   };
 
   const clearHistory = () => {

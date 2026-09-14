@@ -19,3 +19,4 @@ export { messageService } from './messageService';
 export { pendingMediaService } from './pendingMediaService';
 export { storyService } from './storyService';
 export { userService } from './userService';
+export type { PrivacyField, PrivacyMode, PrivacySettings, ReportReason } from './userService';

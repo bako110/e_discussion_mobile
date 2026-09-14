@@ -26,6 +26,7 @@ export const Endpoints = {
     blocked: `${V1}/users/blocked`,
     byId: (id: string) => `${V1}/users/${id}`,
     block: (id: string) => `${V1}/users/${id}/block`,
+    report: (id: string) => `${V1}/users/${id}/report`,
   },
   contacts: {
     list: `${V1}/contacts`,

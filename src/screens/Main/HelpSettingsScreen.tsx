@@ -1,5 +1,5 @@
 import React from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
@@ -7,8 +7,6 @@ import { AppHeader, Icon, Screen } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
-
-const open = (url: string) => void Linking.openURL(url).catch(() => undefined);
 
 export const HelpSettingsScreen: React.FC = () => {
   const navigation = useNavigation<MainNav>();
@@ -32,17 +30,12 @@ export const HelpSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="frequently-asked-questions"
             label={t('settings.faq')}
-            onPress={() => open('https://e-discussion.app/faq')}
+            onPress={() => navigation.navigate('FaqSettings')}
           />
           <SettingsRow
             icon="email-fast-outline"
             label={t('settings.contactUs')}
-            onPress={() => open('mailto:support@e-discussion.app')}
-          />
-          <SettingsRow
-            icon="bug-outline"
-            label={t('settings.reportProblem')}
-            onPress={() => open('mailto:support@e-discussion.app?subject=Bug')}
+            onPress={() => navigation.navigate('ContactUs')}
             last
           />
         </SettingsSection>
@@ -51,12 +44,12 @@ export const HelpSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="file-document-outline"
             label={t('settings.terms')}
-            onPress={() => open('https://e-discussion.app/terms')}
+            onPress={() => navigation.navigate('TermsOfService')}
           />
           <SettingsRow
             icon="shield-account-outline"
             label={t('settings.privacyPolicy')}
-            onPress={() => open('https://e-discussion.app/privacy')}
+            onPress={() => navigation.navigate('PrivacyPolicy')}
             last
           />
         </SettingsSection>

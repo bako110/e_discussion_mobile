@@ -30,6 +30,11 @@ import { MessageInfoScreen } from '@/screens/Main/MessageInfoScreen';
 import { NewConversationScreen } from '@/screens/Main/NewConversationScreen';
 import { UserProfileScreen } from '@/screens/Main/UserProfileScreen';
 import { NotificationsSettingsScreen } from '@/screens/Main/NotificationsSettingsScreen';
+import { ReportProfileScreen } from '@/screens/Main/ReportProfileScreen';
+import { FaqSettingsScreen } from '@/screens/Main/FaqSettingsScreen';
+import { ContactUsScreen } from '@/screens/Main/ContactUsScreen';
+import { TermsOfServiceScreen } from '@/screens/Main/TermsOfServiceScreen';
+import { PrivacyPolicyScreen } from '@/screens/Main/PrivacyPolicyScreen';
 import { NotificationHistoryScreen } from '@/screens/Main/NotificationHistoryScreen';
 import { PrivacySettingsScreen } from '@/screens/Main/PrivacySettingsScreen';
 import { MyStatusScreen } from '@/screens/Main/MyStatusScreen';
@@ -40,6 +45,7 @@ import { StoryComposerScreen } from '@/screens/Main/StoryComposerScreen';
 import { SelectContactsScreen } from '@/screens/Main/SelectContactsScreen';
 import { StoryViewerScreen } from '@/screens/Main/StoryViewerScreen';
 import { StoryViewersScreen } from '@/screens/Main/StoryViewersScreen';
+import { StoryReshareScreen } from '@/screens/Main/StoryReshareScreen';
 
 import { ImageCropScreen } from '@/components/common/CropModal';
 
@@ -70,6 +76,11 @@ export const MainNavigator: React.FC = () => (
     <Stack.Screen name="StorageSettings" component={StorageSettingsScreen} />
     <Stack.Screen name="HelpSettings" component={HelpSettingsScreen} />
     <Stack.Screen name="AboutSettings" component={AboutSettingsScreen} />
+    <Stack.Screen name="FaqSettings" component={FaqSettingsScreen} />
+    <Stack.Screen name="ContactUs" component={ContactUsScreen} />
+    <Stack.Screen name="TermsOfService" component={TermsOfServiceScreen} />
+    <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
+    <Stack.Screen name="ReportProfile" component={ReportProfileScreen} />
     <Stack.Screen
       name="StoryComposer"
       component={StoryComposerScreen}
@@ -94,6 +105,11 @@ export const MainNavigator: React.FC = () => (
       name="StoryViewer"
       component={StoryViewerScreen}
       options={{ animation: 'fade' }}
+    />
+    <Stack.Screen
+      name="StoryReshare"
+      component={StoryReshareScreen}
+      options={{ animation: 'slide_from_bottom' }}
     />
     <Stack.Screen name="MyStatus" component={MyStatusScreen} />
     <Stack.Screen

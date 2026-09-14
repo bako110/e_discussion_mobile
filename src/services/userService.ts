@@ -24,6 +24,15 @@ export interface PrivacyFieldState {
 }
 export type PrivacySettings = Record<PrivacyField, PrivacyFieldState>;
 
+/** Motifs de signalement d'un profil (miroir de `ReportReason` cote backend). */
+export type ReportReason =
+  | 'spam'
+  | 'harassment'
+  | 'fake_profile'
+  | 'inappropriate_content'
+  | 'scam'
+  | 'other';
+
 const DEFAULT_PRIVACY: PrivacySettings = {
   online: { mode: 'match_last_seen', contact_ids: [] },
   last_seen: { mode: 'everyone', contact_ids: [] },
@@ -154,6 +163,12 @@ export const userService = {
 
   unblock(id: string): Promise<void> {
     return apiClient.delete(Endpoints.users.block(id)).then(() => undefined);
+  },
+
+  report(id: string, reason: ReportReason, details?: string): Promise<void> {
+    return apiClient
+      .post(Endpoints.users.report(id), { reason, details: details?.trim() || undefined })
+      .then(() => undefined);
   },
 
   syncContacts(contacts: { phone: string; display_name?: string }[]): Promise<ContactMatch[]> {
