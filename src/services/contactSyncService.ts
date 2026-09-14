@@ -20,7 +20,7 @@ export async function requestContactsPermission(): Promise<ContactPermission> {
         {
           title: 'Contacts',
           message:
-            "Gofolyx a besoin d'accéder à vos contacts pour retrouver ceux qui utilisent déjà l'application.",
+            "E-discussion a besoin d'accéder à vos contacts pour retrouver ceux qui utilisent déjà l'application.",
           buttonPositive: 'Autoriser',
           buttonNegative: 'Refuser',
         },
@@ -99,7 +99,7 @@ export interface ContactSyncResult {
  * Synchronise le carnet d'adresses avec le serveur :
  *  1. demande la permission si besoin ;
  *  2. lit + normalise les numéros ;
- *  3. envoie au backend qui renvoie ceux ayant un compte Gofolyx.
+ *  3. envoie au backend qui renvoie ceux ayant un compte E-discussion.
  */
 export async function syncPhoneContacts(opts?: {
   userPhone?: string | null;

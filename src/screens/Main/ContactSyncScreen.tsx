@@ -27,7 +27,7 @@ import { relativeTime } from '@/utils/time';
 
 /**
  * « Synchroniser mes contacts » — lit le carnet du téléphone, envoie les
- * numéros au serveur et affiche ceux qui utilisent déjà Gofolyx. Aucun numéro
+ * numéros au serveur et affiche ceux qui utilisent déjà E-discussion. Aucun numéro
  * qui ne correspond pas à un compte n'est conservé côté serveur.
  */
 export const ContactSyncScreen: React.FC = () => {
