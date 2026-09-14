@@ -169,10 +169,13 @@ export const ChannelLiveViewerScreen: React.FC<MainScreenProps<'ChannelLiveViewe
       } catch (e) {
         if (!alive.current) return;
         console.warn('[channelLive] connexion échouée:', e);
+        const notLive = e instanceof ApiError && e.status === 404;
         showAlert(
           e instanceof ApiError && e.status === 409
             ? t('channelLive.alreadyLive')
-            : t('errors.generic'),
+            : notLive
+              ? t('channelLive.notLive')
+              : t('errors.generic'),
         );
         navigation.goBack();
       }
