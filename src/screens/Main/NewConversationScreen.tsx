@@ -40,6 +40,7 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
 
   const [query, setQuery] = useState('');
   const [contacts, setContacts] = useState<UserPublic[]>([]);
+  const [existingPartnerIds, setExistingPartnerIds] = useState<Set<string>>(new Set());
   const [loadingContacts, setLoadingContacts] = useState(true);
   const [remoteResults, setRemoteResults] = useState<UserPublic[]>([]);
   const [searching, setSearching] = useState(false);
@@ -50,7 +51,12 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
 
   const loadContacts = useCallback(async () => {
     try {
-      setContacts(await userService.contacts());
+      const [list, existing] = await Promise.all([
+        userService.contacts(),
+        conversationService.list().catch(() => []),
+      ]);
+      setContacts(list);
+      setExistingPartnerIds(new Set(existing.map((conv) => conv.partner.id)));
     } catch {
       setContacts([]);
     } finally {
@@ -99,15 +105,25 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // En mode "chat" : n'affiche que les contacts avec qui je n'ai PAS déjà
+  // une conversation (façon WhatsApp — la conversation existante s'ouvre
+  // depuis la liste des discussions, pas d'ici). En mode "call", on garde
+  // tout le monde : rien n'empêche d'appeler quelqu'un avec qui je discute
+  // déjà.
+  const newContacts = useMemo(() => {
+    if (mode !== 'chat') return contacts;
+    return contacts.filter((u) => !existingPartnerIds.has(u.id));
+  }, [contacts, existingPartnerIds, mode]);
+
   // Filtre local sur les contacts.
   const filteredContacts = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((u) => {
+    if (!q) return newContacts;
+    return newContacts.filter((u) => {
       const name = (u.display_name || u.username || '').toLowerCase();
       return name.includes(q) || (u.username ?? '').toLowerCase().includes(q);
     });
-  }, [contacts, query]);
+  }, [newContacts, query]);
 
   // Recherche serveur (personnes hors de mes contacts) si la requete est
   // significative et ne matche aucun contact local.
@@ -123,14 +139,19 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
       try {
         const res = await userService.search(q);
         const contactIds = new Set(contacts.map((u) => u.id));
-        setRemoteResults(res.filter((u) => !contactIds.has(u.id)));
+        const withoutKnownContacts = res.filter((u) => !contactIds.has(u.id));
+        setRemoteResults(
+          mode === 'chat'
+            ? withoutKnownContacts.filter((u) => !existingPartnerIds.has(u.id))
+            : withoutKnownContacts,
+        );
       } catch {
         setRemoteResults([]);
       } finally {
         setSearching(false);
       }
     }, 300);
-  }, [query, contacts]);
+  }, [query, contacts, existingPartnerIds, mode]);
 
   const openChat = useCallback(
     async (user: UserPublic) => {
@@ -328,7 +349,9 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
                 <Icon name="account-multiple-outline" size={34} color={c.textFaint} />
               </View>
               <Text style={[styles.emptyText, { color: c.text }]}>
-                {t('conversations.noContacts')}
+                {mode === 'chat' && contacts.length > 0
+                  ? t('conversations.noNewContacts')
+                  : t('conversations.noContacts')}
               </Text>
               <Text style={[styles.emptyHint, { color: c.textMuted }]}>
                 {t('conversations.searchToStart')}

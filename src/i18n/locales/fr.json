@@ -71,6 +71,7 @@
     "searchEmpty": "Aucun résultat pour « {{q}} »",
     "myContacts": "Mes contacts",
     "noContacts": "Aucun contact pour l'instant",
+    "noNewContacts": "Vous discutez déjà avec tous vos contacts",
     "searchToStart": "Recherchez un nom ou un identifiant pour commencer.",
     "otherResults": "Autres résultats",
     "openChat": "Ouvrir la discussion",
