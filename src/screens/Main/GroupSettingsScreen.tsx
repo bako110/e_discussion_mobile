@@ -215,9 +215,6 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
    *  direct (ch_liveStream) est livrée -> gérée séparément (voir goLive). */
   const CHANNEL_FEATURES: { icon: string; key: string; soon: boolean }[] = [
     { icon: 'message-reply-text-outline', key: 'ch_discussion', soon: true },
-    { icon: 'emoticon-outline', key: 'ch_reactions', soon: true },
-    { icon: 'chart-box-outline', key: 'ch_stats', soon: true },
-    { icon: 'draw-pen', key: 'ch_signMessages', soon: true },
     { icon: 'star-circle-outline', key: 'ch_subscription', soon: true },
   ];
 
@@ -302,6 +299,24 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
                 onPress={savingCategory ? undefined : pickCategory}
                 last
               />
+            </SettingsSection>
+          ) : null}
+
+          {isChannel ? (
+            <SettingsSection title={t('groupSettings.ch_signMessages')}>
+              <View style={[styles.toggleRow, { borderBottomColor: c.divider }]}>
+                <Icon name="draw-pen" size={20} color={c.textMuted} />
+                <Text style={[styles.toggleLabel, { color: c.text }]}>
+                  {t('groupSettings.ch_signMessagesHint')}
+                </Text>
+                <Switch
+                  value={s.sign_messages}
+                  onValueChange={(v) => void patch({ sign_messages: v })}
+                  disabled={saving}
+                  trackColor={{ true: c.primary, false: c.border }}
+                  thumbColor="#fff"
+                />
+              </View>
             </SettingsSection>
           ) : null}
 

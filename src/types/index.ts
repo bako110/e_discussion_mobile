@@ -264,6 +264,9 @@ export interface Group {
   join_approval_required: boolean;
   invite_visibility: 'both' | 'link' | 'code';
   disappearing_seconds: number;
+  /** chaîne uniquement (façon Telegram) : false = masque l'auteur individuel
+   * des messages (montre juste le nom de la chaîne), true = l'affiche. */
+  sign_messages: boolean;
 }
 
 export interface GroupSettings {
@@ -273,6 +276,7 @@ export interface GroupSettings {
   join_approval_required: boolean;
   invite_visibility: 'both' | 'link' | 'code';
   disappearing_seconds: number;
+  sign_messages: boolean;
 }
 
 export interface GroupJoinRequest {

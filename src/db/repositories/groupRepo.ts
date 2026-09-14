@@ -83,6 +83,7 @@ function toGroup(r: GroupRow): LocalGroup {
     join_approval_required: false,
     invite_visibility: 'both',
     disappearing_seconds: 0,
+    sign_messages: false,
     muted: !!r.muted,
     sync_state: r.sync_state as 'synced' | 'pending',
   };

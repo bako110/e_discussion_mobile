@@ -393,8 +393,15 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
       );
     }
     const mine = item.sender_id === myId;
-    const senderName =
-      item.sender?.display_name || item.sender?.username || (mine ? t('common.you') : '—');
+    // Chaîne non-signée (façon Telegram, par défaut) : on ne montre pas
+    // quel admin précis a publié — juste le nom/avatar de la CHAÎNE. Le
+    // réglage "Signer les messages" (paramètres) restaure le vrai auteur.
+    const chan = group?.kind === 'channel';
+    const signed = !chan || group?.sign_messages;
+    const senderName = signed
+      ? item.sender?.display_name || item.sender?.username || (mine ? t('common.you') : '—')
+      : group?.name || initialName;
+    const senderAvatar = signed ? item.sender?.avatar_url : group?.avatar_url;
 
     // séparateur de jour : quand le message plus ancien (index+1) change de date
     const older = data[index + 1];
@@ -406,7 +413,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
       <View>
         <View style={[styles.bubbleRow, mine ? styles.rowMine : styles.rowTheirs]}>
           {!mine ? (
-            <Avatar uri={item.sender?.avatar_url} name={senderName} size={28} />
+            <Avatar uri={senderAvatar} name={senderName} size={28} />
           ) : null}
           <View
             style={[

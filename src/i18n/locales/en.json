@@ -389,6 +389,7 @@
     "ch_reactions": "Reactions on posts",
     "ch_stats": "Channel statistics",
     "ch_signMessages": "Sign posts",
+    "ch_signMessagesHint": "Show the name of the admin who posts (otherwise, only the channel name appears)",
     "ch_subscription": "Paid subscription"
   },
   "calls": {

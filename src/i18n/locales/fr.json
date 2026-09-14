@@ -389,6 +389,7 @@
     "ch_reactions": "Réactions aux publications",
     "ch_stats": "Statistiques de la chaîne",
     "ch_signMessages": "Signer les publications",
+    "ch_signMessagesHint": "Afficher le nom de l'admin qui publie (sinon, seul le nom de la chaîne apparaît)",
     "ch_subscription": "Abonnement payant"
   },
   "calls": {
