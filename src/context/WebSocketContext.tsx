@@ -243,18 +243,25 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
         return;
       }
       // socket "ouverte" mais on revient de veille : ping immédiat + si pas
-      // de pong dans 4 s on reconnecte (la socket a pu mourir en arrière-plan).
+      // de pong on reconnecte (la socket a pu mourir en arrière-plan). Le
+      // délai de grâce suit la MÊME politique que le watchdog normal
+      // (keepAlive pendant un appel -> plus court mais pas agressif ; sinon
+      // le seuil normal) — un délai fixe trop court (4s) déclenchait des
+      // reconnexions forcées inutiles sur un réseau mobile qui vient de se
+      // réveiller (latence initiale plus élevée), coupant le WS en pleine
+      // acceptation d'appel depuis l'arrière-plan.
+      const graceMs = keepAliveRef.current ? PONG_TIMEOUT_KEEPALIVE : PONG_TIMEOUT_NORMAL;
       lastPong.current = Date.now() - 1; // force le prochain check
       ws.send(JSON.stringify({ type: 'ping' }));
       setTimeout(() => {
         if (
           wsRef.current === ws &&
           ws.readyState === WebSocket.OPEN &&
-          Date.now() - lastPong.current > 4_000
+          Date.now() - lastPong.current > graceMs
         ) {
           forceReconnect(ws, () => void connect());
         }
-      }, 4_000);
+      }, graceMs);
     });
 
     const netSub = NetInfo.addEventListener((state) => {

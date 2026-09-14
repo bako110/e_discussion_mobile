@@ -833,8 +833,25 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ── actions depuis la notification native (boutons Répondre / Refuser) ─
   useEffect(() => {
     const off = onNotificationAction((a) => {
-      if (a.kind === 'call-accept') void acceptCall();
-      else if (a.kind === 'call-reject') void rejectCall();
+      if (a.kind === 'call-accept') {
+        // en arrière-plan (app vivante), un tap sur "Répondre" est capté ici
+        // (Notifee route vers onForegroundEvent une fois l'app RESUMED) —
+        // sans .catch(), un échec (room LiveKit injoignable, WS pas encore
+        // stabilisé après le réveil…) laissait l'utilisateur devant un écran
+        // noir sans le moindre signal.
+        void acceptCall().catch(() => {
+          void displayMissedCall({
+            callId: callRef.current?.callId ?? '',
+            callType: callRef.current?.callType ?? 'voice',
+            peerId: callRef.current?.peer?.id ?? '',
+            peerName:
+              callRef.current?.peer?.display_name ||
+              callRef.current?.peer?.username ||
+              'Appel',
+            peerAvatar: callRef.current?.peer?.avatar_url ?? null,
+          });
+        });
+      } else if (a.kind === 'call-reject') void rejectCall();
       else if (a.kind === 'call-back') {
         // « Rappeler » depuis une notif d'appel manqué
         void (async () => {
