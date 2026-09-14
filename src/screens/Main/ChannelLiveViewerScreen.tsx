@@ -26,6 +26,7 @@ import {
 } from '@livekit/react-native';
 import { Room, RoomEvent, Track } from 'livekit-client';
 
+import { ApiError } from '@/api';
 import { Avatar, Icon, confirmAlert, showAlert, showToast } from '@/components/common';
 import type { MainScreenProps } from '@/navigation/types';
 import { channelLiveService } from '@/services';
@@ -152,7 +153,11 @@ export const ChannelLiveViewerScreen: React.FC<MainScreenProps<'ChannelLiveViewe
       } catch (e) {
         if (!alive.current) return;
         console.warn('[channelLive] connexion échouée:', e);
-        showAlert(t('errors.generic'));
+        showAlert(
+          e instanceof ApiError && e.status === 409
+            ? t('channelLive.alreadyLive')
+            : t('errors.generic'),
+        );
         navigation.goBack();
       }
     })();

@@ -48,7 +48,6 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
   const [category, setCategory] = useState<GroupCategory | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
   const [channelLive, setChannelLive] = useState<ChannelLive | null>(null);
-  const [liveBusy, setLiveBusy] = useState(false);
 
   useEffect(() => {
     void groupRepo.get(groupId).then((g) => {
@@ -74,19 +73,12 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
       t('channelLive.startTitle'),
       t('channelLive.startBody'),
       () => {
-        setLiveBusy(true);
-        channelLiveService
-          .start(groupId)
-          .then(() => {
-            showToast(t('channelLive.started'));
-            navigation.navigate('ChannelLiveViewer', { groupId, asBroadcaster: true });
-          })
-          .catch((e) => {
-            showAlert(e instanceof ApiError && e.status === 409
-              ? t('channelLive.alreadyLive')
-              : t('errors.generic'));
-          })
-          .finally(() => setLiveBusy(false));
+        // NE PAS appeler channelLiveService.start() ici : ChannelLiveViewerScreen
+        // (asBroadcaster: true) le fait déjà lui-même à son montage — un double
+        // appel faisait échouer le second en 409 (déjà démarré), et l'écran
+        // renvoyait alors l'admin en arrière avec juste une erreur générique,
+        // l'empêchant de jamais atteindre son propre direct.
+        navigation.navigate('ChannelLiveViewer', { groupId, asBroadcaster: true });
       },
       { confirmText: t('channelLive.startConfirm'), cancelText: t('common.cancel') },
     );
@@ -385,7 +377,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
                 <SettingsRow
                   icon="video-wireless-outline"
                   label={t('channelLive.goLive')}
-                  onPress={liveBusy ? undefined : goLive}
+                  onPress={goLive}
                   last
                 />
               )}

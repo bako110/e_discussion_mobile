@@ -23,7 +23,6 @@ import { useMediaPicker } from '@/hooks/useMediaPicker';
 import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainScreenProps } from '@/navigation/types';
-import { ApiError } from '@/api';
 import { channelLiveService, groupService } from '@/services';
 import type { ChannelLive } from '@/types';
 import type { LocalGroup, LocalGroupMessage } from '@/db/repositories/groupRepo';
@@ -67,7 +66,6 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [channelLive, setChannelLive] = useState<ChannelLive | null>(null);
-  const [liveBusy, setLiveBusy] = useState(false);
   const [reactMsg, setReactMsg] = useState<LocalGroupMessage | null>(null);
 
   /** Lecture locale (instantanée, hors-ligne OK). */
@@ -230,21 +228,12 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
       t('channelLive.startTitle'),
       t('channelLive.startBody'),
       () => {
-        setLiveBusy(true);
-        channelLiveService
-          .start(groupId)
-          .then(() => {
-            showToast(t('channelLive.started'));
-            navigation.navigate('ChannelLiveViewer', { groupId, asBroadcaster: true });
-          })
-          .catch((e) => {
-            showAlert(
-              e instanceof ApiError && e.status === 409
-                ? t('channelLive.alreadyLive')
-                : t('errors.generic'),
-            );
-          })
-          .finally(() => setLiveBusy(false));
+        // NE PAS appeler channelLiveService.start() ici : ChannelLiveViewerScreen
+        // (asBroadcaster: true) le fait déjà lui-même à son montage — un double
+        // appel faisait échouer le second en 409 (déjà démarré), et l'écran
+        // renvoyait alors l'admin en arrière avec juste une erreur générique,
+        // l'empêchant de jamais atteindre son propre direct.
+        navigation.navigate('ChannelLiveViewer', { groupId, asBroadcaster: true });
       },
       { confirmText: t('channelLive.startConfirm'), cancelText: t('common.cancel') },
     );
@@ -342,7 +331,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
             : {
                 label: t('channelLive.goLive'),
                 icon: 'video-wireless-outline',
-                onPress: liveBusy ? undefined : goLive,
+                onPress: goLive,
               },
         );
       }
