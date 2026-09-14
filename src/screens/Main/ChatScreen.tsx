@@ -938,10 +938,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               const prev = items[index + 1]; // liste inversée → suivant = plus ancien
               const grouped =
                 prev?.kind === 'msg' && prev.m.sender_id === item.m.sender_id;
+              const mine = item.m.sender_id === myId;
               return (
                 <MessageBubble
                   message={item.m}
-                  mine={item.m.sender_id === myId}
+                  mine={mine}
                   grouped={grouped}
                   onLongPress={() => onMessageLongPress(item.m)}
                   onRetry={() => retry(item.m)}
@@ -950,6 +951,8 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                   onOpenLocation={onOpenLocation}
                   onVoicePlayed={onVoicePlayed}
                   voiceTitle={partnerName}
+                  senderAvatar={mine ? me?.avatar_url : partnerAvatar}
+                  senderName={mine ? t('common.you') : partnerName}
                 />
               );
             }}

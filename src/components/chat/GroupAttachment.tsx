@@ -43,9 +43,22 @@ interface Props {
   onOpenMedia: (localOrRemoteUrl: string, type: 'image' | 'video') => void;
   /** nom du groupe — affiché par le mini-lecteur vocal global. */
   groupName?: string;
+  /** Photo/nom de l'expéditeur — affichée à côté d'un vocal REÇU, façon
+   * WhatsApp (l'avatar générique à gauche de la ligne de message reste
+   * affiché en plus par l'écran appelant ; celui-ci identifie précisément
+   * qui a envoyé CE vocal, utile quand plusieurs messages sont groupés). */
+  senderAvatar?: string | null;
+  senderName?: string | null;
 }
 
-export const GroupAttachment: React.FC<Props> = ({ message, mine, onOpenMedia, groupName }) => {
+export const GroupAttachment: React.FC<Props> = ({
+  message,
+  mine,
+  onOpenMedia,
+  groupName,
+  senderAvatar,
+  senderName,
+}) => {
   const { t } = useTranslation();
   const { theme } = useTheme();
   const c = theme.colors;
@@ -145,6 +158,8 @@ export const GroupAttachment: React.FC<Props> = ({ message, mine, onOpenMedia, g
         fg={fg}
         messageId={message.id}
         playerMeta={{ conversationId: message.group_id, title: groupName ?? null }}
+        senderAvatar={senderAvatar}
+        senderName={senderName}
       />
     );
   }

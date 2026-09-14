@@ -419,10 +419,15 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
 
     const reactionEntries = Object.entries(item.reactions ?? {});
 
+    // Le vocal affiche déjà l'avatar de l'expéditeur DANS la bulle elle-même
+    // (façon WhatsApp, voir VoiceNoteBubble) — éviter de le dupliquer aussi
+    // à gauche de la ligne.
+    const isVoiceMsg = item.type === 'voice';
+
     return (
       <View>
         <View style={[styles.bubbleRow, mine ? styles.rowMine : styles.rowTheirs]}>
-          {!mine ? (
+          {!mine && !isVoiceMsg ? (
             <Avatar uri={senderAvatar} name={senderName} size={28} />
           ) : null}
           <Pressable
@@ -448,6 +453,8 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
                 message={item}
                 mine={mine}
                 groupName={group?.name || initialName}
+                senderAvatar={senderAvatar}
+                senderName={senderName}
                 onOpenMedia={(target, type) =>
                   navigation.navigate('MediaViewer', {
                     url: target,

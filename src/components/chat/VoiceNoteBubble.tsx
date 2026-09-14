@@ -7,14 +7,15 @@
  * n'affiche la progression que si elle est la note active.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Icon } from '@/components/common';
+import { Avatar, Icon } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import { useCachedMedia } from '@/hooks/useCachedMedia';
 import { messageService } from '@/services';
 import {
   getVoiceState,
+  seekVoice,
   subscribeVoice,
   toggleVoice,
   type PlayMeta,
@@ -45,6 +46,11 @@ interface Props {
    * Pressable que le tap play) plutôt que sur un parent englobant, pour
    * éviter la compétition de gestes entre deux Pressable imbriqués. */
   onLongPress?: () => void;
+  /** Photo de l'expéditeur, façon WhatsApp — affichée pour un vocal REÇU
+   * (`!mine`) ou ENVOYÉ (`mine`, ma propre photo) : WhatsApp affiche
+   * l'avatar dans les deux sens, jamais seulement d'un côté. */
+  senderAvatar?: string | null;
+  senderName?: string | null;
 }
 
 function humanSize(bytes: number | null | undefined): string {
@@ -70,6 +76,8 @@ export const VoiceNoteBubble: React.FC<Props> = ({
   onFirstPlay,
   playerMeta,
   onLongPress,
+  senderAvatar,
+  senderName,
 }) => {
   const { theme } = useTheme();
   const c = theme.colors;
@@ -124,6 +132,44 @@ export const VoiceNoteBubble: React.FC<Props> = ({
     });
   }, [cached, mine, messageId, played, onFirstPlay, playerMeta, durationSec]);
 
+  // Glisser sur la waveform pour avancer/reculer dans le vocal, façon
+  // WhatsApp. Seek possible seulement si la note est déjà locale (sinon un
+  // tap doit d'abord télécharger, via `onPress` sur le bouton play) et déjà
+  // chargée dans le lecteur (sinon on ne fait que la sélectionner).
+  const waveWidth = useRef(0);
+  const seekAtRatio = useCallback(
+    (ratio: number) => {
+      if (!resolved) return;
+      const dur = active && vp.duration > 0 ? vp.duration : totalMs;
+      if (!dur) return;
+      const clamped = Math.max(0, Math.min(1, ratio));
+      void seekVoice(resolved, clamped * dur);
+    },
+    [resolved, active, vp.duration, totalMs],
+  );
+  // `seekAtRatio` change à chaque render (dépend de vp.duration) — on la
+  // garde dans un ref pour que le PanResponder, créé UNE SEULE fois, appelle
+  // toujours la version à jour sans se recréer (le recréer casserait un
+  // geste de glissement en cours).
+  const seekAtRatioRef = useRef(seekAtRatio);
+  seekAtRatioRef.current = seekAtRatio;
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => {
+        if (waveWidth.current > 0) {
+          seekAtRatioRef.current(e.nativeEvent.locationX / waveWidth.current);
+        }
+      },
+      onPanResponderMove: (e) => {
+        if (waveWidth.current > 0) {
+          seekAtRatioRef.current(e.nativeEvent.locationX / waveWidth.current);
+        }
+      },
+    }),
+  ).current;
+
   // vocal REÇU pas encore écouté -> accent bleu vif (bulle in) façon WhatsApp
   const unheard = !mine && !played;
   const accent = unheard ? '#2E9BFF' : mine ? '#ffffff' : c.primary;
@@ -147,13 +193,13 @@ export const VoiceNoteBubble: React.FC<Props> = ({
       : label;
 
   return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      style={styles.row}
-      disabled={cached.downloading}
-    >
-      <View
+    <Pressable onLongPress={onLongPress} style={styles.row} disabled={cached.downloading}>
+      {senderAvatar !== undefined ? (
+        <Avatar uri={senderAvatar} name={senderName} size={32} />
+      ) : null}
+      <Pressable
+        onPress={onPress}
+        hitSlop={8}
         style={[
           styles.playBtn,
           {
@@ -170,10 +216,16 @@ export const VoiceNoteBubble: React.FC<Props> = ({
           size={20}
           color={unheard ? '#fff' : mine ? '#fff' : c.primary}
         />
-      </View>
+      </Pressable>
 
       <View style={styles.waveArea}>
-        <View style={styles.waveRow}>
+        <View
+          style={styles.waveRow}
+          onLayout={(e) => {
+            waveWidth.current = e.nativeEvent.layout.width;
+          }}
+          {...panResponder.panHandlers}
+        >
           {WAVE.map((h, i) => {
             const filled = i / WAVE.length <= shownProgress;
             return (
