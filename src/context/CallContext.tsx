@@ -176,8 +176,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const check = async (attempt = 0): Promise<void> => {
       try {
         const cfg = await callService.config();
+        console.warn('[calls] config OK ->', JSON.stringify(cfg));
         if (alive) setAvailable(cfg.enabled);
-      } catch {
+      } catch (e) {
+        console.warn('[calls] config check a échoué (tentative', attempt, '):', String(e));
         if (!alive) return;
         if (attempt < 4) {
           setTimeout(() => void check(attempt + 1), 2 ** attempt * 1500);
@@ -376,7 +378,17 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ── actions publiques ────────────────────────────────────────────────
   const startCall = useCallback(
     async (callee: UserPublic, type: CallType) => {
-      if (phaseRef.current !== 'idle') return;
+      // 'ended' est un état transitoire (~1.6s, affiche "Appel terminé /
+      // Occupé / Refusé" avant de revenir à 'idle', cf. `resetToIdle`) — pas
+      // un vrai appel en cours. Sans ce cas, relancer un appel dans cette
+      // fenêtre (ou si le timeout de retour à 'idle' a été raté) ne faisait
+      // RIEN de visible : `startCall` retournait en silence.
+      if (phaseRef.current === 'ended') {
+        setPhase('idle');
+        setEndReason(null);
+      } else if (phaseRef.current !== 'idle') {
+        return;
+      }
       const e2eeKey = callService.generateE2eeKey();
       setCalleeOnline(true); // optimiste : ajusté par la réponse serveur
       setPhase('outgoing');
@@ -684,7 +696,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
           }
           // déjà en appel (un AUTRE) -> refus automatique, motif "occupé".
-          if (phaseRef.current !== 'idle') {
+          // NB : 'ended' est un état transitoire (affiche "Appel terminé /
+          // Occupé / Refusé" ~1.6s avant de revenir à 'idle', cf.
+          // `resetToIdle`) — PAS un vrai appel en cours. Le traiter comme
+          // "occupé" ici rejetait à tort tout appel entrant reçu dans cette
+          // fenêtre de 1.6s juste après avoir raccroché (ex: rappel immédiat).
+          if (phaseRef.current !== 'idle' && phaseRef.current !== 'ended') {
             void callService.reject(cid, 'busy').catch(() => undefined);
             return;
           }

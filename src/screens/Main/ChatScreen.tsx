@@ -44,6 +44,7 @@ import {
 import { mediaCache } from '@/services/mediaCache';
 import { retryFailedDecryptions, syncNow } from '@/sync/syncEngine';
 import type { ChatMessage, MessageType, RequestStatus } from '@/types';
+import { callStartErrorMessage } from '@/utils/callError';
 import { E2EE_ENABLED } from '@/utils/constants';
 import { dayLabel, lastSeenLabel } from '@/utils/time';
 import { mediaUrl } from '@/utils/media';
@@ -650,7 +651,9 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   };
 
   const placeCall = (kind: 'voice' | 'video') => {
-    if (callPhase !== 'idle') return;
+    // 'ended' est un état transitoire (~1.6s après un appel précédent) —
+    // pas un appel en cours ; `startCall` gère déjà ce cas correctement.
+    if (callPhase !== 'idle' && callPhase !== 'ended') return;
     if (!callsAvailable) {
       showAlert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
       return;
@@ -667,8 +670,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       },
       kind,
     ).catch((e: unknown) => {
-      const msg = e instanceof Error ? e.message : t('calls.startFailed');
-      showAlert(t('calls.startFailed'), msg);
+      showAlert(t('calls.startFailed'), callStartErrorMessage(e, t('calls.startFailedBody')));
     });
   };
 

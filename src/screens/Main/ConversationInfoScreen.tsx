@@ -1,12 +1,19 @@
 /**
- * Détail / paramètres d'une conversation 1-to-1.
- *  - en-tête contact (avatar, nom, @username, présence)
+ * Détail / paramètres d'une conversation 1-to-1 — écran "profil" du contact.
+ *  - en-tête carte : dégradé + grand avatar + présence + nom/@username/bio
  *  - actions rapides : appel audio / vidéo / rechercher
  *  - Médias, liens et docs partagés
  *  - Notifications (sourdine)
  *  - Fond d'écran de la discussion
  *  - Chiffrement (ouvre l'explication)
  *  - Bloquer / Signaler / Effacer la discussion
+ *
+ * Confidentialité : tous les champs affichés ici (avatar, présence, dernière
+ * connexion, à propos) viennent déjà filtrés par le backend selon les
+ * réglages du CONTACT (`serialize_public` — voir app/services/user_service.py
+ * côté serveur) : `null`/`false` quand le champ doit rester masqué. Le
+ * frontend n'a donc qu'à ne rien afficher quand la valeur est absente — pas
+ * de logique de confidentialité à dupliquer ici.
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -21,6 +28,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
+import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import {
   AppHeader,
@@ -40,6 +48,7 @@ import { conversationRepo } from '@/db/repositories/conversationRepo';
 import type { MainScreenProps } from '@/navigation/types';
 import { conversationService, userService } from '@/services';
 import type { SharedMedia, UserPublic } from '@/types';
+import { callStartErrorMessage } from '@/utils/callError';
 import { mediaUrl } from '@/utils/media';
 import { lastSeenLabel } from '@/utils/time';
 
@@ -75,7 +84,8 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
     }
     setLoading(false);
 
-    // 2) rafraîchit depuis le serveur (best-effort)
+    // 2) rafraîchit depuis le serveur (best-effort) — c'est LUI qui applique
+    //    déjà les règles de confidentialité du contact avant de répondre.
     try {
       const [detail, blk, med] = await Promise.all([
         conversationService.detail(conversationId).catch(() => null),
@@ -107,13 +117,16 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
 
   const name = profile?.display_name || profile?.username || partnerName;
   const avatar = profile?.avatar_url ?? partnerAvatar;
+  const isOnline = online && !!profile?.is_online;
 
   const call = (kind: 'voice' | 'video') => {
     if (!callsAvailable) {
       showAlert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
       return;
     }
-    if (phase !== 'idle') return;
+    // 'ended' est un état transitoire (~1.6s après un appel précédent) —
+    // pas un appel en cours ; `startCall` gère déjà ce cas correctement.
+    if (phase !== 'idle' && phase !== 'ended') return;
     startCall(
       {
         id: partnerId,
@@ -126,8 +139,7 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
       },
       kind,
     ).catch((e: unknown) => {
-      const msg = e instanceof Error ? e.message : t('calls.startFailed');
-      showAlert(t('calls.startFailed'), msg);
+      showAlert(t('calls.startFailed'), callStartErrorMessage(e, t('calls.startFailedBody')));
     });
   };
 
@@ -206,13 +218,34 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
     );
   };
 
+  /** « Supprimer la conversation » — retire la ligne de MA liste, garde
+   * l'historique côté serveur (réapparaît si l'autre réécrit). */
+  const deleteConversation = () => {
+    confirmAlert(
+      t('chat.deleteConvTitle'),
+      t('chat.deleteConvBody', { name }),
+      async () => {
+        setBusy('delete');
+        try {
+          await conversationService.hide(conversationId);
+          navigation.navigate('Tabs', { screen: 'ChatsTab' });
+        } catch {
+          showToast(t('errors.generic'), { type: 'error' });
+          setBusy(null);
+        }
+      },
+      { destructive: true, confirmText: t('common.delete') },
+    );
+  };
+
   return (
     <Screen edges={[]}>
       <AppHeader
+        variant="plain"
         title={t('chat.infoTitle')}
         left={
           <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.hdrBtn}>
-            <Icon name="arrow-left" size={24} color={c.onHeader} />
+            <Icon name="arrow-left" size={24} color={c.text} />
           </Pressable>
         }
       />
@@ -223,47 +256,63 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {/* En-tête contact */}
+          {/* ── Carte profil ─────────────────────────────────────────── */}
           <View style={styles.hero}>
-            <Avatar
-              uri={avatar}
-              name={name}
-              size={96}
-              online={online && !!profile?.is_online}
-            />
+            <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+              <Defs>
+                <RadialGradient id="heroGlow" cx="50%" cy="0%" r="85%">
+                  <Stop offset="0" stopColor={c.primary} stopOpacity={theme.isDark ? 0.28 : 0.14} />
+                  <Stop offset="0.55" stopColor={c.accent} stopOpacity={0.06} />
+                  <Stop offset="1" stopColor={c.background} stopOpacity={0} />
+                </RadialGradient>
+              </Defs>
+              <Rect width="100%" height="100%" fill="url(#heroGlow)" />
+            </Svg>
+
+            <View style={styles.avatarShell}>
+              <Avatar uri={blocked ? null : avatar} name={name} size={112} />
+              {isOnline && !blocked ? (
+                <View style={[styles.onlineDot, { backgroundColor: c.online, borderColor: c.background }]} />
+              ) : null}
+            </View>
+
             <Text style={[styles.heroName, { color: c.text }]} numberOfLines={1}>
               {name}
             </Text>
             {profile?.username ? (
-              <Text style={[styles.heroSub, { color: c.textMuted }]}>@{profile.username}</Text>
+              <Text style={[styles.heroHandle, { color: c.primary }]}>@{profile.username}</Text>
             ) : null}
-            {profile ? (
-              <Text
-                style={[
-                  styles.heroSub,
-                  {
-                    color: online && profile.is_online ? c.online : c.textFaint,
-                    marginTop: 2,
-                  },
-                ]}
-              >
-                {lastSeenLabel(
-                  profile.last_seen_at ?? null,
-                  online && !!profile.is_online,
-                )}
-              </Text>
-            ) : null}
+
+            {!blocked ? (
+              <View style={styles.presenceRow}>
+                <View style={[styles.presenceDot, { backgroundColor: isOnline ? c.online : c.textFaint }]} />
+                <Text style={[styles.presenceTxt, { color: isOnline ? c.online : c.textMuted }]}>
+                  {profile
+                    ? lastSeenLabel(profile.last_seen_at ?? null, isOnline)
+                    : t('sync.offline')}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.presenceRow}>
+                <Icon name="cancel" size={13} color={c.danger} />
+                <Text style={[styles.presenceTxt, { color: c.danger }]}>{t('chat.blockedBanner')}</Text>
+              </View>
+            )}
+
             {profile?.about ? (
-              <Text style={[styles.heroAbout, { color: c.textMuted }]} numberOfLines={3}>
-                {profile.about}
-              </Text>
+              <View style={[styles.bioCard, { backgroundColor: c.surfaceAlt }]}>
+                <Icon name="format-quote-open" size={14} color={c.textFaint} />
+                <Text style={[styles.bioTxt, { color: c.textMuted }]} numberOfLines={4}>
+                  {profile.about}
+                </Text>
+              </View>
             ) : null}
           </View>
 
           {/* Actions rapides */}
           <View style={styles.quickRow}>
-            <QuickAction icon="phone" label={t('calls.voice')} onPress={() => call('voice')} c={c} />
-            <QuickAction icon="video" label={t('calls.video')} onPress={() => call('video')} c={c} />
+            <QuickAction icon="phone" label={t('calls.voice')} onPress={() => call('voice')} c={c} disabled={blocked} />
+            <QuickAction icon="video" label={t('calls.video')} onPress={() => call('video')} c={c} disabled={blocked} />
             <QuickAction
               icon="magnify"
               label={t('chat.search')}
@@ -369,6 +418,12 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
               label={busy === 'clear' ? t('common.loading') : t('chat.clearHistory')}
               danger
               onPress={clearHistory}
+            />
+            <SettingsRow
+              icon="delete-outline"
+              label={busy === 'delete' ? t('common.loading') : t('chat.deleteConversation')}
+              danger
+              onPress={deleteConversation}
               last
             />
           </SettingsSection>
@@ -389,10 +444,16 @@ const QuickAction: React.FC<{
   label: string;
   onPress: () => void;
   c: ReturnType<typeof useTheme>['theme']['colors'];
-}> = ({ icon, label, onPress, c }) => (
-  <Pressable style={styles.quick} onPress={onPress} android_ripple={{ color: c.surfaceAlt }}>
-    <View style={[styles.quickIcon, { backgroundColor: c.surfaceAlt }]}>
-      <Icon name={icon} size={20} color={c.primary} />
+  disabled?: boolean;
+}> = ({ icon, label, onPress, c, disabled }) => (
+  <Pressable
+    style={[styles.quick, disabled && { opacity: 0.4 }]}
+    onPress={onPress}
+    disabled={disabled}
+    android_ripple={{ color: c.surfaceAlt }}
+  >
+    <View style={[styles.quickIcon, { backgroundColor: c.primary + '16' }]}>
+      <Icon name={icon} size={21} color={c.primary} />
     </View>
     <Text style={[styles.quickLabel, { color: c.textMuted }]}>{label}</Text>
   </Pressable>
@@ -403,14 +464,37 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { paddingBottom: 40 },
 
-  hero: { alignItems: 'center', gap: 8, paddingVertical: 22, paddingHorizontal: 24 },
-  heroName: { fontSize: 22, fontWeight: '800', letterSpacing: -0.4, marginTop: 8 },
-  heroSub: { fontSize: 14 },
-  heroAbout: { fontSize: 13.5, textAlign: 'center', lineHeight: 19, marginTop: 4 },
+  hero: { alignItems: 'center', gap: 6, paddingTop: 8, paddingBottom: 20, paddingHorizontal: 28 },
+  avatarShell: { marginTop: 8 },
+  onlineDot: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 3,
+  },
+  heroName: { fontSize: 23, fontWeight: '800', letterSpacing: -0.4, marginTop: 14 },
+  heroHandle: { fontSize: 14, fontWeight: '700', marginTop: 2 },
+  presenceRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+  presenceDot: { width: 7, height: 7, borderRadius: 3.5 },
+  presenceTxt: { fontSize: 13, fontWeight: '600' },
+  bioCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 16,
+    maxWidth: 340,
+    alignSelf: 'stretch',
+  },
+  bioTxt: { flex: 1, fontSize: 13.5, lineHeight: 19 },
 
-  quickRow: { flexDirection: 'row', justifyContent: 'center', gap: 28, paddingBottom: 6 },
+  quickRow: { flexDirection: 'row', justifyContent: 'center', gap: 30, paddingBottom: 4, paddingTop: 4 },
   quick: { alignItems: 'center', gap: 6, width: 74 },
-  quickIcon: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  quickIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   quickLabel: { fontSize: 12, fontWeight: '600' },
 
   mediaWrap: { paddingVertical: 10 },

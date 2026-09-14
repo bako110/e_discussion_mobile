@@ -24,6 +24,7 @@ import {
   userService,
 } from '@/services';
 import type { UserPublic } from '@/types';
+import { callStartErrorMessage } from '@/utils/callError';
 
 export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>> = ({
   navigation,
@@ -156,7 +157,10 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
         showAlert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
         return;
       }
-      if (callPhase !== 'idle') return;
+      // 'ended' est un état transitoire (~1.6s après un appel précédent) —
+      // pas un appel en cours ; `placeCall` (startCall du contexte) gère
+      // déjà ce cas correctement.
+      if (callPhase !== 'idle' && callPhase !== 'ended') return;
       showSheet({
         title: user.display_name || user.username || '—',
         actions: [
@@ -165,7 +169,12 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
             icon: 'phone',
             onPress: () => {
               navigation.goBack();
-              placeCall(user, 'voice').catch(() => undefined);
+              placeCall(user, 'voice').catch((e: unknown) => {
+                showAlert(
+                  t('calls.startFailed'),
+                  callStartErrorMessage(e, t('calls.startFailedBody')),
+                );
+              });
             },
           },
           {
@@ -173,7 +182,12 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
             icon: 'video',
             onPress: () => {
               navigation.goBack();
-              placeCall(user, 'video').catch(() => undefined);
+              placeCall(user, 'video').catch((e: unknown) => {
+                showAlert(
+                  t('calls.startFailed'),
+                  callStartErrorMessage(e, t('calls.startFailedBody')),
+                );
+              });
             },
           },
         ],
@@ -194,7 +208,19 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
         android_ripple={{ color: c.surfaceAlt }}
         onPress={() => onPick(item)}
       >
-        <Avatar uri={item.avatar_url} name={name} size={46} online={item.is_online} />
+        <Pressable
+          hitSlop={4}
+          onPress={(e) => {
+            e.stopPropagation();
+            navigation.navigate('UserProfile', {
+              userId: item.id,
+              name,
+              avatar: item.avatar_url,
+            });
+          }}
+        >
+          <Avatar uri={item.avatar_url} name={name} size={46} online={item.is_online} />
+        </Pressable>
         <View style={styles.rowBody}>
           <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
             {name}

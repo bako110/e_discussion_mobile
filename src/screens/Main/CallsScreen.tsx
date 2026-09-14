@@ -20,6 +20,7 @@ import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
 import { callService } from '@/services';
 import type { CallLog } from '@/types';
+import { callStartErrorMessage } from '@/utils/callError';
 import { clockTime, dayLabel } from '@/utils/time';
 
 type Filter = 'all' | 'missed' | 'incoming' | 'outgoing' | 'video';
@@ -118,10 +119,11 @@ export const CallsScreen: React.FC = () => {
       showAlert(t('calls.unavailableTitle'), t('calls.unavailableBody'));
       return;
     }
-    if (phase !== 'idle') return;
+    // 'ended' est un état transitoire (~1.6s après un appel précédent) —
+    // pas un appel en cours ; `startCall` gère déjà ce cas correctement.
+    if (phase !== 'idle' && phase !== 'ended') return;
     startCall(log.peer, log.call_type).catch((e: unknown) => {
-      const msg = e instanceof Error ? e.message : t('calls.startFailed');
-      showAlert(t('calls.startFailed'), msg);
+      showAlert(t('calls.startFailed'), callStartErrorMessage(e, t('calls.startFailedBody')));
     });
   };
 
