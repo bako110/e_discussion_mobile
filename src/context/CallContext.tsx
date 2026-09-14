@@ -44,7 +44,11 @@ import {
 } from '@/services/notificationService';
 import { notificationRepo } from '@/db/repositories/notificationRepo';
 import { activateKeepAwake, deactivateKeepAwake } from '@/services/keepAwake';
-import { takePendingAcceptCallId } from '@/services/notificationBackground';
+import {
+  peekPendingAcceptResult,
+  takePendingAcceptCallId,
+  takePendingAcceptResult,
+} from '@/services/notificationBackground';
 import type { CallType, UserPublic } from '@/types';
 
 // LiveKit exige registerGlobals() une seule fois, avant toute Room.
@@ -473,10 +477,17 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const acceptCall = useCallback(async (opts?: { asAudio?: boolean }) => {
     const c = callRef.current;
-    // callId : depuis l'état posé par `call.incoming`, ou depuis l'intention
-    // « Répondre » tapée sur la notif app-tuée (voir l'effet dédié plus bas,
-    // qui appelle acceptCall AVANT même que call.incoming n'existe côté WS).
-    const callId = c?.callId ?? pendingAcceptRef.current;
+    // Résultat déjà obtenu en headless (voir notificationBackground.ts —
+    // acceptRemote a appelé POST /accept dès le tap "Répondre", avant même
+    // le démarrage de l'app) : on rejoint direct la room SANS refaire
+    // l'appel réseau, ce qui évite d'attendre le cold start complet une
+    // deuxième fois.
+    const preAccepted = takePendingAcceptResult();
+    // callId : résultat headless déjà obtenu, sinon l'état posé par
+    // `call.incoming`, sinon l'intention « Répondre » tapée sur la notif
+    // (voir l'effet dédié plus bas, qui appelle acceptCall AVANT même que
+    // call.incoming n'existe côté WS).
+    const callId = preAccepted?.callId ?? c?.callId ?? pendingAcceptRef.current;
     if (!callId) return;
     if (phaseRef.current !== 'incoming' && phaseRef.current !== 'idle') return;
     pendingAcceptRef.current = null;
@@ -484,18 +495,19 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     void notificationRepo.markRead(`call-${callId}`);
     setPhase('connecting');
     try {
-      const res = await callService.accept(callId);
+      const res = preAccepted ?? (await callService.accept(callId));
+      const peer = (preAccepted ? preAccepted.peer : res.peer) as UserPublic | null;
       // « répondre en audio » à un appel vidéo : on rejoint en voix (pas de
       // caméra), l'autre peut toujours envoyer sa vidéo.
-      const callType = opts?.asAudio ? 'voice' : res.call_type;
+      const callType = opts?.asAudio ? 'voice' : (res.call_type as CallType);
       // pas d'état `call` existant (accepté direct depuis la notif) -> on le
       // construit entièrement à partir de la réponse serveur.
       if (!c) {
         setCall({
           callId,
           roomName: res.room_name,
-          callType: res.call_type,
-          peer: res.peer,
+          callType: res.call_type as CallType,
+          peer,
           outgoing: false,
           e2eeKey: res.e2ee_key,
         });
@@ -534,7 +546,10 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // relit jamais après coup. On relit donc explicitement MMKV à chaque
   // retour au premier plan, pas seulement au montage du provider.
   const tryAutoAccept = useCallback(() => {
-    const pending = pendingAcceptRef.current ?? takePendingAcceptCallId();
+    // hasPendingResult() : simple coup d'œil SANS consommer — acceptCall()
+    // fera le vrai takePendingAcceptResult() une fois qu'on est sûr de
+    // vouloir procéder (garde de phase ci-dessous).
+    const pending = pendingAcceptRef.current ?? takePendingAcceptCallId() ?? peekPendingAcceptResult();
     if (!me || !pending) return;
     if (phaseRef.current !== 'idle') return;
     pendingAcceptRef.current = null;

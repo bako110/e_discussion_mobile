@@ -71,7 +71,8 @@ export async function ensureNotificationSetup(): Promise<void> {
       id: CH_CALLS,
       name: 'Appels',
       importance: AndroidImportance.HIGH,
-      sound: 'ringtone', // res/raw/ringtone.mp3 (fallback : son système)
+      // sonnerie du téléphone (réglages système) — pas de fichier custom
+      sound: 'default',
       vibration: true,
       // valeurs STRICTEMENT POSITIVES, nombre PAIR (attente/vibration).
       vibrationPattern: [400, 800, 400, 800, 400, 1000],
@@ -173,7 +174,8 @@ export async function displayIncomingCall(data: IncomingCallNotifData): Promise<
     ios: {
       categoryId: 'incoming-call',
       critical: true,
-      sound: 'ringtone.caf',
+      // sonnerie du téléphone (réglages système) — pas de fichier custom
+      sound: 'default',
       interruptionLevel: 'timeSensitive',
     },
   });
@@ -376,7 +378,11 @@ export async function displayMessageNotification(d: MessageNotifData): Promise<v
           type: AndroidStyle.MESSAGING,
           // « person » = le destinataire (moi) ; chaque message porte son émetteur.
           person: { id: 'me', name: 'Moi' },
-          title: isGroup ? title : undefined,
+          // clé OMISE (pas juste `undefined`) hors groupe — notifee rejette
+          // `title: undefined` avec « MessagingStyle: 'title' expected a
+          // string value », ce qui faisait planter TOUTE notification de
+          // message 1-à-1 (seuls les groupes fournissaient un vrai titre).
+          ...(isGroup ? { title } : {}),
           messages: th.messages.map((m) => ({
             text: m.text,
             timestamp: m.time,
