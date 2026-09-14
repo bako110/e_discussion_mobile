@@ -12,7 +12,14 @@
  * sonnerie — un live n'est pas un appel 1-1).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import {
@@ -51,6 +58,11 @@ const LiveStage: React.FC<{
   const { t } = useTranslation();
   const { localParticipant } = useLocalParticipant();
   const tracks = useTracks([Track.Source.Camera], { onlySubscribed: true });
+  const { width } = useWindowDimensions();
+  // carré centré (façon post Instagram) plutôt que plein écran — laisse
+  // les badges/contrôles par-dessus sans jamais couper la vidéo elle-même.
+  // Une marge de chaque côté évite que le carré ne touche les bords.
+  const squareSize = width - 32;
 
   const remoteVideo = tracks.find((tr) => tr.participant.identity !== localParticipant.identity);
   const localVideo = tracks.find((tr) => tr.participant.identity === localParticipant.identity);
@@ -58,16 +70,20 @@ const LiveStage: React.FC<{
 
   return (
     <View style={styles.stage}>
-      {shownVideo ? (
-        <VideoTrack trackRef={shownVideo} style={styles.fill} objectFit="cover" mirror={isBroadcaster} />
-      ) : (
-        <View style={[styles.fill, styles.waitingBox]}>
-          <Avatar uri={channelLive.channel_avatar_url} name={channelLive.channel_name ?? '?'} size={72} />
-          <Text style={styles.waitingTxt}>
-            {isBroadcaster ? t('channelLive.startingCamera') : t('channelLive.waitingVideo')}
-          </Text>
-        </View>
-      )}
+      {/* fond plein écran flouté/assombri derrière le carré central */}
+      <View style={styles.backdrop} />
+      <View style={[styles.squareWrap, { width: squareSize, height: squareSize }]}>
+        {shownVideo ? (
+          <VideoTrack trackRef={shownVideo} style={styles.fill} objectFit="cover" mirror={isBroadcaster} />
+        ) : (
+          <View style={[styles.fill, styles.waitingBox]}>
+            <Avatar uri={channelLive.channel_avatar_url} name={channelLive.channel_name ?? '?'} size={72} />
+            <Text style={styles.waitingTxt}>
+              {isBroadcaster ? t('channelLive.startingCamera') : t('channelLive.waitingVideo')}
+            </Text>
+          </View>
+        )}
+      </View>
     </View>
   );
 };
@@ -202,11 +218,18 @@ export const ChannelLiveViewerScreen: React.FC<MainScreenProps<'ChannelLiveViewe
     setCameraOn(next);
   }, [cameraOn]);
 
+  // × = juste revenir en arrière (façon TikTok/Instagram : fermer l'écran
+  // ne met PAS fin au direct côté serveur — un admin peut rouvrir cet
+  // écran plus tard pour reprendre la diffusion). La caméra/micro
+  // s'arrêtent bien tout de suite (teardown au démontage), mais le live
+  // reste `status=live` en base tant que personne n'appuie sur "Arrêter".
   const close = useCallback(() => {
-    if (!asBroadcaster) {
-      navigation.goBack();
-      return;
-    }
+    navigation.goBack();
+  }, [navigation]);
+
+  // Bouton distinct (diffuseur uniquement) : arrête VRAIMENT le direct pour
+  // tous les spectateurs.
+  const stopLive = useCallback(() => {
     confirmAlert(
       t('channelLive.stopTitle'),
       t('channelLive.stopBody'),
@@ -219,7 +242,7 @@ export const ChannelLiveViewerScreen: React.FC<MainScreenProps<'ChannelLiveViewe
       },
       { destructive: true, confirmText: t('channelLive.stopConfirm'), cancelText: t('common.cancel') },
     );
-  }, [asBroadcaster, groupId, navigation, t]);
+  }, [groupId, navigation, t]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -241,7 +264,7 @@ export const ChannelLiveViewerScreen: React.FC<MainScreenProps<'ChannelLiveViewe
       ) : null}
 
       {/* en-tête : nom de la chaîne + badge LIVE + bouton fermer */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { top: insets.top + 10 }]}>
         <View style={styles.liveBadge}>
           <View style={styles.liveDot} />
           <Text style={styles.liveTxt}>{t('channelLive.live')}</Text>
@@ -254,6 +277,11 @@ export const ChannelLiveViewerScreen: React.FC<MainScreenProps<'ChannelLiveViewe
             <Icon name="eye" size={13} color="#fff" />
             <Text style={styles.viewersTxt}>{channelLive.current_viewers}</Text>
           </View>
+        ) : null}
+        {asBroadcaster ? (
+          <Pressable onPress={stopLive} hitSlop={12} style={styles.closeBtn}>
+            <Icon name="stop-circle-outline" size={22} color="#fff" />
+          </Pressable>
         ) : null}
         <Pressable onPress={close} hitSlop={12} style={styles.closeBtn}>
           <Icon name="close" size={24} color="#fff" />
@@ -284,7 +312,13 @@ export const ChannelLiveViewerScreen: React.FC<MainScreenProps<'ChannelLiveViewe
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
   fill: { flex: 1 },
-  stage: { flex: 1 },
+  stage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#060A16' },
+  squareWrap: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#12203C',
+  },
   center: { alignItems: 'center', justifyContent: 'center' },
   connectingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(10,16,32,0.7)' },
   connectingTxt: { color: '#fff', marginTop: 12, fontSize: 14, fontWeight: '600' },
@@ -292,13 +326,11 @@ const styles = StyleSheet.create({
   waitingTxt: { color: '#ffffffcc', fontSize: 14 },
   topBar: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingTop: 10,
     gap: 10,
   },
   liveBadge: {
