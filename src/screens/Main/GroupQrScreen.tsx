@@ -49,12 +49,19 @@ export const GroupQrScreen: React.FC<MainScreenProps<'GroupQr'>> = ({
 
   const link = group ? inviteLink(group.invite_code) : '';
   const isChannel = group?.kind === 'channel';
+  // respecte le réglage « visibilité de l'invitation » des paramètres du
+  // groupe — jusqu'ici sauvegardé côté serveur mais jamais réellement
+  // appliqué nulle part dans l'app (cet écran montrait toujours QR + lien).
+  const showLink = group ? group.invite_visibility !== 'code' : true;
+  const showCode = group ? group.invite_visibility !== 'link' : false;
 
   const share = async () => {
     if (!group) return;
     try {
       await Share.share({
-        message: t('groups.shareInviteText', { name: group.name, link }),
+        message: showLink
+          ? t('groups.shareInviteText', { name: group.name, link })
+          : t('groups.shareInviteCodeText', { name: group.name, code: group.invite_code }),
       });
     } catch {
       /* annulé */
@@ -87,25 +94,40 @@ export const GroupQrScreen: React.FC<MainScreenProps<'GroupQr'>> = ({
               : t('groups.membersCount', { count: group.member_count })}
           </Text>
 
-          <View style={[styles.qrCard, { backgroundColor: '#fff', borderColor: c.border }]}>
-            <QRCode
-              value={link}
-              size={220}
-              backgroundColor="#fff"
-              color="#0F1B3D"
-            />
-          </View>
+          {showLink ? (
+            <>
+              <View style={[styles.qrCard, { backgroundColor: '#fff', borderColor: c.border }]}>
+                <QRCode
+                  value={link}
+                  size={220}
+                  backgroundColor="#fff"
+                  color="#0F1B3D"
+                />
+              </View>
 
-          <Text style={[styles.hint, { color: c.textMuted }]}>
-            {t('groups.qrHint')}
-          </Text>
+              <Text style={[styles.hint, { color: c.textMuted }]}>
+                {t('groups.qrHint')}
+              </Text>
 
-          <View style={[styles.linkBox, { backgroundColor: c.surfaceAlt }]}>
-            <Icon name="link-variant" size={16} color={c.textMuted} />
-            <Text style={[styles.linkText, { color: c.text }]} numberOfLines={1}>
-              {link}
-            </Text>
-          </View>
+              <View style={[styles.linkBox, { backgroundColor: c.surfaceAlt }]}>
+                <Icon name="link-variant" size={16} color={c.textMuted} />
+                <Text style={[styles.linkText, { color: c.text }]} numberOfLines={1}>
+                  {link}
+                </Text>
+              </View>
+            </>
+          ) : null}
+
+          {showCode ? (
+            <View style={[styles.codeBox, { backgroundColor: c.surfaceAlt }]}>
+              <Text style={[styles.codeLabel, { color: c.textMuted }]}>
+                {t('groups.inviteCodeLabel')}
+              </Text>
+              <Text style={[styles.codeValue, { color: c.text }]} selectable>
+                {group.invite_code}
+              </Text>
+            </View>
+          ) : null}
 
           <Pressable onPress={share} style={[styles.shareBtn, { backgroundColor: c.primary }]}>
             <Icon name="share-variant" size={18} color="#fff" />
@@ -145,6 +167,17 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   linkText: { flex: 1, fontSize: 13, fontWeight: '600' },
+  codeBox: {
+    marginTop: 22,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    gap: 6,
+  },
+  codeLabel: { fontSize: 12, fontWeight: '600' },
+  codeValue: { fontSize: 28, fontWeight: '800', letterSpacing: 2 },
   shareBtn: {
     flexDirection: 'row',
     alignItems: 'center',

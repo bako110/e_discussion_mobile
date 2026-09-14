@@ -252,6 +252,8 @@
     "roleSubscriber": "Abonné",
     "inviteViaLink": "Inviter via un lien",
     "shareInviteText": "Rejoins « {{name}} » sur E-discussion: {{link}}",
+    "shareInviteCodeText": "Rejoins « {{name}} » sur E-discussion avec le code : {{code}}",
+    "inviteCodeLabel": "Code d'invitation",
     "leave": "Quitter",
     "leaveGroup": "Quitter le groupe",
     "leaveChannel": "Se désabonner",

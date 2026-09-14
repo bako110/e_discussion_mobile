@@ -252,6 +252,8 @@
     "roleSubscriber": "Subscriber",
     "inviteViaLink": "Invite via link",
     "shareInviteText": "Join \"{{name}}\" on Gofolyx: {{link}}",
+    "shareInviteCodeText": "Join \"{{name}}\" on Gofolyx with the code: {{code}}",
+    "inviteCodeLabel": "Invite code",
     "leave": "Leave",
     "leaveGroup": "Leave group",
     "leaveChannel": "Unsubscribe",

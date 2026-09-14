@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Icon, Screen, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
+import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
 import { groupRepo } from '@/db/repositories/groupRepo';
@@ -34,6 +35,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
   const { groupId } = route.params;
   const { t } = useTranslation();
   const { theme } = useTheme();
+  const { me } = useAuth();
   const { reload: reloadGroups } = useGroups();
   const c = theme.colors;
 
@@ -57,7 +59,14 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
 
   useEffect(() => {
     if (!isChannel) return;
-    void channelLiveService.getForChannel(groupId).then(setChannelLive).catch(() => undefined);
+    const reload = () =>
+      channelLiveService.getForChannel(groupId).then(setChannelLive).catch(() => undefined);
+    void reload();
+    // rafraîchit pendant que cet écran est ouvert : le compteur de
+    // spectateurs évolue en direct, et un live peut démarrer/s'arrêter
+    // depuis un autre appareil (co-admin) pendant qu'on regarde cet écran.
+    const id = setInterval(reload, 8000);
+    return () => clearInterval(id);
   }, [groupId, isChannel]);
 
   const goLive = () => {
@@ -343,9 +352,17 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
                   icon="access-point"
                   iconColor="#E0203D"
                   label={t('channelLive.live')}
-                  value={t('channelLive.viewers', { count: channelLive.subscriber_count })}
+                  value={t('channelLive.viewers', { count: channelLive.current_viewers })}
                   onPress={() =>
-                    navigation.navigate('ChannelLiveViewer', { groupId, asBroadcaster: true })
+                    navigation.navigate('ChannelLiveViewer', {
+                      groupId,
+                      // seul l'admin qui a DÉMARRÉ ce live précis a un rôle
+                      // diffuseur — un co-admin qui rejoint rejoint en
+                      // spectateur (sinon `start()` échoue en 409 puisque le
+                      // live tourne déjà, et le co-admin ne peut même pas
+                      // regarder ce que son collègue diffuse).
+                      asBroadcaster: channelLive.started_by === me?.id,
+                    })
                   }
                   last
                 />
