@@ -22,7 +22,9 @@ import { useMediaPicker } from '@/hooks/useMediaPicker';
 import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainScreenProps } from '@/navigation/types';
-import { groupService } from '@/services';
+import { ApiError } from '@/api';
+import { channelLiveService, groupService } from '@/services';
+import type { ChannelLive } from '@/types';
 import type { LocalGroup, LocalGroupMessage } from '@/db/repositories/groupRepo';
 import { onLocalMessageEvent } from '@/context/MessageSync';
 import { groupRepo } from '@/db/repositories/groupRepo';
@@ -63,6 +65,8 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [channelLive, setChannelLive] = useState<ChannelLive | null>(null);
+  const [liveBusy, setLiveBusy] = useState(false);
 
   /** Lecture locale (instantanée, hors-ligne OK). */
   const reload = useCallback(async () => {
@@ -80,6 +84,19 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     // rafraîchissement serveur best-effort (silencieux si hors-ligne)
     void groupService.refreshMessages(groupId).then(reload).catch(() => undefined);
   }, [groupId, reload]);
+
+  // État du direct en cours (chaînes uniquement) — alimente le menu "⋮" du
+  // header. Rafraîchi périodiquement tant que cet écran est ouvert : un
+  // live peut démarrer/s'arrêter depuis un autre appareil (co-admin) ou le
+  // nombre de spectateurs évoluer pendant qu'on discute ici.
+  useEffect(() => {
+    if (group?.kind !== 'channel') return;
+    const reloadLive = () =>
+      channelLiveService.getForChannel(groupId).then(setChannelLive).catch(() => undefined);
+    void reloadLive();
+    const id = setInterval(reloadLive, 8000);
+    return () => clearInterval(id);
+  }, [groupId, group?.kind]);
 
   // marque lu à l'entrée / sortie (local + outbox)
   useFocusEffect(
@@ -197,6 +214,31 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     }
   };
 
+  const goLive = () => {
+    confirmAlert(
+      t('channelLive.startTitle'),
+      t('channelLive.startBody'),
+      () => {
+        setLiveBusy(true);
+        channelLiveService
+          .start(groupId)
+          .then(() => {
+            showToast(t('channelLive.started'));
+            navigation.navigate('ChannelLiveViewer', { groupId, asBroadcaster: true });
+          })
+          .catch((e) => {
+            showAlert(
+              e instanceof ApiError && e.status === 409
+                ? t('channelLive.alreadyLive')
+                : t('errors.generic'),
+            );
+          })
+          .finally(() => setLiveBusy(false));
+      },
+      { confirmText: t('channelLive.startConfirm'), cancelText: t('common.cancel') },
+    );
+  };
+
   const pickAttachment = () => {
     showSheet({
       title: t('groups.attach'),
@@ -254,15 +296,36 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
       },
     ];
 
+    // Rejoindre un direct déjà en cours — n'importe quel abonné, pas
+    // seulement les admins (démarrer/arrêter reste admin-only, ci-dessous).
+    if (chan && channelLive && !isAdmin) {
+      actions.push({
+        label: t('channelLive.live'),
+        icon: 'access-point',
+        onPress: () => navigation.navigate('ChannelLiveViewer', { groupId }),
+      });
+    }
+
     if (isAdmin) {
-      // Diffusion vidéo en direct — propre aux chaînes, pas encore livré.
+      // Diffusion vidéo en direct (admin uniquement) — voir goLive() plus haut.
       if (chan) {
-        actions.push({
-          label: t('groupSettings.ch_liveStream'),
-          icon: 'video-wireless-outline',
-          onPress: () =>
-            showAlert(t('groupSettings.ch_liveStream'), t('common.comingSoonBody')),
-        });
+        actions.push(
+          channelLive
+            ? {
+                label: t('channelLive.live'),
+                icon: 'access-point',
+                onPress: () =>
+                  navigation.navigate('ChannelLiveViewer', {
+                    groupId,
+                    asBroadcaster: channelLive.started_by === myId,
+                  }),
+              }
+            : {
+                label: t('channelLive.goLive'),
+                icon: 'video-wireless-outline',
+                onPress: liveBusy ? undefined : goLive,
+              },
+        );
       }
       actions.push(
         {
