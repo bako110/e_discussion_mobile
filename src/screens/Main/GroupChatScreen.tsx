@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 
 import Clipboard from '@react-native-clipboard/clipboard';
 
+import { ApiError } from '@/api';
 import { AppHeader, Avatar, Icon, Screen, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
 import { GroupAttachment } from '@/components/chat/GroupAttachment';
 import { MessageActionSheet, type MsgActionContext } from '@/components/chat/MessageActionSheet';
@@ -301,6 +302,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
 
       let ok = 0;
       let fail = 0;
+      let blocked = 0;
       for (const contactId of ids) {
         try {
           const detail = await conversationService.start(contactId);
@@ -315,11 +317,14 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
             forwardedFromId: m.id,
           });
           ok += 1;
-        } catch {
-          fail += 1;
+        } catch (e) {
+          console.warn('[forward] échec pour', contactId, ':', e);
+          if (e instanceof ApiError && (e.status === 403 || e.code === 'blocked')) blocked += 1;
+          else fail += 1;
         }
       }
       if (ok > 0) showToast(t('chat.forwardSent', { count: ok }));
+      if (blocked > 0) showToast(t('chat.forwardFailedBlocked', { count: blocked }), { type: 'error' });
       if (fail > 0) showToast(t('chat.forwardFailed', { count: fail }), { type: 'error' });
     })();
   };

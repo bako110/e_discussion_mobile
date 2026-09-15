@@ -33,6 +33,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useWs, type WsEvent } from '@/context/WebSocketContext';
 import { onLocalMessageEvent } from '@/context/MessageSync';
 import type { LocalMessage } from '@/db/repositories/messageRepo';
+import { ApiError } from '@/api';
 import { messageRepo } from '@/db/repositories/messageRepo';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import type { MainScreenProps } from '@/navigation/types';
@@ -572,6 +573,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
 
       let ok = 0;
       let fail = 0;
+      let blockedCount = 0;
       for (const contactId of ids) {
         try {
           const detail = await conversationService.start(contactId);
@@ -586,11 +588,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             forwardedFromId: m.id,
           });
           ok += 1;
-        } catch {
-          fail += 1;
+        } catch (e) {
+          console.warn('[forward] échec pour', contactId, ':', e);
+          if (e instanceof ApiError && (e.status === 403 || e.code === 'blocked')) blockedCount += 1;
+          else fail += 1;
         }
       }
       if (ok > 0) showToast(t('chat.forwardSent', { count: ok }));
+      if (blockedCount > 0) showToast(t('chat.forwardFailedBlocked', { count: blockedCount }), { type: 'error' });
       if (fail > 0) showToast(t('chat.forwardFailed', { count: fail }), { type: 'error' });
     })();
   };

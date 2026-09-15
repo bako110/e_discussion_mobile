@@ -705,6 +705,7 @@
     "forwardSent": "Message transféré",
     "forwardSent_other": "Message transféré à {{count}} personnes",
     "forwardFailed": "Le transfert a échoué pour {{count}} destinataire(s)",
+    "forwardFailedBlocked": "Impossible de transférer à {{count}} destinataire(s) : bloqué(e) mutuellement",
     "replyingTo": "Réponse à",
     "replySelf": "vous",
     "attachPhoto": "Photo",
