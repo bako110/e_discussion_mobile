@@ -276,7 +276,7 @@ export const messageRepo = {
       `INSERT INTO messages
         (id, conversation_id, sender_id, type, body, body_cipher, encrypted, attachment_url, attachment_meta,
          reply_to_json, forwarded_from_id, reaction, delivered, read, edited_at, deleted_at, created_at, sync_state, decrypt_failed, voice_played)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced', ?, ?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced', ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          body=CASE WHEN excluded.body <> '' THEN excluded.body ELSE messages.body END,
          body_cipher=CASE
