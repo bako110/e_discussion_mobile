@@ -45,6 +45,8 @@ export const Endpoints = {
     read: (id: string) => `${V1}/conversations/${id}/read`,
     media: (id: string) => `${V1}/conversations/${id}/media`,
     clear: (id: string) => `${V1}/conversations/${id}`,
+    pinned: (id: string) => `${V1}/conversations/${id}/pinned`,
+    unpin: (id: string, messageId: string) => `${V1}/conversations/${id}/pinned/${messageId}`,
   },
   messages: {
     byId: (id: string) => `${V1}/messages/${id}`,
@@ -87,6 +89,8 @@ export const Endpoints = {
     message: (id: string, messageId: string) => `${V1}/groups/${id}/messages/${messageId}`,
     reactMessage: (id: string, messageId: string) =>
       `${V1}/groups/${id}/messages/${messageId}/react`,
+    pinned: (id: string) => `${V1}/groups/${id}/pinned`,
+    unpin: (id: string, messageId: string) => `${V1}/groups/${id}/pinned/${messageId}`,
     read: (id: string) => `${V1}/groups/${id}/read`,
     settings: (id: string) => `${V1}/groups/${id}/settings`,
     joinRequests: (id: string) => `${V1}/groups/${id}/join-requests`,
@@ -99,6 +103,15 @@ export const Endpoints = {
     live: (id: string) => `${V1}/groups/${id}/live`,
     liveJoin: (id: string) => `${V1}/groups/${id}/live/join`,
     liveStop: (id: string) => `${V1}/groups/${id}/live/stop`,
+    // ── discussion liée & découverte (chaînes) ─────────────────────────
+    discussion: (id: string) => `${V1}/groups/${id}/discussion`,
+    discover: (params: { category?: string; query?: string }) => {
+      const q = new URLSearchParams();
+      if (params.category) q.set('category', params.category);
+      if (params.query) q.set('query', params.query);
+      const qs = q.toString();
+      return `${V1}/groups/discover${qs ? `?${qs}` : ''}`;
+    },
   },
   calls: {
     config: `${V1}/calls/config`,

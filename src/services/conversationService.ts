@@ -11,7 +11,7 @@ import { apiClient, Endpoints } from '@/api';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import { messageRepo } from '@/db/repositories/messageRepo';
 import { newClientId, outbox } from '@/sync/outbox';
-import type { ConversationDetail, ConversationSummary, SharedMedia } from '@/types';
+import type { ConversationDetail, ConversationSummary, PinnedMessage, SharedMedia } from '@/types';
 
 export const conversationService = {
   list(): Promise<ConversationSummary[]> {
@@ -79,5 +79,34 @@ export const conversationService = {
   async clearHistory(conversationId: string): Promise<void> {
     await apiClient.delete(Endpoints.conversations.clear(conversationId));
     await messageRepo.clearConversation(conversationId).catch(() => undefined);
+  },
+
+  /**
+   * « Supprimer la conversation » façon WhatsApp : retire la ligne de MA
+   * liste seulement (l'autre garde la sienne, l'historique n'est PAS
+   * effacé). Réseau requis — le masquage est côté serveur ; si l'autre
+   * réécrit, la conversation réapparaît automatiquement avec l'historique.
+   */
+  async hide(conversationId: string): Promise<void> {
+    await apiClient.post(Endpoints.conversations.hide(conversationId));
+    await conversationRepo.deleteLocal(conversationId);
+  },
+
+  /** Messages épinglés (jusqu'à 3) — les deux participants peuvent
+   * épingler/désépingler en 1-1 (pas de notion d'admin à deux). */
+  listPinned(conversationId: string): Promise<PinnedMessage[]> {
+    return apiClient.get<PinnedMessage[]>(Endpoints.conversations.pinned(conversationId));
+  },
+
+  pinMessage(conversationId: string, messageId: string): Promise<PinnedMessage> {
+    return apiClient.post<PinnedMessage>(Endpoints.conversations.pinned(conversationId), {
+      message_id: messageId,
+    });
+  },
+
+  unpinMessage(conversationId: string, messageId: string): Promise<void> {
+    return apiClient
+      .delete(Endpoints.conversations.unpin(conversationId, messageId))
+      .then(() => undefined);
   },
 };

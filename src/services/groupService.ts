@@ -17,6 +17,7 @@ import { activeThreadId } from '@/navigation/navigationRef';
 import { refreshBadge } from '@/services/notificationService';
 import type {
   CreateGroupInput,
+  DiscoverChannelsResult,
   Group,
   GroupJoinRequest,
   GroupKind,
@@ -24,6 +25,7 @@ import type {
   GroupMessage,
   GroupPreview,
   GroupSettings,
+  PinnedMessage,
 } from '@/types';
 import { newClientId, outbox } from '@/sync/outbox';
 
@@ -42,6 +44,13 @@ export const groupService = {
 
   get(id: string): Promise<LocalGroup | null> {
     return groupRepo.get(id);
+  },
+
+  /** Lecture serveur directe (pas le cache local) — pour un groupe/chaîne
+   * qu'on n'a peut-être jamais synchronisé localement (ex: canal de
+   * discussion lié qu'on n'a pas encore ouvert). */
+  getRemote(id: string): Promise<Group> {
+    return apiClient.get<Group>(Endpoints.groups.byId(id));
   },
 
   messages(id: string, beforeCreatedAt?: string): Promise<LocalGroupMessage[]> {
@@ -214,6 +223,22 @@ export const groupService = {
     await groupRepo.markDeleted(messageId);
   },
 
+  /** Messages épinglés (jusqu'à 3) — owner/admin uniquement, comme WhatsApp
+   * (vérifié aussi côté serveur). */
+  listPinned(groupId: string): Promise<PinnedMessage[]> {
+    return apiClient.get<PinnedMessage[]>(Endpoints.groups.pinned(groupId));
+  },
+
+  pinMessage(groupId: string, messageId: string): Promise<PinnedMessage> {
+    return apiClient.post<PinnedMessage>(Endpoints.groups.pinned(groupId), {
+      message_id: messageId,
+    });
+  },
+
+  unpinMessage(groupId: string, messageId: string): Promise<void> {
+    return apiClient.delete(Endpoints.groups.unpin(groupId, messageId)).then(() => undefined);
+  },
+
   async markRead(id: string): Promise<void> {
     await groupRepo.setUnread(id, 0);
     await outbox.enqueue('group_mark_read', newClientId(), { groupId: id });
@@ -322,5 +347,30 @@ export const groupService = {
   },
   rejectJoin(id: string, userId: string): Promise<void> {
     return apiClient.post(Endpoints.groups.rejectJoin(id, userId)).then(() => undefined);
+  },
+
+  // ── Discussion liée (chaîne, EN LIGNE) ─────────────────────────────────
+  /** Lie un canal de discussion existant OU en crée un nouveau — un seul
+   * des deux champs doit être fourni. */
+  async linkDiscussion(
+    id: string,
+    input: { existingGroupId?: string; newGroupName?: string },
+  ): Promise<Group> {
+    const g = await apiClient.post<Group>(Endpoints.groups.discussion(id), {
+      existing_group_id: input.existingGroupId ?? undefined,
+      new_group_name: input.newGroupName ?? undefined,
+    });
+    await groupRepo.upsertFromServer(g);
+    return g;
+  },
+  async unlinkDiscussion(id: string): Promise<Group> {
+    const g = await apiClient.delete<Group>(Endpoints.groups.discussion(id));
+    await groupRepo.upsertFromServer(g);
+    return g;
+  },
+
+  // ── Découverte des chaînes publiques (EN LIGNE) ────────────────────────
+  discover(params: { category?: string; query?: string } = {}): Promise<DiscoverChannelsResult> {
+    return apiClient.get<DiscoverChannelsResult>(Endpoints.groups.discover(params));
   },
 };

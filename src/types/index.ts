@@ -98,6 +98,23 @@ export interface ChatMessage {
   voicePlayed?: boolean;
 }
 
+/** Aperçu du message épinglé — évite un aller-retour supplémentaire pour
+ * afficher le bandeau en haut du chat. */
+export interface PinnedMessagePreview {
+  id: string;
+  type: string;
+  body: string;
+  sender_id: string;
+}
+
+export interface PinnedMessage {
+  id: string;
+  message_id: string;
+  pinned_by: string;
+  created_at: string;
+  message: PinnedMessagePreview | null;
+}
+
 export type RequestStatus =
   | 'accepted'
   | 'pending_incoming'
@@ -247,6 +264,8 @@ export interface Group {
   invite_code: string;
   is_public: boolean;
   category: GroupCategory | null;
+  /** chaîne uniquement : canal de discussion lié (façon Telegram), ou null. */
+  discussion_group_id: string | null;
   created_at: string;
   last_message_at: string | null;
   member_count: number;
@@ -267,6 +286,11 @@ export interface Group {
   /** chaîne uniquement (façon Telegram) : false = masque l'auteur individuel
    * des messages (montre juste le nom de la chaîne), true = l'affiche. */
   sign_messages: boolean;
+  /** chaîne uniquement : abonnement payant — structure seulement, aucun
+   * encaissement réel pour l'instant. */
+  is_paid: boolean;
+  subscription_price_cents: number | null;
+  subscription_currency: string | null;
 }
 
 export interface GroupSettings {
@@ -277,6 +301,9 @@ export interface GroupSettings {
   invite_visibility: 'both' | 'link' | 'code';
   disappearing_seconds: number;
   sign_messages: boolean;
+  is_paid: boolean;
+  subscription_price_cents: number | null;
+  subscription_currency: string | null;
 }
 
 export interface GroupJoinRequest {
@@ -300,6 +327,17 @@ export interface GroupPreview {
   category: GroupCategory | null;
   member_count: number;
   is_member: boolean;
+  is_paid: boolean;
+  subscription_price_cents: number | null;
+  subscription_currency: string | null;
+  /** renseigné seulement pour l'annuaire (chaînes publiques). */
+  invite_code: string | null;
+}
+
+/** Résultat paginé de l'annuaire des chaînes publiques. */
+export interface DiscoverChannelsResult {
+  items: GroupPreview[];
+  next_cursor: string | null;
 }
 
 export interface GroupMessage {

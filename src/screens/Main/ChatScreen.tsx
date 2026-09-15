@@ -22,6 +22,7 @@ import { EmojiSheet } from '@/components/chat/EmojiSheet';
 import { EncryptionInfoModal } from '@/components/chat/EncryptionInfoModal';
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { PinnedBanner } from '@/components/chat/PinnedBanner';
 import { QuickReplies } from '@/components/chat/QuickReplies';
 import { selectContacts } from '@/screens/Main/SelectContactsScreen';
 import { useMediaPicker, type LocalMediaFile } from '@/hooks/useMediaPicker';
@@ -45,7 +46,7 @@ import {
 } from '@/services';
 import { mediaCache } from '@/services/mediaCache';
 import { retryFailedDecryptions, syncNow } from '@/sync/syncEngine';
-import type { ChatMessage, MessageType, RequestStatus } from '@/types';
+import type { ChatMessage, MessageType, PinnedMessage, RequestStatus } from '@/types';
 import { callStartErrorMessage } from '@/utils/callError';
 import { E2EE_ENABLED } from '@/utils/constants';
 import { dayLabel, lastSeenLabel } from '@/utils/time';
@@ -135,6 +136,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [editing, setEditing] = useState<LocalMessage | null>(null);
   const [replyTo, setReplyTo] = useState<LocalMessage | null>(null);
   const [actionMsg, setActionMsg] = useState<LocalMessage | null>(null);
+  const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [encOpen, setEncOpen] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -183,6 +185,13 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     }
   }, [conversationId, partnerId, setRequestStatus]);
 
+  const reloadPinned = useCallback(() => {
+    void conversationService
+      .listPinned(conversationId)
+      .then(setPinnedMessages)
+      .catch(() => undefined);
+  }, [conversationId]);
+
   useEffect(() => {
     // 1) on lit d'abord le compteur non-lus + les messages, PUIS on marque lu
     //    (sinon markRead remet le compteur à 0 avant qu'on l'ait capturé).
@@ -190,6 +199,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       void messageService.markRead(conversationId, myId);
     });
     void refreshDetail();
+    reloadPinned();
     // filet : messages "pending" restés sans entrée d'outbox (app tuée) -> ré-empile
     void messageService.recoverOrphanPending(myId).then((n) => {
       if (n > 0) void reload();
@@ -228,6 +238,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         }
       } else if (e.type === 'message.reaction') {
         void messageRepo.setReaction(e.message_id as string, (e.emoji as string) ?? null).then(reload);
+      } else if (
+        (e.type === 'message.pinned' || e.type === 'message.unpinned') &&
+        e.conversation_id === conversationId
+      ) {
+        reloadPinned();
       } else if (e.type === 'receipt.read' && e.conversation_id === conversationId) {
         void messageRepo.markMineRead(conversationId, myId).then(reload);
       } else if (e.type === 'receipt.delivered' && e.conversation_id === conversationId) {
@@ -268,7 +283,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       off();
       if (partnerTypingTtl.current) clearTimeout(partnerTypingTtl.current);
     };
-  }, [addListener, conversationId, partnerId, myId, reload, setRequestStatus]);
+  }, [addListener, conversationId, partnerId, myId, reload, reloadPinned, setRequestStatus]);
 
   const onChangeText = useCallback(
     (v: string) => {
@@ -564,6 +579,28 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const doReply = () => {
     if (actionMsg) setReplyTo(actionMsg);
   };
+  const doPin = () => {
+    const m = actionMsg;
+    if (!m) return;
+    const alreadyPinned = pinnedMessages.some((p) => p.message_id === m.id);
+    if (alreadyPinned) {
+      void conversationService
+        .unpinMessage(conversationId, m.id)
+        .then(reloadPinned)
+        .catch(() => showToast(t('chat.unpinFailed'), { type: 'error' }));
+    } else {
+      void conversationService
+        .pinMessage(conversationId, m.id)
+        .then(reloadPinned)
+        .catch((e: unknown) => {
+          const msg =
+            e instanceof ApiError && e.code === 'pin_limit_reached'
+              ? t('chat.pinLimitReached')
+              : t('chat.pinFailed');
+          showToast(msg, { type: 'error' });
+        });
+    }
+  };
   const doForward = () => {
     const m = actionMsg;
     if (!m) return;
@@ -590,6 +627,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
           ok += 1;
         } catch (e) {
           console.warn('[forward] échec pour', contactId, ':', e);
+          // DIAGNOSTIC TEMPORAIRE : affiche le vrai message d'erreur (à
+          // retirer une fois la cause identifiée).
+          showToast(`[debug] ${contactId}: ${e instanceof Error ? e.message : String(e)}`, {
+            type: 'error',
+          });
           if (e instanceof ApiError && (e.status === 403 || e.code === 'blocked')) blockedCount += 1;
           else fail += 1;
         }
@@ -883,6 +925,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         </View>
       ) : null}
       <SyncBanner />
+      <PinnedBanner pinned={pinnedMessages} />
 
       {loading ? (
         <View style={styles.center}>
@@ -1184,6 +1227,8 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                 encrypted: !!actionMsg.encrypted,
                 currentReaction: actionMsg.reaction ?? null,
                 canForward: actionMsg.sync_state === 'synced' && !actionMsg.deleted_at,
+                isPinned: pinnedMessages.some((p) => p.message_id === actionMsg.id),
+                canPin: actionMsg.sync_state === 'synced' && !actionMsg.deleted_at,
               }
             : null
         }
@@ -1192,6 +1237,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         onCopy={doCopy}
         onEdit={doEditFromSheet}
         onForward={doForward}
+        onPin={doPin}
         onInfo={() => {
           const m = actionMsg;
           if (m) navigation.navigate('MessageInfo', { messageId: m.id, type: m.type });

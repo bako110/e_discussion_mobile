@@ -20,6 +20,7 @@ import { ApiError } from '@/api';
 import { AppHeader, Avatar, Icon, Screen, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
 import { GroupAttachment } from '@/components/chat/GroupAttachment';
 import { MessageActionSheet, type MsgActionContext } from '@/components/chat/MessageActionSheet';
+import { PinnedBanner } from '@/components/chat/PinnedBanner';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
@@ -27,7 +28,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { channelLiveService, conversationService, groupService, messageService } from '@/services';
-import type { ChannelLive } from '@/types';
+import type { ChannelLive, PinnedMessage } from '@/types';
 import type { LocalGroup, LocalGroupMessage } from '@/db/repositories/groupRepo';
 import { onLocalMessageEvent } from '@/context/MessageSync';
 import { groupRepo } from '@/db/repositories/groupRepo';
@@ -72,6 +73,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   const [channelLive, setChannelLive] = useState<ChannelLive | null>(null);
   const [actionMsg, setActionMsg] = useState<LocalGroupMessage | null>(null);
   const [editingMsg, setEditingMsg] = useState<LocalGroupMessage | null>(null);
+  const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>([]);
 
   /** Lecture locale (instantanée, hors-ligne OK). */
   const reload = useCallback(async () => {
@@ -84,11 +86,16 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     setLoading(false);
   }, [groupId]);
 
+  const reloadPinned = useCallback(() => {
+    void groupService.listPinned(groupId).then(setPinnedMessages).catch(() => undefined);
+  }, [groupId]);
+
   useEffect(() => {
     void reload();
     // rafraîchissement serveur best-effort (silencieux si hors-ligne)
     void groupService.refreshMessages(groupId).then(reload).catch(() => undefined);
-  }, [groupId, reload]);
+    reloadPinned();
+  }, [groupId, reload, reloadPinned]);
 
   // État du direct en cours (chaînes uniquement) — alimente le menu "⋮" du
   // header. Rafraîchi périodiquement tant que cet écran est ouvert : un
@@ -160,8 +167,14 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
             .then(reload)
             .catch(() => undefined);
         }
+        if (
+          (e.type === 'group.message.pinned' || e.type === 'group.message.unpinned') &&
+          e.group_id === groupId
+        ) {
+          reloadPinned();
+        }
       }),
-    [addListener, groupId, reload],
+    [addListener, groupId, reload, reloadPinned],
   );
 
   const send = async () => {
@@ -293,6 +306,29 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     setText(actionMsg.body);
   };
 
+  const doPin = () => {
+    const m = actionMsg;
+    if (!m) return;
+    const alreadyPinned = pinnedMessages.some((p) => p.message_id === m.id);
+    if (alreadyPinned) {
+      void groupService
+        .unpinMessage(groupId, m.id)
+        .then(reloadPinned)
+        .catch(() => showToast(t('chat.unpinFailed'), { type: 'error' }));
+    } else {
+      void groupService
+        .pinMessage(groupId, m.id)
+        .then(reloadPinned)
+        .catch((e: unknown) => {
+          const msg =
+            e instanceof ApiError && e.code === 'pin_limit_reached'
+              ? t('chat.pinLimitReached')
+              : t('chat.pinFailed');
+          showToast(msg, { type: 'error' });
+        });
+    }
+  };
+
   const doForward = () => {
     const m = actionMsg;
     if (!m) return;
@@ -319,6 +355,11 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
           ok += 1;
         } catch (e) {
           console.warn('[forward] échec pour', contactId, ':', e);
+          // DIAGNOSTIC TEMPORAIRE : affiche le vrai message d'erreur (à
+          // retirer une fois la cause identifiée).
+          showToast(`[debug] ${contactId}: ${e instanceof Error ? e.message : String(e)}`, {
+            type: 'error',
+          });
           if (e instanceof ApiError && (e.status === 403 || e.code === 'blocked')) blocked += 1;
           else fail += 1;
         }
@@ -685,6 +726,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
           <Text style={[styles.offlineText, { color: c.textMuted }]}>{t('sync.offline')}</Text>
         </View>
       ) : null}
+      <PinnedBanner pinned={pinnedMessages} />
 
       {loading ? (
         <View style={styles.center}>
@@ -799,6 +841,14 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
                 encrypted: false,
                 currentReaction: actionMsg.my_reaction ?? null,
                 canForward: !actionMsg.pending && !actionMsg.deleted_at,
+                isPinned: pinnedMessages.some((p) => p.message_id === actionMsg.id),
+                // épingler est réservé aux admins/owner (comme WhatsApp) —
+                // vérifié aussi côté serveur, cette condition n'est qu'un
+                // filtre d'affichage.
+                canPin:
+                  !actionMsg.pending &&
+                  !actionMsg.deleted_at &&
+                  (group?.my_role === 'owner' || group?.my_role === 'admin'),
               } satisfies MsgActionContext)
             : null
         }
@@ -806,6 +856,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
         onCopy={doCopy}
         onEdit={doEditFromSheet}
         onForward={doForward}
+        onPin={doPin}
         onDeleteForMe={doDeleteForMe}
         onDeleteForEveryone={doDeleteForEveryone}
         onClose={() => setActionMsg(null)}
