@@ -54,7 +54,10 @@ export const AppearanceSettingsScreen: React.FC = () => {
         <SettingsSection title={t('settings.theme')}>
           <View style={styles.rowStatic}>
             <Icon name="theme-light-dark" size={20} color={c.textMuted} />
-            <Text style={[styles.rowLabel, { color: c.text }]}>{t('settings.theme')}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: c.text }]}>{t('settings.theme')}</Text>
+              <Text style={[styles.rowDesc, { color: c.textFaint }]}>{t('settings.themeDesc')}</Text>
+            </View>
           </View>
           <View style={[styles.segment, { borderColor: c.border, marginBottom: 12 }]}>
             {themeOpts.map((o) => (
@@ -80,7 +83,10 @@ export const AppearanceSettingsScreen: React.FC = () => {
         <SettingsSection title={t('settings.language')}>
           <View style={styles.rowStatic}>
             <Icon name="translate" size={20} color={c.textMuted} />
-            <Text style={[styles.rowLabel, { color: c.text }]}>{t('settings.language')}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: c.text }]}>{t('settings.language')}</Text>
+              <Text style={[styles.rowDesc, { color: c.textFaint }]}>{t('settings.languageDesc')}</Text>
+            </View>
           </View>
           <View style={[styles.segment, { borderColor: c.border, marginBottom: 12 }]}>
             {SUPPORTED_LOCALES.map((l) => (
@@ -118,7 +124,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 4,
   },
-  rowLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
+  rowLabel: { fontSize: 15, fontWeight: '500' },
+  rowDesc: { fontSize: 12, marginTop: 2, lineHeight: 16 },
   segment: { flexDirection: 'row', borderWidth: 1, borderRadius: 10, padding: 3, marginHorizontal: 12, marginTop: 4 },
   seg: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 8 },
 });

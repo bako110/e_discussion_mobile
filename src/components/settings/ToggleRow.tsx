@@ -9,10 +9,12 @@ import { storage } from '@/utils/storage';
 export const ToggleRow: React.FC<{
   icon: string;
   label: string;
+  /** Courte explication sous le libellé, façon Réglages iOS/Android. */
+  description?: string;
   storageKey: string;
   defaultValue?: boolean;
   last?: boolean;
-}> = ({ icon, label, storageKey, defaultValue = true, last }) => {
+}> = ({ icon, label, description, storageKey, defaultValue = true, last }) => {
   const { theme } = useTheme();
   const c = theme.colors;
   const [on, setOn] = useState<boolean>(() => {
@@ -35,11 +37,19 @@ export const ToggleRow: React.FC<{
     <View
       style={[
         styles.row,
+        description ? styles.rowWithDescription : null,
         !last && { borderBottomColor: c.divider, borderBottomWidth: StyleSheet.hairlineWidth },
       ]}
     >
       <Icon name={icon} size={20} color={c.textMuted} />
-      <Text style={[styles.label, { color: c.text }]}>{label}</Text>
+      <View style={styles.body}>
+        <Text style={[styles.label, { color: c.text }]}>{label}</Text>
+        {description ? (
+          <Text style={[styles.description, { color: c.textFaint }]} numberOfLines={2}>
+            {description}
+          </Text>
+        ) : null}
+      </View>
       <Switch
         value={on}
         onValueChange={toggle}
@@ -59,5 +69,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     minHeight: 52,
   },
-  label: { flex: 1, fontSize: 15, fontWeight: '500' },
+  rowWithDescription: { alignItems: 'flex-start', paddingVertical: 10 },
+  body: { flex: 1 },
+  label: { fontSize: 15, fontWeight: '500' },
+  description: { fontSize: 12, marginTop: 2, lineHeight: 16 },
 });

@@ -1,9 +1,10 @@
-import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, ScrollView, Share, StyleSheet, Switch, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
+import { EncryptionInfoModal } from '@/components/chat/EncryptionInfoModal';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import {
   CHAT_WALLPAPERS,
@@ -12,6 +13,8 @@ import {
 } from '@/context/ChatPrefsContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav } from '@/navigation/types';
+import { authService } from '@/services';
+import { E2EE_ENABLED } from '@/utils/constants';
 
 const FONT_SIZES: FontSize[] = ['small', 'medium', 'large'];
 
@@ -29,6 +32,25 @@ export const ChatsSettingsScreen: React.FC = () => {
     setWallpaperKey,
     setEnterToSend,
   } = useChatPrefs();
+
+  const [exporting, setExporting] = useState(false);
+  const [encOpen, setEncOpen] = useState(false);
+
+  const exportChats = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const data = await authService.exportMyData();
+      await Share.share({
+        message: JSON.stringify(data, null, 2),
+        title: t('settings.exportTitle'),
+      });
+    } catch {
+      showAlert(t('errors.generic'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <Screen edges={[]}>
@@ -124,9 +146,14 @@ export const ChatsSettingsScreen: React.FC = () => {
         <SettingsSection title={t('settings.behavior')}>
           <View style={[styles.toggleRow, { borderBottomColor: c.divider }]}>
             <Icon name="keyboard-return" size={20} color={c.textMuted} />
-            <Text style={[styles.toggleLabel, { color: c.text }]}>
-              {t('settings.enterToSend')}
-            </Text>
+            <View style={styles.toggleTxt}>
+              <Text style={[styles.toggleLabel, { color: c.text }]}>
+                {t('settings.enterToSend')}
+              </Text>
+              <Text style={[styles.toggleHint, { color: c.textFaint }]}>
+                {t('settings.enterToSendDesc')}
+              </Text>
+            </View>
             <Switch
               value={enterToSend}
               onValueChange={setEnterToSend}
@@ -136,15 +163,47 @@ export const ChatsSettingsScreen: React.FC = () => {
           </View>
           <SettingsRow
             icon="cloud-upload-outline"
-            label={t('settings.chatBackup')}
+            label={exporting ? t('common.loading') : t('settings.chatBackup')}
+            description={t('settings.chatBackupDesc')}
             value={t('settings.exportData')}
-            onPress={() => navigation.navigate('AccountSettings')}
+            onPress={() => void exportChats()}
+            last
+          />
+        </SettingsSection>
+
+        {/* Confidentialité */}
+        <SettingsSection title={t('settings.privacy')}>
+          <SettingsRow
+            icon="shield-lock-outline"
+            label={t('settings.privacy')}
+            value={t('settings.privacyHint')}
+            onPress={() => navigation.navigate('PrivacySettings')}
+            last
+          />
+        </SettingsSection>
+
+        {/* Chiffrement */}
+        <SettingsSection title={t('encryption.title')}>
+          <SettingsRow
+            icon="lock-check-outline"
+            label={t('encryption.title')}
+            description={t('settings.encryptionCardDesc')}
+            value={E2EE_ENABLED ? t('chat.encActive') : t('common.comingSoon')}
+            onPress={() => setEncOpen(true)}
+          />
+          <SettingsRow
+            icon="devices"
+            label={t('settings.linkedDevices')}
+            description={t('settings.linkedDevicesDesc')}
+            onPress={() => navigation.navigate('Devices')}
             last
           />
         </SettingsSection>
 
         <Text style={[styles.note, { color: c.textFaint }]}>{t('settings.chatsNote')}</Text>
       </ScrollView>
+
+      <EncryptionInfoModal visible={encOpen} onClose={() => setEncOpen(false)} />
     </Screen>
   );
 };
@@ -186,6 +245,8 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  toggleLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
+  toggleTxt: { flex: 1 },
+  toggleLabel: { fontSize: 15, fontWeight: '500' },
+  toggleHint: { fontSize: 12, marginTop: 2 },
   note: { fontSize: 12, marginTop: 18, marginHorizontal: 6, lineHeight: 17 },
 });

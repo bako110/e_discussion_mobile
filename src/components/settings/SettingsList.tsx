@@ -23,10 +23,13 @@ export const SettingsSection: React.FC<{ title?: string; children: React.ReactNo
   );
 };
 
-/** Ligne de réglage : icône + libellé + (valeur | chevron). */
+/** Ligne de réglage : icône + libellé (+ description) + (valeur | chevron). */
 export const SettingsRow: React.FC<{
   icon: string;
   label: string;
+  /** Courte explication sous le libellé (façon iOS/Android Settings) — pour
+   * qu'on comprenne à quoi sert l'option sans avoir à l'ouvrir. */
+  description?: string;
   value?: string | null;
   onPress?: () => void;
   danger?: boolean;
@@ -36,7 +39,7 @@ export const SettingsRow: React.FC<{
   /** Couleur d'icône ponctuelle (ex: rouge « en direct ») — sans affecter le
    * libellé, contrairement à `danger` qui colore aussi le texte. */
   iconColor?: string;
-}> = ({ icon, label, value, onPress, danger, last, chevron, iconColor }) => {
+}> = ({ icon, label, description, value, onPress, danger, last, chevron, iconColor }) => {
   const { theme } = useTheme();
   const c = theme.colors;
   const showChevron = (chevron ?? !!onPress) && !danger;
@@ -47,13 +50,21 @@ export const SettingsRow: React.FC<{
       android_ripple={onPress ? { color: c.surfaceAlt } : undefined}
       style={[
         styles.row,
+        description ? styles.rowWithDescription : null,
         !last && { borderBottomColor: c.divider, borderBottomWidth: StyleSheet.hairlineWidth },
       ]}
     >
       <Icon name={icon} size={20} color={iconColor ?? (danger ? c.danger : c.textMuted)} />
-      <Text style={[styles.rowLabel, { color: danger ? c.danger : c.text }]} numberOfLines={1}>
-        {label}
-      </Text>
+      <View style={styles.rowBody}>
+        <Text style={[styles.rowLabel, { color: danger ? c.danger : c.text }]} numberOfLines={1}>
+          {label}
+        </Text>
+        {description ? (
+          <Text style={[styles.rowDescription, { color: c.textMuted }]} numberOfLines={2}>
+            {description}
+          </Text>
+        ) : null}
+      </View>
       {value ? (
         <Text style={[styles.rowValue, { color: c.textFaint }]} numberOfLines={1}>
           {value}
@@ -76,6 +87,9 @@ const styles = StyleSheet.create({
   },
   card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 14 },
-  rowLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
+  rowWithDescription: { alignItems: 'flex-start', paddingVertical: 12 },
+  rowBody: { flex: 1 },
+  rowLabel: { fontSize: 15, fontWeight: '500' },
+  rowDescription: { fontSize: 12.5, lineHeight: 17, marginTop: 2 },
   rowValue: { fontSize: 14, maxWidth: 180 },
 });

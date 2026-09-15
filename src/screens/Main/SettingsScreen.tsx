@@ -65,36 +65,43 @@ export const SettingsScreen: React.FC = () => {
           <SettingsRow
             icon="account-circle-outline"
             label={t('settings.account')}
+            description={t('settings.accountMenuDesc')}
             onPress={() => navigation.navigate('AccountSettings')}
           />
           <SettingsRow
             icon="lock-outline"
             label={t('settings.privacy')}
+            description={t('settings.privacyMenuDesc')}
             onPress={() => navigation.navigate('PrivacySettings')}
           />
           <SettingsRow
             icon="chat-outline"
             label={t('settings.chats')}
+            description={t('settings.chatsMenuDesc')}
             onPress={() => navigation.navigate('ChatsSettings')}
           />
           <SettingsRow
             icon="phone-outline"
             label={t('settings.calls')}
+            description={t('settings.callsMenuDesc')}
             onPress={() => navigation.navigate('CallsSettings')}
           />
           <SettingsRow
             icon="bell-outline"
             label={t('settings.notifications')}
+            description={t('settings.notificationsMenuDesc')}
             onPress={() => navigation.navigate('NotificationsSettings')}
           />
           <SettingsRow
             icon="palette-outline"
             label={t('settings.appearance')}
+            description={t('settings.appearanceMenuDesc')}
             onPress={() => navigation.navigate('AppearanceSettings')}
           />
           <SettingsRow
             icon="database-outline"
             label={t('settings.data')}
+            description={t('settings.dataMenuDesc')}
             value={pending > 0 ? String(pending) : undefined}
             onPress={() => navigation.navigate('StorageSettings')}
             last
@@ -105,11 +112,13 @@ export const SettingsScreen: React.FC = () => {
           <SettingsRow
             icon="help-circle-outline"
             label={t('settings.help')}
+            description={t('settings.helpMenuDesc')}
             onPress={() => navigation.navigate('HelpSettings')}
           />
           <SettingsRow
             icon="information-outline"
             label={t('settings.about')}
+            description={t('settings.aboutMenuDesc')}
             onPress={() => navigation.navigate('AboutSettings')}
             last
           />

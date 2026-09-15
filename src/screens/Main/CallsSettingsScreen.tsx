@@ -119,6 +119,7 @@ export const CallsSettingsScreen: React.FC = () => {
           <Toggle
             icon="vibrate"
             label={t('settings.vibrate')}
+            hint={t('settings.vibrateHint')}
             value={vibrate}
             onValueChange={setVibrate}
             last

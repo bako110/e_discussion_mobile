@@ -30,11 +30,13 @@ export const HelpSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="frequently-asked-questions"
             label={t('settings.faq')}
+            description={t('settings.faqDesc')}
             onPress={() => navigation.navigate('FaqSettings')}
           />
           <SettingsRow
             icon="email-fast-outline"
             label={t('settings.contactUs')}
+            description={t('settings.contactUsDesc')}
             onPress={() => navigation.navigate('ContactUs')}
             last
           />
@@ -44,11 +46,13 @@ export const HelpSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="file-document-outline"
             label={t('settings.terms')}
+            description={t('settings.termsDesc')}
             onPress={() => navigation.navigate('TermsOfService')}
           />
           <SettingsRow
             icon="shield-account-outline"
             label={t('settings.privacyPolicy')}
+            description={t('settings.privacyPolicyDesc')}
             onPress={() => navigation.navigate('PrivacyPolicy')}
             last
           />

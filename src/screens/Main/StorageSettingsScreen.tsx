@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
 } from 'react-native';
@@ -14,6 +15,7 @@ import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
 import { getDb } from '@/db';
 import type { MainNav } from '@/navigation/types';
+import { authService } from '@/services';
 import { mediaCache } from '@/services/mediaCache';
 import { storage } from '@/utils/storage';
 import { resetSyncCursor } from '@/sync/syncEngine';
@@ -40,6 +42,23 @@ export const StorageSettingsScreen: React.FC = () => {
   const [cacheSize, setCacheSize] = useState<number | null>(null);
   const refreshCacheSize = () => void mediaCache.size().then(setCacheSize);
   useEffect(refreshCacheSize, []);
+
+  const [exporting, setExporting] = useState(false);
+  const exportData = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const data = await authService.exportMyData();
+      await Share.share({
+        message: JSON.stringify(data, null, 2),
+        title: t('settings.exportTitle'),
+      });
+    } catch {
+      showAlert(t('errors.generic'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const clearMediaCache = () => {
     showAlert(t('settings.clearMediaCache'), t('settings.clearMediaCacheConfirm'), [
@@ -99,18 +118,21 @@ export const StorageSettingsScreen: React.FC = () => {
           <SettingsRow
             icon={online ? 'cloud-check-outline' : 'cloud-off-outline'}
             label={t('settings.connection')}
+            description={t('settings.connectionDesc')}
             value={online ? t('common.online') : t('common.offline')}
             chevron={false}
           />
           <SettingsRow
             icon="tray-full"
             label={t('settings.pendingActions')}
+            description={t('settings.pendingActionsDesc')}
             value={String(pending)}
             chevron={false}
           />
           <SettingsRow
             icon="sync"
             label={t('settings.syncNow')}
+            description={t('settings.syncNowDesc')}
             onPress={() => void syncNow()}
             last
           />
@@ -120,11 +142,13 @@ export const StorageSettingsScreen: React.FC = () => {
           <ToggleRow
             icon="wifi"
             label={t('settings.autoDownloadWifi')}
+            description={t('settings.autoDownloadWifiDesc')}
             storageKey="storage.autoDownloadWifi"
           />
           <ToggleRow
             icon="cellphone"
             label={t('settings.autoDownloadData')}
+            description={t('settings.autoDownloadDataDesc')}
             storageKey="storage.autoDownloadData"
             defaultValue={false}
             last
@@ -135,13 +159,21 @@ export const StorageSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="image-off-outline"
             label={t('settings.clearMediaCache')}
+            description={t('settings.clearMediaCacheDesc')}
             value={cacheSize == null ? '…' : humanSize(cacheSize)}
             onPress={clearMediaCache}
           />
           <SettingsRow
             icon="delete-sweep-outline"
             label={t('settings.clearLocal')}
+            description={t('settings.clearLocalDesc')}
             onPress={clearLocal}
+          />
+          <SettingsRow
+            icon="cloud-upload-outline"
+            label={exporting ? t('common.loading') : t('settings.exportData')}
+            description={t('settings.exportDataDesc')}
+            onPress={() => void exportData()}
             last
           />
         </SettingsSection>

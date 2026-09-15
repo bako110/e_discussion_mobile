@@ -40,6 +40,7 @@ export const AboutSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="star-outline"
             label={t('settings.rateApp')}
+            description={t('settings.rateAppDesc')}
             onPress={() => {
               const url =
                 Platform.OS === 'ios'
@@ -57,6 +58,7 @@ export const AboutSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="share-variant-outline"
             label={t('settings.shareApp')}
+            description={t('settings.shareAppDesc')}
             onPress={() =>
               void Share.share({
                 message: t('settings.shareAppText'),
@@ -66,6 +68,7 @@ export const AboutSettingsScreen: React.FC = () => {
           <SettingsRow
             icon="web"
             label={t('settings.website')}
+            description={t('settings.websiteDesc')}
             onPress={() =>
               void Linking.openURL('https://e-discussion.app').catch(() => undefined)
             }

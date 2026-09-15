@@ -72,24 +72,28 @@ export const PrivacySettingsScreen: React.FC = () => {
           <SettingsRow
             icon="access-point"
             label={t('profilePrivacy.field_online')}
+            description={t('settings.onlineDesc')}
             value={privacyModeLabel('online')}
             onPress={() => openField('online')}
           />
           <SettingsRow
             icon="clock-outline"
             label={t('settings.lastSeen')}
+            description={t('settings.lastSeenDesc')}
             value={privacyModeLabel('last_seen')}
             onPress={() => openField('last_seen')}
           />
           <SettingsRow
             icon="account-box-outline"
             label={t('settings.profilePhoto')}
+            description={t('settings.profilePhotoDesc')}
             value={privacyModeLabel('profile_photo')}
             onPress={() => openField('profile_photo')}
           />
           <SettingsRow
             icon="information-outline"
             label={t('settings.aboutVisibility')}
+            description={t('settings.aboutVisibilityDesc')}
             value={privacyModeLabel('about')}
             onPress={() => openField('about')}
             last
@@ -99,9 +103,14 @@ export const PrivacySettingsScreen: React.FC = () => {
         <SettingsSection title={t('settings.messaging')}>
           <View style={[styles.toggleRow, { borderBottomColor: c.divider }]}>
             <Icon name="check-all" size={20} color={c.textMuted} />
-            <Text style={[styles.toggleLabel, { color: c.text }]}>
-              {t('settings.readReceipts')}
-            </Text>
+            <View style={styles.toggleTxt}>
+              <Text style={[styles.toggleLabel, { color: c.text }]}>
+                {t('settings.readReceipts')}
+              </Text>
+              <Text style={[styles.toggleHint, { color: c.textFaint }]}>
+                {t('settings.readReceiptsDesc')}
+              </Text>
+            </View>
             <Switch
               value={readReceipts}
               onValueChange={toggleReadReceipts}
@@ -113,6 +122,7 @@ export const PrivacySettingsScreen: React.FC = () => {
           <SettingsRow
             icon="account-cancel-outline"
             label={t('settings.blockedUsers')}
+            description={t('settings.blockedUsersDesc')}
             onPress={() => navigation.navigate('BlockedUsers')}
             last
           />
@@ -122,12 +132,14 @@ export const PrivacySettingsScreen: React.FC = () => {
           <SettingsRow
             icon="shield-lock-outline"
             label={t('settings.encryptionStatus')}
+            description={t('settings.encryptionStatusDesc')}
             value={t('settings.encryptionOn')}
             chevron={false}
           />
           <SettingsRow
             icon="cellphone-link"
             label={t('settings.linkedDevices')}
+            description={t('settings.linkedDevicesDesc')}
             onPress={() => navigation.navigate('Devices')}
             last
           />
@@ -153,6 +165,8 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  toggleLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
+  toggleTxt: { flex: 1 },
+  toggleLabel: { fontSize: 15, fontWeight: '500' },
+  toggleHint: { fontSize: 12, marginTop: 2 },
   note: { fontSize: 12, marginTop: 18, marginHorizontal: 6, lineHeight: 17 },
 });
