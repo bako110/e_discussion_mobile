@@ -31,6 +31,12 @@ export async function initDb(): Promise<DB> {
       ['body_cipher', 'TEXT'],
       ['client_id', 'TEXT'],
       ['decrypt_failed', 'INTEGER NOT NULL DEFAULT 0'],
+      // ajoutee en v12 — un appareil ayant deja `user_version >= 12` d'une
+      // build anterieure a cette colonne (schema v12 modifie apres coup) ne
+      // rejoue jamais MIGRATIONS[11] : sans ce rattrapage, TOUT insert dans
+      // `messages` echoue avec "no such column: forwarded_from_id" (cassait
+      // meme l'envoi de messages normaux, pas seulement le transfert).
+      ['forwarded_from_id', 'TEXT'],
     ];
     try {
       const info = await db.execute('PRAGMA table_info(messages);');
@@ -51,6 +57,24 @@ export async function initDb(): Promise<DB> {
       }
     } catch (e) {
       console.warn('[db] reconciliation schema ignoree:', e);
+    }
+
+    // Même rattrapage pour group_messages (même colonne ajoutée en v12).
+    try {
+      const info = await db.execute('PRAGMA table_info(group_messages);');
+      const have = new Set(
+        (info.rows ?? []).map((r) => String((r as { name?: string }).name)),
+      );
+      if (have.size > 0 && !have.has('forwarded_from_id')) {
+        try {
+          await db.execute('ALTER TABLE group_messages ADD COLUMN forwarded_from_id TEXT;');
+          console.warn('[db] colonne manquante rattrapee: group_messages.forwarded_from_id');
+        } catch (e) {
+          console.warn("[db] impossible d'ajouter group_messages.forwarded_from_id:", e);
+        }
+      }
+    } catch (e) {
+      console.warn('[db] reconciliation schema group_messages ignoree:', e);
     }
   }
 
