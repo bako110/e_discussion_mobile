@@ -179,11 +179,13 @@ export const ChannelDiscussionScreen: React.FC<MainScreenProps<'ChannelDiscussio
               <SettingsRow
                 icon="plus-circle-outline"
                 label={t('groupSettings.discussionCreateNew')}
+                description={t('groupSettings.discussionCreateNewDesc')}
                 onPress={() => setMode('new')}
               />
               <SettingsRow
                 icon="format-list-bulleted"
                 label={t('groupSettings.discussionPickExisting')}
+                description={t('groupSettings.discussionPickExistingDesc')}
                 onPress={() => void openExisting()}
                 last
               />

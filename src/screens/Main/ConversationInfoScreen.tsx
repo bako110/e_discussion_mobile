@@ -363,7 +363,10 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
           <SettingsSection title={t('chat.notifications')}>
             <View style={styles.toggleRow}>
               <Icon name={muted ? 'bell-off-outline' : 'bell-outline'} size={20} color={c.textMuted} />
-              <Text style={[styles.toggleLabel, { color: c.text }]}>{t('chat.mute')}</Text>
+              <View style={styles.toggleTxt}>
+                <Text style={[styles.toggleLabel, { color: c.text }]}>{t('chat.mute')}</Text>
+                <Text style={[styles.toggleHint, { color: c.textFaint }]}>{t('chat.muteDesc')}</Text>
+              </View>
               <Switch
                 value={muted}
                 disabled={busy === 'mute'}
@@ -379,11 +382,13 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
             <SettingsRow
               icon="wallpaper"
               label={t('chat.wallpaper')}
+              description={t('chat.wallpaperDesc')}
               onPress={() => navigation.navigate('ChatsSettings')}
             />
             <SettingsRow
               icon="shield-lock-outline"
               label={t('encryption.title')}
+              description={t('settings.encryptionCardDesc')}
               value={t('chat.encActive')}
               onPress={() => setEncOpen(true)}
               last
@@ -395,19 +400,28 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
             <SettingsRow
               icon={blocked ? 'account-check-outline' : 'account-cancel-outline'}
               label={blocked ? t('chat.unblock') : t('chat.block')}
+              description={blocked ? t('chat.unblockDesc') : t('chat.blockDesc')}
               danger={!blocked}
               onPress={toggleBlock}
             />
-            <SettingsRow icon="flag-outline" label={t('chat.report')} danger onPress={report} />
+            <SettingsRow
+              icon="flag-outline"
+              label={t('chat.report')}
+              description={t('chat.reportDesc')}
+              danger
+              onPress={report}
+            />
             <SettingsRow
               icon="trash-can-outline"
               label={busy === 'clear' ? t('common.loading') : t('chat.clearHistory')}
+              description={t('chat.clearHistoryDesc')}
               danger
               onPress={clearHistory}
             />
             <SettingsRow
               icon="delete-outline"
               label={busy === 'delete' ? t('common.loading') : t('chat.deleteConversation')}
+              description={t('chat.deleteConversationDesc')}
               danger
               onPress={deleteConversation}
               last
@@ -503,5 +517,7 @@ const styles = StyleSheet.create({
   mediaEmptyTxt: { fontSize: 13 },
 
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
-  toggleLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
+  toggleTxt: { flex: 1 },
+  toggleLabel: { fontSize: 15, fontWeight: '500' },
+  toggleHint: { fontSize: 12, marginTop: 2 },
 });

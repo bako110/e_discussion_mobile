@@ -8,7 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
+import { AppHeader, Icon, Screen, confirmAlert, showSheet, showToast } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
@@ -47,14 +47,34 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
   const [isChannel, setIsChannel] = useState(false);
   const [category, setCategory] = useState<GroupCategory | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
+  const [savingPublic, setSavingPublic] = useState(false);
   const [channelLive, setChannelLive] = useState<ChannelLive | null>(null);
 
   useEffect(() => {
     void groupRepo.get(groupId).then((g) => {
       setIsChannel(g?.kind === 'channel');
       setCategory(g?.category ?? null);
+      setIsPublic(g?.is_public ?? true);
     });
   }, [groupId]);
+
+  const togglePublic = (v: boolean) => {
+    const prev = isPublic;
+    setIsPublic(v);
+    setSavingPublic(true);
+    groupService
+      .update(groupId, { is_public: v })
+      .then(() => {
+        void reloadGroups();
+        showToast(t('groupSettings.saved'));
+      })
+      .catch(() => {
+        setIsPublic(prev);
+        showToast(t('groupSettings.saveFailed'), { type: 'error' });
+      })
+      .finally(() => setSavingPublic(false));
+  };
 
   useEffect(() => {
     if (!isChannel) return;
@@ -198,16 +218,19 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
     return t(`groupSettings.disappear_${d.key}`);
   };
 
-  /** Fonctionnalité de chaîne pas encore livrée -> alerte « À venir ». */
-  const soon = (labelKey: string) =>
-    showAlert(t(labelKey), t('common.comingSoonBody'));
-
-  /** Fonctionnalités propres à une chaîne (façon Telegram). `soon: true`
-   *  -> pas encore implémenté, alerte « À venir » au tap. La diffusion en
-   *  direct (ch_liveStream) est livrée -> gérée séparément (voir goLive). */
-  const CHANNEL_FEATURES: { icon: string; key: string; soon: boolean }[] = [
-    { icon: 'message-reply-text-outline', key: 'ch_discussion', soon: true },
-    { icon: 'star-circle-outline', key: 'ch_subscription', soon: true },
+  /** Fonctionnalités propres à une chaîne (façon Telegram). La diffusion en
+   *  direct (ch_liveStream) est gérée séparément (voir goLive). */
+  const CHANNEL_FEATURES: { icon: string; key: string; onPress: () => void }[] = [
+    {
+      icon: 'message-reply-text-outline',
+      key: 'ch_discussion',
+      onPress: () => navigation.navigate('ChannelDiscussion', { groupId }),
+    },
+    {
+      icon: 'star-circle-outline',
+      key: 'ch_subscription',
+      onPress: () => navigation.navigate('ChannelSubscription', { groupId }),
+    },
   ];
 
   return (
@@ -239,6 +262,9 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
             <SettingsRow
               icon={isChannel ? 'bullhorn-outline' : 'message-text-outline'}
               label={isChannel ? t('groupSettings.ch_publish') : t('groupSettings.sendMessages')}
+              description={
+                isChannel ? t('groupSettings.ch_publishDesc') : t('groupSettings.sendMessagesDesc')
+              }
               value={policyLabel(s.send_messages_policy)}
               onPress={() =>
                 pickPolicy(
@@ -251,6 +277,9 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
             <SettingsRow
               icon="pencil-outline"
               label={isChannel ? t('groupSettings.ch_editInfo') : t('groupSettings.editInfo')}
+              description={
+                isChannel ? t('groupSettings.ch_editInfoDesc') : t('groupSettings.editInfoDesc')
+              }
               value={policyLabel(s.edit_info_policy)}
               onPress={() =>
                 pickPolicy(
@@ -265,6 +294,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
               <SettingsRow
                 icon="account-plus-outline"
                 label={t('groupSettings.addMembers')}
+                description={t('groupSettings.addMembersDesc')}
                 value={policyLabel(s.add_members_policy)}
                 onPress={() =>
                   pickPolicy(t('groupSettings.addMembers'), s.add_members_policy, (v) =>
@@ -277,10 +307,35 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
           </SettingsSection>
 
           {isChannel ? (
+            <SettingsSection title={t('groupSettings.visibility')}>
+              <View style={[styles.toggleRow, { borderBottomColor: c.divider }]}>
+                <Icon
+                  name={isPublic ? 'earth' : 'lock-outline'}
+                  size={20}
+                  color={c.textMuted}
+                />
+                <Text style={[styles.toggleLabel, { color: c.text }]}>
+                  {isPublic
+                    ? t('groupSettings.visibilityPublicHint')
+                    : t('groupSettings.visibilityPrivateHint')}
+                </Text>
+                <Switch
+                  value={isPublic}
+                  onValueChange={togglePublic}
+                  disabled={savingPublic}
+                  trackColor={{ true: c.primary, false: c.border }}
+                  thumbColor="#fff"
+                />
+              </View>
+            </SettingsSection>
+          ) : null}
+
+          {isChannel ? (
             <SettingsSection title={t('groups.category')}>
               <SettingsRow
                 icon="shape-outline"
                 label={t('groups.category')}
+                description={t('groups.categoryDesc')}
                 value={
                   savingCategory
                     ? t('common.loading')
@@ -317,11 +372,18 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
           >
             <View style={[styles.toggleRow, { borderBottomColor: c.divider }]}>
               <Icon name="account-check-outline" size={20} color={c.textMuted} />
-              <Text style={[styles.toggleLabel, { color: c.text }]}>
-                {isChannel
-                  ? t('groupSettings.ch_approveNewMembers')
-                  : t('groupSettings.approveNewMembers')}
-              </Text>
+              <View style={styles.toggleTxt}>
+                <Text style={[styles.toggleLabel, { color: c.text }]}>
+                  {isChannel
+                    ? t('groupSettings.ch_approveNewMembers')
+                    : t('groupSettings.approveNewMembers')}
+                </Text>
+                <Text style={[styles.toggleHint, { color: c.textFaint }]}>
+                  {isChannel
+                    ? t('groupSettings.ch_approveNewMembersDesc')
+                    : t('groupSettings.approveNewMembersDesc')}
+                </Text>
+              </View>
               <Switch
                 value={s.join_approval_required}
                 onValueChange={(v) => void patch({ join_approval_required: v })}
@@ -334,6 +396,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
               <SettingsRow
                 icon="account-clock-outline"
                 label={t('groupSettings.pendingRequests')}
+                description={t('groupSettings.pendingRequestsDesc')}
                 value={pending > 0 ? String(pending) : t('groupSettings.none')}
                 onPress={() => navigation.navigate('GroupJoinRequests', { groupId })}
                 last
@@ -345,6 +408,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
             <SettingsRow
               icon="link-variant"
               label={t('groupSettings.inviteVisibility')}
+              description={t('groupSettings.inviteVisibilityDesc')}
               value={t(`groupSettings.invite_${s.invite_visibility}`)}
               onPress={pickInviteVis}
               last
@@ -359,6 +423,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
                   icon="access-point"
                   iconColor="#E0203D"
                   label={t('channelLive.live')}
+                  description={t('channelLive.liveDesc')}
                   value={t('channelLive.viewers', { count: channelLive.current_viewers })}
                   onPress={() =>
                     navigation.navigate('ChannelLiveViewer', {
@@ -377,6 +442,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
                 <SettingsRow
                   icon="video-wireless-outline"
                   label={t('channelLive.goLive')}
+                  description={t('channelLive.goLiveDesc')}
                   onPress={goLive}
                   last
                 />
@@ -392,8 +458,8 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
                   key={f.key}
                   icon={f.icon}
                   label={t(`groupSettings.${f.key}`)}
-                  value={f.soon ? t('common.soon') : undefined}
-                  onPress={() => (f.soon ? soon(`groupSettings.${f.key}`) : undefined)}
+                  description={t(`groupSettings.${f.key}Desc`)}
+                  onPress={f.onPress}
                   last={i === CHANNEL_FEATURES.length - 1}
                 />
               ))}
@@ -406,6 +472,7 @@ export const GroupSettingsScreen: React.FC<MainScreenProps<'GroupSettings'>> = (
               <SettingsRow
                 icon="timer-sand"
                 label={t('groupSettings.disappearing')}
+                description={t('groupSettings.disappearingDesc')}
                 value={disappearLabel()}
                 onPress={pickDisappear}
                 last
@@ -437,7 +504,9 @@ const styles = StyleSheet.create({
     minHeight: 52,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  toggleLabel: { flex: 1, fontSize: 15, fontWeight: '500' },
+  toggleTxt: { flex: 1 },
+  toggleLabel: { fontSize: 15, fontWeight: '500' },
+  toggleHint: { fontSize: 12, marginTop: 2 },
   note: { fontSize: 12, marginTop: 18, marginHorizontal: 6, lineHeight: 17 },
   denied: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10 },
   deniedTitle: { fontSize: 17, fontWeight: '700', textAlign: 'center' },
