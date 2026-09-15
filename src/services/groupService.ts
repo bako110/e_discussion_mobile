@@ -18,6 +18,7 @@ import { refreshBadge } from '@/services/notificationService';
 import type {
   CreateGroupInput,
   DiscoverChannelsResult,
+  DiscussionChannel,
   Group,
   GroupJoinRequest,
   GroupKind,
@@ -350,8 +351,13 @@ export const groupService = {
   },
 
   // ── Discussion liée (chaîne, EN LIGNE) ─────────────────────────────────
-  /** Lie un canal de discussion existant OU en crée un nouveau — un seul
-   * des deux champs doit être fourni. */
+  /** Canaux de discussion liés à cette chaîne (jusqu'à 5). */
+  listDiscussions(id: string): Promise<DiscussionChannel[]> {
+    return apiClient.get<DiscussionChannel[]>(Endpoints.groups.discussion(id));
+  },
+
+  /** Lie un NOUVEAU canal de discussion existant OU en crée un nouveau — un
+   * seul des deux champs doit être fourni. Jusqu'à 5 canaux liés à la fois. */
   async linkDiscussion(
     id: string,
     input: { existingGroupId?: string; newGroupName?: string },
@@ -363,8 +369,11 @@ export const groupService = {
     await groupRepo.upsertFromServer(g);
     return g;
   },
-  async unlinkDiscussion(id: string): Promise<Group> {
-    const g = await apiClient.delete<Group>(Endpoints.groups.discussion(id));
+
+  async unlinkDiscussion(id: string, discussionGroupId: string): Promise<Group> {
+    const g = await apiClient.delete<Group>(
+      Endpoints.groups.unlinkDiscussion(id, discussionGroupId),
+    );
     await groupRepo.upsertFromServer(g);
     return g;
   },

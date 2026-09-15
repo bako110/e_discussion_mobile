@@ -264,8 +264,9 @@ export interface Group {
   invite_code: string;
   is_public: boolean;
   category: GroupCategory | null;
-  /** chaîne uniquement : canal de discussion lié (façon Telegram), ou null. */
-  discussion_group_id: string | null;
+  /** chaîne uniquement : canaux de discussion liés (façon Telegram),
+   * jusqu'à 5 en même temps — vide si aucun. */
+  discussion_group_ids: string[];
   created_at: string;
   last_message_at: string | null;
   member_count: number;
@@ -291,6 +292,15 @@ export interface Group {
   is_paid: boolean;
   subscription_price_cents: number | null;
   subscription_currency: string | null;
+}
+
+/** Un canal de discussion lié — id + nom, pour l'affichage de la liste
+ * (GET /groups/{id}/discussion). */
+export interface DiscussionChannel {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  member_count: number;
 }
 
 export interface GroupSettings {

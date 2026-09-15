@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
+import { ApiError } from '@/api';
 import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -63,7 +64,11 @@ export const JoinPreviewScreen: React.FC<MainScreenProps<'JoinPreview'>> = ({
       navigation.replace('GroupChat', { groupId: g.id, name: g.name });
     } catch (e) {
       console.warn('[join] failed:', e);
-      setError(t('errors.generic'));
+      setError(
+        e instanceof ApiError && e.code === 'member_limit_reached'
+          ? t('groups.memberLimitReached')
+          : t('errors.generic'),
+      );
       setJoining(false);
     }
   };

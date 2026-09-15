@@ -87,6 +87,10 @@ function toGroup(r: GroupRow): LocalGroup {
     invite_visibility: 'both',
     disappearing_seconds: 0,
     sign_messages: false,
+    discussion_group_ids: [],
+    is_paid: false,
+    subscription_price_cents: null,
+    subscription_currency: null,
     muted: !!r.muted,
     sync_state: r.sync_state as 'synced' | 'pending',
   };

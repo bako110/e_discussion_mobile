@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
+import { ApiError } from '@/api';
 import { AppHeader, Avatar, Button, Icon, Screen, showAlert, showToast } from '@/components/common';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -93,8 +94,12 @@ export const AddGroupMembersScreen: React.FC<MainScreenProps<'AddGroupMembers'>>
       await reloadGroups();
       showToast(t('groups.membersAdded', { count: ids.length }));
       navigation.goBack();
-    } catch {
-      showAlert(t('errors.generic'));
+    } catch (e) {
+      const msg =
+        e instanceof ApiError && e.code === 'member_limit_reached'
+          ? t('groups.memberLimitReached')
+          : t('errors.generic');
+      showAlert(msg);
       setBusy(false);
     }
   };
