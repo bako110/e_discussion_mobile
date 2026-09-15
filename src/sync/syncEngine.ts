@@ -87,6 +87,7 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
           attachment_url: p.attachmentUrl ?? undefined,
           attachment_meta: p.attachmentMeta ?? undefined,
           reply_to_id: p.replyToId ?? undefined,
+          forwarded_from_id: p.forwardedFromId ?? undefined,
           client_id: entry.client_id,
         },
       );

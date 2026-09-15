@@ -21,6 +21,7 @@ import {
   type PlayMeta,
 } from '@/services/voicePlayer';
 import { mediaUrl } from '@/utils/media';
+import { clockTime } from '@/utils/time';
 
 function fmt(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -51,6 +52,14 @@ interface Props {
    * l'avatar dans les deux sens, jamais seulement d'un côté. */
   senderAvatar?: string | null;
   senderName?: string | null;
+  /** Statut d'accusé de réception — coche façon WhatsApp, affichée SEULEMENT
+   * pour un vocal ENVOYÉ (`mine`) : je ne vois jamais d'accusé sur ce que je
+   * reçois. `undefined` masque la coche (ex: contexte sans suivi d'état). */
+  deliveryStatus?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
+  /** Horodatage du message (ISO) — affiché à la place de la taille/durée une
+   * fois le vocal téléchargé, façon WhatsApp (la taille ne sert que tant que
+   * le fichier n'est pas encore récupéré). */
+  createdAt?: string;
 }
 
 function humanSize(bytes: number | null | undefined): string {
@@ -78,6 +87,8 @@ export const VoiceNoteBubble: React.FC<Props> = ({
   onLongPress,
   senderAvatar,
   senderName,
+  deliveryStatus,
+  createdAt,
 }) => {
   const { theme } = useTheme();
   const c = theme.colors;
@@ -186,6 +197,10 @@ export const VoiceNoteBubble: React.FC<Props> = ({
         ? 'pause'
         : 'play';
 
+  // Une fois téléchargé, la taille ne sert plus à rien (elle n'aide qu'à
+  // savoir combien on va télécharger) — seule la durée/position reste
+  // affichée ici. L'heure d'envoi est affichée séparément (metaRow,
+  // à droite avec la coche), jamais à la place de la durée.
   const sub = cached.downloading
     ? `${Math.round(cached.progress * 100)} %`
     : needsDownload
@@ -197,26 +212,6 @@ export const VoiceNoteBubble: React.FC<Props> = ({
       {senderAvatar !== undefined ? (
         <Avatar uri={senderAvatar} name={senderName} size={32} />
       ) : null}
-      <Pressable
-        onPress={onPress}
-        hitSlop={8}
-        style={[
-          styles.playBtn,
-          {
-            backgroundColor: unheard
-              ? '#2E9BFF'
-              : mine
-                ? 'rgba(255,255,255,0.22)'
-                : c.primary + '1F',
-          },
-        ]}
-      >
-        <Icon
-          name={iconName}
-          size={20}
-          color={unheard ? '#fff' : mine ? '#fff' : c.primary}
-        />
-      </Pressable>
 
       <View style={styles.waveArea}>
         <View
@@ -240,15 +235,69 @@ export const VoiceNoteBubble: React.FC<Props> = ({
           })}
         </View>
         <View style={styles.metaRow}>
-          <Text style={[styles.time, { color: fg, opacity: 0.85 }]}>{sub}</Text>
-          {/* badge micro : bleu vif tant que le vocal reçu n'est pas écouté */}
-          <Icon
-            name="microphone"
-            size={14}
-            color={unheard ? '#2E9BFF' : mine ? 'rgba(255,255,255,0.85)' : c.textFaint}
-          />
+          <Text style={[styles.time, { color: fg, opacity: 0.85 }]} numberOfLines={1}>
+            {sub}
+          </Text>
+          <View style={styles.metaRight}>
+            {createdAt ? (
+              <Text style={[styles.time, { color: fg, opacity: 0.85 }]}>
+                {clockTime(createdAt)}
+              </Text>
+            ) : null}
+            {mine && deliveryStatus ? (
+              // Vocal ENVOYÉ : coche d'accusé façon WhatsApp (jamais sur un
+              // vocal reçu — on ne voit pas l'accusé de ce qu'on reçoit).
+              <Icon
+                name={
+                  deliveryStatus === 'failed'
+                    ? 'alert-circle-outline'
+                    : deliveryStatus === 'pending'
+                      ? 'clock-outline'
+                      : deliveryStatus === 'sent'
+                        ? 'check'
+                        : 'check-all'
+                }
+                size={14}
+                color={
+                  deliveryStatus === 'failed'
+                    ? c.danger
+                    : deliveryStatus === 'read'
+                      ? '#7FD0FF'
+                      : 'rgba(255,255,255,0.85)'
+                }
+              />
+            ) : !mine ? (
+              // vocal REÇU : badge micro, bleu vif tant qu'il n'est pas écouté
+              <Icon
+                name="microphone"
+                size={14}
+                color={unheard ? '#2E9BFF' : c.textFaint}
+              />
+            ) : null}
+          </View>
         </View>
       </View>
+
+      <Pressable
+        onPress={onPress}
+        hitSlop={8}
+        style={[
+          styles.playBtn,
+          {
+            backgroundColor: unheard
+              ? '#2E9BFF'
+              : mine
+                ? 'rgba(255,255,255,0.22)'
+                : c.primary + '1F',
+          },
+        ]}
+      >
+        <Icon
+          name={iconName}
+          size={20}
+          color={unheard ? '#fff' : mine ? '#fff' : c.primary}
+        />
+      </Pressable>
     </Pressable>
   );
 };
@@ -260,11 +309,12 @@ const WAVE = [
 ];
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 210, paddingVertical: 4 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minWidth: 230, paddingVertical: 4 },
   playBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  waveArea: { flex: 1, gap: 5 },
+  waveArea: { flex: 1, gap: 5, minWidth: 0 },
   waveRow: { flexDirection: 'row', alignItems: 'center', gap: 2.5, height: 22 },
   bar: { width: 2.5, borderRadius: 2 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  time: { fontSize: 11.5, fontVariant: ['tabular-nums'] },
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  metaRight: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0 },
+  time: { fontSize: 11.5, fontVariant: ['tabular-nums'], flexShrink: 1 },
 });

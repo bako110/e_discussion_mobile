@@ -27,6 +27,11 @@ interface Props {
   onVoicePlayed?: (messageId: string) => void;
   /** contexte pour le mini-lecteur vocal global (barre hors du chat). */
   voiceTitle?: string;
+  /** Photo/nom de l'expéditeur — affichée à côté d'un vocal REÇU (façon
+   * WhatsApp). Omettre en groupe : l'avatar y est déjà affiché séparément
+   * au-dessus de la bulle par l'écran appelant. */
+  senderAvatar?: string | null;
+  senderName?: string | null;
 }
 
 function metaNum(meta: Record<string, unknown> | null, key: string): number | null {
@@ -55,6 +60,17 @@ function humanSize(bytes: number | null): string {
  * Sur une bulle sortante COLORÉE (fond bleu), un bleu clair par-dessus devient
  * illisible — dans ce cas les deux appelants passent du blanc à opacités
  * différentes, pour que "remis" reste visiblement plus discret que "lu". */
+/** Même dérivation que `StatusTick`, sous forme de statut simple — utilisé
+ * pour la coche du lecteur vocal (VoiceNoteBubble), qui n'a pas accès à
+ * `LocalMessage` directement. */
+function deliveryStatusOf(m: LocalMessage): 'pending' | 'sent' | 'delivered' | 'read' | 'failed' {
+  if (m.sync_state === 'failed') return 'failed';
+  if (m.sync_state === 'pending') return 'pending';
+  if (m.read) return 'read';
+  if (m.delivered) return 'delivered';
+  return 'sent';
+}
+
 const StatusTick: React.FC<{
   m: LocalMessage;
   color: string;
@@ -79,6 +95,8 @@ export const MessageBubble: React.FC<Props> = ({
   onOpenLocation,
   onVoicePlayed,
   voiceTitle,
+  senderAvatar,
+  senderName,
 }) => {
   const { t } = useTranslation();
   const { theme } = useTheme();
@@ -218,6 +236,10 @@ export const MessageBubble: React.FC<Props> = ({
             conversationId: message.conversation_id,
             title: voiceTitle ?? null,
           }}
+          senderAvatar={senderAvatar}
+          senderName={senderName}
+          deliveryStatus={mine ? deliveryStatusOf(message) : undefined}
+          createdAt={message.created_at}
         />
       );
     }
@@ -303,6 +325,13 @@ export const MessageBubble: React.FC<Props> = ({
           bareMedia && styles.bubbleBare,
         ]}
       >
+        {message.forwarded_from_id ? (
+          <View style={[styles.forwardedRow, { opacity: 0.65 }]}>
+            <Icon name="share-outline" size={12} color={fg} />
+            <Text style={[styles.forwardedTxt, { color: fg }]}>{t('chat.forwarded')}</Text>
+          </View>
+        ) : null}
+
         {message.reply_to ? (
           <View style={[styles.reply, { borderLeftColor: mine ? '#ffffffaa' : c.primary }]}>
             <Text style={{ color: fg, opacity: 0.85, fontSize: 13 }} numberOfLines={1}>
@@ -313,7 +342,10 @@ export const MessageBubble: React.FC<Props> = ({
 
         {hasAttachment ? renderAttachment() : null}
 
-        {message.decryptFailed && !message.body ? (
+        {/* Le vocal affiche déjà sa propre heure + coche DANS sa bulle
+            (VoiceNoteBubble) — ne jamais ajouter la meta ci-dessous par-dessus,
+            ça créait un doublon (heure affichée deux fois). */}
+        {isVoice ? null : message.decryptFailed && !message.body ? (
           <View style={styles.encryptedRow}>
             <Icon name="lock-alert-outline" size={14} color={fg} />
             <Text
@@ -325,7 +357,12 @@ export const MessageBubble: React.FC<Props> = ({
               {t('conversations.messageUnavailable')}
             </Text>
           </View>
-        ) : message.body ? (
+        ) : message.body && !bareMedia ? (
+          // Meta (heure + coche) IMBRIQUÉE en fin du dernier <Text> — façon
+          // WhatsApp : elle flotte à la suite du dernier mot au lieu d'une
+          // ligne séparée en dessous, qui zigzaguait selon la longueur du
+          // texte. Uniquement pour du texte pur : un média (bareMedia) garde
+          // son overlay en position absolue, il n'y a pas de texte à suivre.
           <Text
             style={[
               styles.body,
@@ -334,33 +371,53 @@ export const MessageBubble: React.FC<Props> = ({
             ]}
           >
             {message.body}
-          </Text>
-        ) : null}
-
-        <View style={[styles.meta, bareMedia && styles.metaOnMedia]}>
-          {message.edited_at ? (
-            <Text style={[styles.metaText, { color: bareMedia ? '#fff' : fg, opacity: 0.6 }]}>
-              {t('common.edit').toLowerCase()} ·{' '}
+            {'  '}
+            {message.edited_at ? (
+              <Text style={[styles.metaTextInline, { color: fg, opacity: 0.6 }]}>
+                {t('common.edit').toLowerCase()} ·{' '}
+              </Text>
+            ) : null}
+            <Text style={[styles.metaTextInline, { color: fg, opacity: 0.75 }]}>
+              {clockTime(message.created_at)}
             </Text>
-          ) : null}
-          <Text style={[styles.metaText, { color: bareMedia ? '#fff' : fg, opacity: 0.75 }]}>
-            {clockTime(message.created_at)}
+            {mine ? (
+              <>
+                {' '}
+                <StatusTick
+                  m={message}
+                  color={failed ? c.danger : fg}
+                  deliveredColor={fg}
+                  readColor="#7FD0FF"
+                />
+              </>
+            ) : null}
           </Text>
-          {mine ? (
-            <View style={{ marginLeft: 4 }}>
-              <StatusTick
-                m={message}
-                color={failed ? c.danger : bareMedia ? '#fff' : fg}
-                // fond bleu (bulle sortante) ou média sombre -> le bleu clair
-                // "lu" habituel devient illisible dessus. On reste en blanc
-                // mais on distingue remis/lu par l'opacité : "remis" reste
-                // discret (comme les coches par défaut), "lu" ressort net.
-                deliveredColor={bareMedia || mine ? 'rgba(255,255,255,0.65)' : fg}
-                readColor={bareMedia || mine ? '#ffffff' : '#7FD0FF'}
-              />
-            </View>
-          ) : null}
-        </View>
+        ) : (
+          <View style={[styles.meta, bareMedia && styles.metaOnMedia]}>
+            {message.edited_at ? (
+              <Text style={[styles.metaText, { color: bareMedia ? '#fff' : fg, opacity: 0.6 }]}>
+                {t('common.edit').toLowerCase()} ·{' '}
+              </Text>
+            ) : null}
+            <Text style={[styles.metaText, { color: bareMedia ? '#fff' : fg, opacity: 0.75 }]}>
+              {clockTime(message.created_at)}
+            </Text>
+            {mine ? (
+              <View style={{ marginLeft: 4 }}>
+                <StatusTick
+                  m={message}
+                  color={failed ? c.danger : bareMedia ? '#fff' : fg}
+                  // fond bleu (bulle sortante) ou média sombre -> le bleu clair
+                  // "lu" habituel devient illisible dessus. On reste en blanc
+                  // mais on distingue remis/lu par l'opacité : "remis" reste
+                  // discret (comme les coches par défaut), "lu" ressort net.
+                  deliveredColor={bareMedia || mine ? 'rgba(255,255,255,0.65)' : fg}
+                  readColor={bareMedia || mine ? '#ffffff' : '#7FD0FF'}
+                />
+              </View>
+            ) : null}
+          </View>
+        )}
 
         {message.reaction ? (
           <View style={[styles.reaction, { backgroundColor: c.card, borderColor: c.border }]}>
@@ -384,6 +441,8 @@ const styles = StyleSheet.create({
   bubbleBare: { padding: 3 },
   deleted: { borderWidth: 1, backgroundColor: 'transparent', flexDirection: 'row', alignItems: 'center', borderRadius: 18 },
   reply: { borderLeftWidth: 3, paddingLeft: 8, marginBottom: 4, opacity: 0.9 },
+  forwardedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3 },
+  forwardedTxt: { fontSize: 12, fontStyle: 'italic' },
   encryptedRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   body: { fontSize: 15, lineHeight: 21, flexShrink: 1 },
   meta: { flexDirection: 'row', alignSelf: 'flex-end', marginTop: 2, alignItems: 'center' },
@@ -397,6 +456,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   metaText: { fontSize: 11 },
+  metaTextInline: { fontSize: 11 },
   mediaWrap: {
     width: 230,
     maxWidth: '100%',

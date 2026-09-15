@@ -149,6 +149,14 @@ export const GroupAttachment: React.FC<Props> = ({
 
   // ── VOCAL ────────────────────────────────────────────────────────────
   if (message.type === 'voice') {
+    // Pas d'accusé de LECTURE individuel en groupe (comme WhatsApp) — juste
+    // envoyé / en attente / échec.
+    const deliveryStatus =
+      message.sync_state === 'failed'
+        ? 'failed'
+        : message.pending
+          ? 'pending'
+          : 'sent';
     return (
       <VoiceNoteBubble
         url={url}
@@ -160,6 +168,8 @@ export const GroupAttachment: React.FC<Props> = ({
         playerMeta={{ conversationId: message.group_id, title: groupName ?? null }}
         senderAvatar={senderAvatar}
         senderName={senderName}
+        deliveryStatus={mine ? deliveryStatus : undefined}
+        createdAt={message.created_at}
       />
     );
   }

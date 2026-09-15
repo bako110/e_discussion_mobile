@@ -14,20 +14,23 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
+import Clipboard from '@react-native-clipboard/clipboard';
+
 import { AppHeader, Avatar, Icon, Screen, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
 import { GroupAttachment } from '@/components/chat/GroupAttachment';
-import { QuickReactionSheet } from '@/components/chat/QuickReactionSheet';
+import { MessageActionSheet, type MsgActionContext } from '@/components/chat/MessageActionSheet';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
 import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainScreenProps } from '@/navigation/types';
-import { channelLiveService, groupService } from '@/services';
+import { channelLiveService, conversationService, groupService, messageService } from '@/services';
 import type { ChannelLive } from '@/types';
 import type { LocalGroup, LocalGroupMessage } from '@/db/repositories/groupRepo';
 import { onLocalMessageEvent } from '@/context/MessageSync';
 import { groupRepo } from '@/db/repositories/groupRepo';
+import { selectContacts } from '@/screens/Main/SelectContactsScreen';
 import { useSync } from '@/context/SyncContext';
 import { syncNow } from '@/sync/syncEngine';
 import { mediaUrl } from '@/utils/media';
@@ -66,7 +69,8 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [channelLive, setChannelLive] = useState<ChannelLive | null>(null);
-  const [reactMsg, setReactMsg] = useState<LocalGroupMessage | null>(null);
+  const [actionMsg, setActionMsg] = useState<LocalGroupMessage | null>(null);
+  const [editingMsg, setEditingMsg] = useState<LocalGroupMessage | null>(null);
 
   /** Lecture locale (instantanée, hors-ligne OK). */
   const reload = useCallback(async () => {
@@ -140,13 +144,44 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
             .then(reload)
             .catch(() => undefined);
         }
+        if (e.type === 'group.message.edited' && e.group_id === groupId) {
+          const em = e.message as { id?: string; body?: string; edited_at?: string } | undefined;
+          if (em?.id) {
+            void groupRepo
+              .applyEdit(em.id, em.body ?? '', em.edited_at ?? new Date().toISOString())
+              .then(reload)
+              .catch(() => undefined);
+          }
+        }
+        if (e.type === 'group.message.deleted' && e.group_id === groupId) {
+          void groupRepo
+            .markDeleted(String(e.message_id))
+            .then(reload)
+            .catch(() => undefined);
+        }
       }),
     [addListener, groupId, reload],
   );
 
   const send = async () => {
     const body = text.trim();
-    if (!body || sending || !group?.can_post) return;
+    if (!body || sending) return;
+    if (editingMsg) {
+      setText('');
+      setSending(true);
+      const editing = editingMsg;
+      setEditingMsg(null);
+      try {
+        await groupService.editMessage(groupId, editing.id, body);
+        await reload();
+      } catch {
+        showToast(t('errors.generic'), { type: 'error' });
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+    if (!group?.can_post) return;
     setText('');
     setSending(true);
     try {
@@ -240,9 +275,64 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   };
 
   const doReact = (emoji: string | null) => {
-    if (!reactMsg) return;
+    if (!actionMsg) return;
     void groupService
-      .react(groupId, reactMsg.id, emoji)
+      .react(groupId, actionMsg.id, emoji)
+      .then(reload)
+      .catch(() => showToast(t('errors.generic'), { type: 'error' }));
+  };
+
+  const doCopy = () => {
+    if (actionMsg?.body) Clipboard.setString(actionMsg.body);
+  };
+
+  const doEditFromSheet = () => {
+    if (!actionMsg) return;
+    setEditingMsg(actionMsg);
+    setText(actionMsg.body);
+  };
+
+  const doForward = () => {
+    const m = actionMsg;
+    if (!m) return;
+    void (async () => {
+      const ids = await selectContacts({ title: t('chat.forwardSelectTitle') });
+      if (!ids || ids.length === 0) return;
+
+      let ok = 0;
+      let fail = 0;
+      for (const contactId of ids) {
+        try {
+          const detail = await conversationService.start(contactId);
+          await messageService.send({
+            conversationId: detail.id,
+            partnerId: contactId,
+            senderId: myId,
+            type: m.type === 'system' ? 'text' : m.type,
+            body: m.body,
+            attachmentUrl: m.attachment_url,
+            attachmentMeta: m.attachment_meta,
+            forwardedFromId: m.id,
+          });
+          ok += 1;
+        } catch {
+          fail += 1;
+        }
+      }
+      if (ok > 0) showToast(t('chat.forwardSent', { count: ok }));
+      if (fail > 0) showToast(t('chat.forwardFailed', { count: fail }), { type: 'error' });
+    })();
+  };
+
+  const doDeleteForMe = () => {
+    if (!actionMsg) return;
+    void groupRepo.markDeleted(actionMsg.id).then(reload);
+  };
+
+  const doDeleteForEveryone = () => {
+    if (!actionMsg) return;
+    void groupService
+      .deleteMessage(groupId, actionMsg.id)
       .then(reload)
       .catch(() => showToast(t('errors.generic'), { type: 'error' }));
   };
@@ -433,7 +523,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
           <Pressable
             onLongPress={() => {
               if (item.deleted_at) return;
-              setReactMsg(item);
+              setActionMsg(item);
             }}
             style={[
               styles.bubble,
@@ -446,6 +536,19 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
               <Text style={[styles.sender, { color: c.primary }]} numberOfLines={1}>
                 {senderName}
               </Text>
+            ) : null}
+
+            {item.forwarded_from_id ? (
+              <View style={[styles.forwardedRow, { opacity: 0.65 }]}>
+                <Icon
+                  name="share-outline"
+                  size={12}
+                  color={mine ? c.bubbleOutText : c.bubbleInText}
+                />
+                <Text style={[styles.forwardedTxt, { color: mine ? c.bubbleOutText : c.bubbleInText }]}>
+                  {t('chat.forwarded')}
+                </Text>
+              </View>
             ) : null}
 
             {item.attachment_url ? (
@@ -467,19 +570,37 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
               />
             ) : null}
 
-            {item.body ? (
+            {/* Le vocal affiche déjà sa propre heure + coche DANS sa bulle
+                (VoiceNoteBubble) — ne jamais ajouter la meta ci-dessous,
+                ça créait un doublon (heure affichée deux fois). */}
+            {isVoiceMsg ? null : item.body ? (
+              // L'heure est un <Text> IMBRIQUÉ en fin de corps (pas une ligne
+              // séparée en dessous) — façon WhatsApp : elle flotte à la suite
+              // du dernier mot et ne descend à la ligne que si la place
+              // manque, au lieu de zigzaguer sous des messages de longueurs
+              // différentes.
               <Text style={[styles.body, { color: mine ? c.bubbleOutText : c.bubbleInText }]}>
                 {item.body}
+                {'  '}
+                <Text
+                  style={[
+                    styles.timeInline,
+                    { color: mine ? 'rgba(255,255,255,0.75)' : c.textFaint },
+                  ]}
+                >
+                  {item.pending ? t('common.loading') : clockTime(item.created_at)}
+                </Text>
               </Text>
-            ) : null}
-            <Text
-              style={[
-                styles.time,
-                { color: mine ? 'rgba(255,255,255,0.75)' : c.textFaint },
-              ]}
-            >
-              {item.pending ? t('common.loading') : clockTime(item.created_at)}
-            </Text>
+            ) : (
+              <Text
+                style={[
+                  styles.time,
+                  { color: mine ? 'rgba(255,255,255,0.75)' : c.textFaint },
+                ]}
+              >
+                {item.pending ? t('common.loading') : clockTime(item.created_at)}
+              </Text>
+            )}
           </Pressable>
         </View>
         {reactionEntries.length > 0 ? (
@@ -590,36 +711,63 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
             <View
               style={[
                 styles.composer,
-                { paddingBottom: 8 + insets.bottom, backgroundColor: c.background, borderTopColor: c.divider },
+                {
+                  paddingBottom: 8 + insets.bottom,
+                  backgroundColor: c.background,
+                  borderTopColor: c.divider,
+                },
               ]}
             >
-              <Pressable
-                onPress={pickAttachment}
-                disabled={sending || picker.busy}
-                style={styles.attachBtn}
-                hitSlop={6}
-              >
-                {picker.busy ? (
-                  <ActivityIndicator color={c.textMuted} size="small" />
-                ) : (
-                  <Icon name="paperclip" size={22} color={c.textMuted} />
-                )}
-              </Pressable>
-              <TextInput
-                value={text}
-                onChangeText={setText}
-                placeholder={t('groups.messagePlaceholder')}
-                placeholderTextColor={c.textFaint}
-                multiline
-                style={[styles.composerInput, { backgroundColor: c.surface, color: c.text }]}
-              />
-              <Pressable
-                onPress={send}
-                disabled={!text.trim() || sending}
-                style={[styles.sendBtn, { backgroundColor: c.primary, opacity: text.trim() && !sending ? 1 : 0.5 }]}
-              >
-                <Icon name="send" size={20} color="#fff" />
-              </Pressable>
+              {editingMsg ? (
+                <View style={[styles.editBar, { borderLeftColor: c.primary }]}>
+                  <View style={styles.flex}>
+                    <Text style={[styles.editLabel, { color: c.primary }]}>
+                      {t('common.edit')}
+                    </Text>
+                    <Text style={[styles.editPreview, { color: c.textMuted }]} numberOfLines={1}>
+                      {editingMsg.body}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      setEditingMsg(null);
+                      setText('');
+                    }}
+                    hitSlop={8}
+                  >
+                    <Icon name="close" size={18} color={c.textMuted} />
+                  </Pressable>
+                </View>
+              ) : null}
+              <View style={styles.composerRow}>
+                <Pressable
+                  onPress={pickAttachment}
+                  disabled={sending || picker.busy}
+                  style={styles.attachBtn}
+                  hitSlop={6}
+                >
+                  {picker.busy ? (
+                    <ActivityIndicator color={c.textMuted} size="small" />
+                  ) : (
+                    <Icon name="paperclip" size={22} color={c.textMuted} />
+                  )}
+                </Pressable>
+                <TextInput
+                  value={text}
+                  onChangeText={setText}
+                  placeholder={t('groups.messagePlaceholder')}
+                  placeholderTextColor={c.textFaint}
+                  multiline
+                  style={[styles.composerInput, { backgroundColor: c.surface, color: c.text }]}
+                />
+                <Pressable
+                  onPress={send}
+                  disabled={!text.trim() || sending}
+                  style={[styles.sendBtn, { backgroundColor: c.primary, opacity: text.trim() && !sending ? 1 : 0.5 }]}
+                >
+                  <Icon name="send" size={20} color="#fff" />
+                </Pressable>
+              </View>
             </View>
           ) : (
             <View
@@ -636,11 +784,26 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
           )}
         </KeyboardAvoidingView>
       )}
-      <QuickReactionSheet
-        visible={!!reactMsg}
-        currentReaction={reactMsg?.my_reaction ?? null}
+      <MessageActionSheet
+        visible={!!actionMsg}
+        ctx={
+          actionMsg
+            ? ({
+                mine: actionMsg.sender_id === myId,
+                hasText: !!actionMsg.body,
+                encrypted: false,
+                currentReaction: actionMsg.my_reaction ?? null,
+                canForward: !actionMsg.pending && !actionMsg.deleted_at,
+              } satisfies MsgActionContext)
+            : null
+        }
         onReact={doReact}
-        onClose={() => setReactMsg(null)}
+        onCopy={doCopy}
+        onEdit={doEditFromSheet}
+        onForward={doForward}
+        onDeleteForMe={doDeleteForMe}
+        onDeleteForEveryone={doDeleteForEveryone}
+        onClose={() => setActionMsg(null)}
       />
     </Screen>
   );
@@ -680,6 +843,8 @@ const styles = StyleSheet.create({
   reactionCount: { fontSize: 11, fontWeight: '700' },
   bubble: { maxWidth: '78%', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 7 },
   sender: { fontSize: 12, fontWeight: '800', marginBottom: 2 },
+  forwardedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3 },
+  forwardedTxt: { fontSize: 12, fontStyle: 'italic' },
   body: { fontSize: 15, lineHeight: 20 },
   attachWrap: { borderRadius: 12, overflow: 'hidden', marginBottom: 4, position: 'relative' },
   attachImg: { width: 220, height: 220, backgroundColor: '#0002' },
@@ -703,6 +868,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   time: { fontSize: 10, marginTop: 3, alignSelf: 'flex-end' },
+  timeInline: { fontSize: 10 },
   dayWrap: { alignItems: 'center', marginVertical: 8 },
   dayText: { fontSize: 11, fontWeight: '700', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
   sysWrap: { alignItems: 'center', marginVertical: 6 },
@@ -713,13 +879,27 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', gap: 8, paddingVertical: 60 },
   emptyText: { fontSize: 13 },
   composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
     paddingHorizontal: 12,
     paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  composerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  flex: { flex: 1 },
+  editBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderLeftWidth: 3,
+    paddingLeft: 10,
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  editLabel: { fontSize: 12, fontWeight: '800' },
+  editPreview: { fontSize: 13, marginTop: 1 },
   composerInput: {
     flex: 1,
     minHeight: 40,

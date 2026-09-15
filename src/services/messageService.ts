@@ -50,6 +50,10 @@ interface SendParams {
   /** Métadonnées de la pièce jointe : durée, dimensions, nom, lat/lng… */
   attachmentMeta?: Record<string, unknown> | null;
   replyTo?: ReplyPreview | null;
+  /** Id du message d'origine — message transféré ("Transféré" façon
+   * WhatsApp), jamais chiffré (l'origine peut venir d'une AUTRE conversation
+   * avec une session E2EE différente, ou ne plus être accessible). */
+  forwardedFromId?: string | null;
 }
 
 export const messageService = {
@@ -88,6 +92,7 @@ export const messageService = {
       attachmentUrl: p.attachmentUrl ?? null,
       attachmentMeta: p.attachmentMeta ?? null,
       replyTo: p.replyTo,
+      forwardedFromId: p.forwardedFromId ?? null,
       createdAt,
     });
     const preview = plain || attachmentPreview(type);
@@ -121,6 +126,7 @@ export const messageService = {
           attachmentUrl: p.attachmentUrl ?? undefined,
           attachmentMeta: p.attachmentMeta ?? undefined,
           replyToId: p.replyTo?.id,
+          forwardedFromId: p.forwardedFromId ?? undefined,
         });
       } catch (e) {
         console.warn('[send] enqueue a échoué:', String(e));

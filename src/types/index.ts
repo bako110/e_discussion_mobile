@@ -312,6 +312,7 @@ export interface GroupMessage {
   body: string;
   attachment_url: string | null;
   attachment_meta: Record<string, unknown> | null;
+  forwarded_from_id: string | null;
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;

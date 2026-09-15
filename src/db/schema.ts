@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -264,5 +264,13 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE group_messages ADD COLUMN reactions_json TEXT;
   ALTER TABLE group_messages ADD COLUMN my_reaction TEXT;
+  `,
+
+  // ── v12 : transfert de message ("Transféré" façon WhatsApp). On stocke
+  // l'id du message d'origine (`forwarded_from_id`, déjà exposé par l'API) —
+  // même si l'UI n'affiche jamais QUI/QUOI précisément, juste le badge.
+  `
+  ALTER TABLE messages ADD COLUMN forwarded_from_id TEXT;
+  ALTER TABLE group_messages ADD COLUMN forwarded_from_id TEXT;
   `,
 ];

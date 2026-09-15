@@ -25,17 +25,23 @@ export interface MsgActionContext {
   hasText: boolean;
   encrypted: boolean;
   currentReaction: string | null;
+  /** `false` pour un message pas encore confirmé par le serveur (pending/
+   * failed) ou déjà supprimé — rien de valide à transférer dans ce cas. */
+  canForward: boolean;
 }
 
 interface Props {
   visible: boolean;
   ctx: MsgActionContext | null;
   onReact: (emoji: string | null) => void;
-  onReply: () => void;
+  /** Absent -> pas de "Répondre" (ex: messages de groupe, pas encore de
+   * citation de message côté groupe). */
+  onReply?: () => void;
   onCopy: () => void;
   onEdit: () => void;
   onForward: () => void;
-  onInfo: () => void;
+  /** Absent -> pas d'écran "Infos" (accusés horodatés, 1-1 uniquement). */
+  onInfo?: () => void;
   onDeleteForMe: () => void;
   onDeleteForEveryone: () => void;
   onClose: () => void;
@@ -77,11 +83,11 @@ export const MessageActionSheet: React.FC<Props> = ({
   };
 
   const rows: { key: string; icon: string; label: string; danger?: boolean; show: boolean; fn: () => void }[] = [
-    { key: 'reply', icon: 'reply', label: t('chat.reply'), show: true, fn: () => run(onReply) },
+    { key: 'reply', icon: 'reply', label: t('chat.reply'), show: !!onReply, fn: () => run(onReply!) },
     { key: 'copy', icon: 'content-copy', label: t('chat.copy'), show: !!ctx?.hasText, fn: () => run(onCopy) },
     { key: 'edit', icon: 'pencil-outline', label: t('common.edit'), show: !!ctx?.mine && !!ctx?.hasText && !ctx?.encrypted, fn: () => run(onEdit) },
-    { key: 'forward', icon: 'share-outline', label: t('chat.forward'), show: !!ctx?.hasText, fn: () => run(onForward) },
-    { key: 'info', icon: 'information-outline', label: t('messageInfo.action'), show: !!ctx?.mine, fn: () => run(onInfo) },
+    { key: 'forward', icon: 'share-outline', label: t('chat.forward'), show: !!ctx?.canForward, fn: () => run(onForward) },
+    { key: 'info', icon: 'information-outline', label: t('messageInfo.action'), show: !!ctx?.mine && !!onInfo, fn: () => run(onInfo!) },
     { key: 'delme', icon: 'trash-can-outline', label: t('chat.deleteForMe'), show: true, fn: () => run(onDeleteForMe) },
     { key: 'delall', icon: 'trash-can', label: t('chat.deleteForEveryone'), danger: true, show: !!ctx?.mine, fn: () => run(onDeleteForEveryone) },
   ];

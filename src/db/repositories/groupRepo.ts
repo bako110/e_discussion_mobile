@@ -39,6 +39,7 @@ interface GMsgRow {
   body: string;
   attachment_url: string | null;
   attachment_meta: string | null;
+  forwarded_from_id: string | null;
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;
@@ -104,6 +105,7 @@ function toGMsg(r: GMsgRow): LocalGroupMessage {
     attachment_meta: r.attachment_meta
       ? (JSON.parse(r.attachment_meta) as Record<string, unknown>)
       : null,
+    forwarded_from_id: r.forwarded_from_id,
     edited_at: r.edited_at,
     deleted_at: r.deleted_at,
     created_at: r.created_at,
@@ -333,13 +335,14 @@ export const groupRepo = {
     await run(
       `INSERT INTO group_messages
         (id, client_id, group_id, sender_id, sender_json, type, body, attachment_url,
-         attachment_meta, edited_at, deleted_at, created_at, reactions_json, my_reaction, sync_state)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced')
+         attachment_meta, forwarded_from_id, edited_at, deleted_at, created_at, reactions_json, my_reaction, sync_state)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced')
        ON CONFLICT(id) DO UPDATE SET
          sender_json=COALESCE(excluded.sender_json, group_messages.sender_json),
          body=excluded.body,
          attachment_url=COALESCE(excluded.attachment_url, group_messages.attachment_url),
          attachment_meta=COALESCE(excluded.attachment_meta, group_messages.attachment_meta),
+         forwarded_from_id=COALESCE(excluded.forwarded_from_id, group_messages.forwarded_from_id),
          edited_at=excluded.edited_at, deleted_at=excluded.deleted_at,
          reactions_json=excluded.reactions_json, my_reaction=excluded.my_reaction,
          sync_state='synced'`,
@@ -353,6 +356,7 @@ export const groupRepo = {
         m.body,
         m.attachment_url,
         m.attachment_meta ? JSON.stringify(m.attachment_meta) : null,
+        m.forwarded_from_id,
         m.edited_at,
         m.deleted_at,
         m.created_at,
@@ -425,6 +429,13 @@ export const groupRepo = {
     await run(
       "UPDATE group_messages SET deleted_at=?, body='' WHERE id=? OR client_id=?",
       [new Date().toISOString(), id, id],
+    );
+  },
+
+  async applyEdit(id: string, body: string, editedAt: string): Promise<void> {
+    await run(
+      'UPDATE group_messages SET body=?, edited_at=? WHERE id=? OR client_id=?',
+      [body, editedAt, id, id],
     );
   },
 

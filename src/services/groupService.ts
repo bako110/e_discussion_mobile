@@ -110,6 +110,36 @@ export const groupService = {
     return groupRepo.getByClientId(clientId);
   },
 
+  /** Transfert d'un message existant (texte ou média déjà hébergé) vers ce
+   * groupe — jamais de re-upload : `attachmentUrl` pointe déjà vers un
+   * fichier sur le serveur média, on le réutilise tel quel (comme WhatsApp).
+   * Réseau requis : contrairement à `send()`/`sendMedia()`, pas d'insertion
+   * optimiste locale ici — l'appelant (feuille "Transférer à…") boucle sur
+   * plusieurs destinataires et affiche un résumé succès/échec à la fin. */
+  async forward(p: {
+    groupId: string;
+    type: string;
+    body?: string;
+    attachmentUrl?: string | null;
+    attachmentMeta?: Record<string, unknown> | null;
+    forwardedFromId: string;
+  }): Promise<GroupMessage> {
+    const saved = await apiClient.post<GroupMessage>(Endpoints.groups.messages(p.groupId), {
+      type: p.type,
+      body: p.body ?? '',
+      attachment_url: p.attachmentUrl ?? undefined,
+      attachment_meta: p.attachmentMeta ?? undefined,
+      forwarded_from_id: p.forwardedFromId,
+    });
+    await groupRepo.upsertMessageFromServer(saved);
+    await groupRepo.touchLastMessage(
+      p.groupId,
+      PREVIEW[saved.type] || saved.body || '',
+      saved.created_at,
+    );
+    return saved;
+  },
+
   /** Média offline-first : message optimiste + upload différé. */
   async sendMedia(p: {
     groupId: string;
@@ -162,6 +192,26 @@ export const groupService = {
     );
     await groupRepo.updateReactions(messageId, msg.reactions, msg.my_reaction);
     return msg;
+  },
+
+  /** Édite un message de groupe — auteur uniquement (vérifié aussi côté
+   * serveur). Appel réseau direct, pas d'outbox : contrairement à l'envoi,
+   * pas de sens de le tenter en local-first (le message doit déjà exister
+   * côté serveur pour être édité). */
+  async editMessage(groupId: string, messageId: string, body: string): Promise<GroupMessage> {
+    const saved = await apiClient.patch<GroupMessage>(
+      Endpoints.groups.message(groupId, messageId),
+      { body },
+    );
+    await groupRepo.applyEdit(messageId, saved.body, saved.edited_at ?? new Date().toISOString());
+    return saved;
+  },
+
+  /** Supprime un message de groupe pour tout le monde — auteur ou admin
+   * (modération), vérifié côté serveur. */
+  async deleteMessage(groupId: string, messageId: string): Promise<void> {
+    await apiClient.delete(Endpoints.groups.message(groupId, messageId));
+    await groupRepo.markDeleted(messageId);
   },
 
   async markRead(id: string): Promise<void> {

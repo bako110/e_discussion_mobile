@@ -84,6 +84,7 @@ export const Endpoints = {
     mute: (id: string) => `${V1}/groups/${id}/mute`,
     unmute: (id: string) => `${V1}/groups/${id}/unmute`,
     messages: (id: string) => `${V1}/groups/${id}/messages`,
+    message: (id: string, messageId: string) => `${V1}/groups/${id}/messages/${messageId}`,
     reactMessage: (id: string, messageId: string) =>
       `${V1}/groups/${id}/messages/${messageId}/react`,
     read: (id: string) => `${V1}/groups/${id}/read`,

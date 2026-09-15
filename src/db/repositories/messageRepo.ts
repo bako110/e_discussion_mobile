@@ -37,6 +37,7 @@ interface Row {
   sync_state: string;
   decrypt_failed: number;
   voice_played: number;
+  forwarded_from_id: string | null;
 }
 
 export interface LocalMessage extends ChatMessage {
@@ -65,7 +66,7 @@ function toMsg(r: Row): LocalMessage {
     attachment_url: r.attachment_url,
     attachment_meta: r.attachment_meta ? (JSON.parse(r.attachment_meta) as Record<string, unknown>) : null,
     reply_to: r.reply_to_json ? (JSON.parse(r.reply_to_json) as ReplyPreview) : null,
-    forwarded_from_id: null,
+    forwarded_from_id: r.forwarded_from_id,
     reaction: r.reaction,
     delivered: !!r.delivered,
     read: !!r.read,
@@ -119,14 +120,15 @@ export const messageRepo = {
     attachmentUrl?: string | null;
     attachmentMeta?: Record<string, unknown> | null;
     replyTo?: ReplyPreview | null;
+    forwardedFromId?: string | null;
     createdAt: string;
   }): Promise<void> {
     try {
       await run(
         `INSERT INTO messages
           (id, client_id, conversation_id, sender_id, type, body, body_cipher, encrypted,
-           attachment_url, attachment_meta, reply_to_json, created_at, sync_state, voice_played)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'pending', 1)`,
+           attachment_url, attachment_meta, reply_to_json, forwarded_from_id, created_at, sync_state, voice_played)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', 1)`,
         [
           m.clientId,
           m.clientId,
@@ -139,6 +141,7 @@ export const messageRepo = {
           m.attachmentUrl ?? null,
           m.attachmentMeta ? JSON.stringify(m.attachmentMeta) : null,
           m.replyTo ? JSON.stringify(m.replyTo) : null,
+          m.forwardedFromId ?? null,
           m.createdAt,
         ],
       );
@@ -272,7 +275,7 @@ export const messageRepo = {
     await run(
       `INSERT INTO messages
         (id, conversation_id, sender_id, type, body, body_cipher, encrypted, attachment_url, attachment_meta,
-         reply_to_json, reaction, delivered, read, edited_at, deleted_at, created_at, sync_state, decrypt_failed, voice_played)
+         reply_to_json, forwarded_from_id, reaction, delivered, read, edited_at, deleted_at, created_at, sync_state, decrypt_failed, voice_played)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced', ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          body=CASE WHEN excluded.body <> '' THEN excluded.body ELSE messages.body END,
@@ -287,6 +290,7 @@ export const messageRepo = {
          -- elle est renseignée.
          attachment_url=COALESCE(excluded.attachment_url, messages.attachment_url),
          attachment_meta=COALESCE(excluded.attachment_meta, messages.attachment_meta),
+         forwarded_from_id=COALESCE(excluded.forwarded_from_id, messages.forwarded_from_id),
          delivered=MAX(messages.delivered, excluded.delivered),
          read=MAX(messages.read, excluded.read),
          edited_at=excluded.edited_at, deleted_at=excluded.deleted_at,
@@ -305,6 +309,7 @@ export const messageRepo = {
         m.attachment_url,
         m.attachment_meta ? JSON.stringify(m.attachment_meta) : null,
         m.reply_to ? JSON.stringify(m.reply_to) : null,
+        m.forwarded_from_id,
         m.reaction,
         m.delivered ? 1 : 0,
         m.read ? 1 : 0,

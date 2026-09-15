@@ -23,6 +23,7 @@ import { EncryptionInfoModal } from '@/components/chat/EncryptionInfoModal';
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { QuickReplies } from '@/components/chat/QuickReplies';
+import { selectContacts } from '@/screens/Main/SelectContactsScreen';
 import { useMediaPicker, type LocalMediaFile } from '@/hooks/useMediaPicker';
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
@@ -563,10 +564,35 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     if (actionMsg) setReplyTo(actionMsg);
   };
   const doForward = () => {
-    if (actionMsg?.body) {
-      Clipboard.setString(actionMsg.body);
-      showAlert(t('chat.forwardCopied'));
-    }
+    const m = actionMsg;
+    if (!m) return;
+    void (async () => {
+      const ids = await selectContacts({ title: t('chat.forwardSelectTitle') });
+      if (!ids || ids.length === 0) return;
+
+      let ok = 0;
+      let fail = 0;
+      for (const contactId of ids) {
+        try {
+          const detail = await conversationService.start(contactId);
+          await messageService.send({
+            conversationId: detail.id,
+            partnerId: contactId,
+            senderId: myId,
+            type: m.type,
+            body: m.body,
+            attachmentUrl: m.attachment_url,
+            attachmentMeta: m.attachment_meta,
+            forwardedFromId: m.id,
+          });
+          ok += 1;
+        } catch {
+          fail += 1;
+        }
+      }
+      if (ok > 0) showToast(t('chat.forwardSent', { count: ok }));
+      if (fail > 0) showToast(t('chat.forwardFailed', { count: fail }), { type: 'error' });
+    })();
   };
   const doDeleteForMe = () => {
     if (!actionMsg) return;
@@ -1152,6 +1178,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                 hasText: !!actionMsg.body,
                 encrypted: !!actionMsg.encrypted,
                 currentReaction: actionMsg.reaction ?? null,
+                canForward: actionMsg.sync_state === 'synced' && !actionMsg.deleted_at,
               }
             : null
         }
