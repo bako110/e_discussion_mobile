@@ -203,64 +203,13 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
       { destructive: true, confirmText: t('common.delete') },
     );
 
-  /** Actions sur un membre (appui long) — réservé owner/admin. */
-  const onMemberPress = (m: GroupMember) => {
-    if (!canEdit || m.user.id === me?.id || m.role === 'owner') return;
-    const actions: { label: string; icon: string; destructive?: boolean; onPress: () => void }[] =
-      [];
-    const runMember = (p: Promise<unknown>, okKey: string) =>
-      void p
-        .then(() => syncNow({ force: true }))
-        .then(reload)
-        .then(() => showToast(t(okKey)))
-        .catch(() => showToast(t('errors.generic'), { type: 'error' }));
-
-    if (isOwner) {
-      if (m.role === 'admin') {
-        actions.push({
-          label: t('groups.demoteAdmin'),
-          icon: 'shield-off-outline',
-          onPress: () =>
-            runMember(
-              groupService.setMemberRole(
-                groupId,
-                m.user.id,
-                isChannel ? 'subscriber' : 'member',
-              ),
-              'groups.adminRemoved',
-            ),
-        });
-      } else {
-        actions.push({
-          label: t('groups.promoteAdmin'),
-          icon: 'shield-account-outline',
-          onPress: () =>
-            runMember(
-              groupService.setMemberRole(groupId, m.user.id, 'admin'),
-              'groups.adminAdded',
-            ),
-        });
-      }
-    }
-    actions.push({
-      label: isChannel ? t('groups.removeSubscriber') : t('groups.removeMember'),
-      icon: 'account-remove-outline',
-      destructive: true,
-      onPress: () =>
-        runMember(groupService.removeMember(groupId, m.user.id), 'groups.memberRemoved'),
-    });
-    showSheet({
-      title: m.user.display_name || m.user.username || '—',
-      actions,
-    });
-  };
-
   const addMembers = () => {
     navigation.navigate('AddGroupMembers', { groupId });
   };
 
   /** Liste complète des membres dans un bottom sheet. Un tap sur un membre
-   * (si admin) ré-ouvre le sheet d'actions le concernant. */
+   * ouvre son profil (photo, bio, présence) — avec les actions de gestion
+   * (promouvoir / retirer) directement dedans si je suis admin/owner. */
   const openMembersSheet = () => {
     const sorted = [...members].sort((a, b) => {
       const order: Record<string, number> = { owner: 0, admin: 1, member: 2, subscriber: 2 };
@@ -284,9 +233,16 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
           label: nm + roleTag,
           icon: m.role === 'owner' || m.role === 'admin' ? 'shield-account-outline' : 'account-outline',
           onPress: () => {
-            if (canEdit && m.user.id !== me?.id && m.role !== 'owner') {
-              setTimeout(() => onMemberPress(m), 250);
-            }
+            setTimeout(
+              () =>
+                navigation.navigate('UserProfile', {
+                  userId: m.user.id,
+                  name: nm,
+                  avatar: m.user.avatar_url,
+                  group: { groupId, role: m.role, isChannel, canManage: canEdit },
+                }),
+              250,
+            );
           },
         };
       }),
@@ -474,9 +430,14 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
               size={20}
               color={c.textMuted}
             />
-            <Text style={[styles.toggleLabel, { color: c.text }]}>
-              {isChannel ? t('groups.muteChannel') : t('chat.mute')}
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleLabel, { color: c.text }]}>
+                {isChannel ? t('groups.muteChannel') : t('chat.mute')}
+              </Text>
+              <Text style={[styles.toggleSub, { color: c.textMuted }]}>
+                {isChannel ? t('groups.muteChannelDesc') : t('chat.muteDesc')}
+              </Text>
+            </View>
             <View
               style={[
                 styles.switch,
@@ -565,7 +526,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
                     android_ripple={{ color: c.surface }}
                   >
                     <Icon name="cog-outline" size={20} color={c.primary} />
-                    <Text style={[styles.manageTxt, { color: c.text }]}>
+                    <Text style={[styles.manageTxt, { flex: 1 }, { color: c.text }]}>
                       {t('groupSettings.channelTitle')}
                     </Text>
                     {(group?.pending_requests ?? 0) > 0 ? (
@@ -581,7 +542,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
                     android_ripple={{ color: c.surface }}
                   >
                     <Icon name="account-group-outline" size={20} color={c.primary} />
-                    <Text style={[styles.manageTxt, { color: c.text }]}>
+                    <Text style={[styles.manageTxt, { flex: 1 }, { color: c.text }]}>
                       {t('groups.subscribers')} · {group?.member_count ?? members.length}
                     </Text>
                     <Icon name="chevron-right" size={20} color={c.textFaint} />
@@ -592,7 +553,7 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
                     android_ripple={{ color: c.surface }}
                   >
                     <Icon name="account-plus-outline" size={20} color={c.primary} />
-                    <Text style={[styles.manageTxt, { color: c.text }]}>{t('groups.addSubscribers')}</Text>
+                    <Text style={[styles.manageTxt, { flex: 1 }, { color: c.text }]}>{t('groups.addSubscribers')}</Text>
                     <Icon name="chevron-right" size={20} color={c.textFaint} />
                   </Pressable>
                   <Pressable
@@ -601,9 +562,14 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
                     android_ripple={{ color: c.surface }}
                   >
                     <Icon name="refresh" size={19} color={c.textMuted} />
-                    <Text style={[styles.manageTxt, { color: c.textMuted }]}>
-                      {t('groups.resetInvite')}
-                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.manageTxt, { color: c.textMuted }]}>
+                        {t('groups.resetInvite')}
+                      </Text>
+                      <Text style={[styles.manageSub, { color: c.textFaint }]}>
+                        {t('groups.resetInviteDesc')}
+                      </Text>
+                    </View>
                   </Pressable>
                 </View>
               </>
@@ -775,7 +741,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 14,
   },
-  manageTxt: { flex: 1, fontSize: 14.5, fontWeight: '600' },
+  manageTxt: { fontSize: 14.5, fontWeight: '600' },
+  manageSub: { fontSize: 12, marginTop: 1 },
   toggleCard: { marginHorizontal: 16, marginTop: 14, borderRadius: 14, overflow: 'hidden' },
   toggleRow: {
     flexDirection: 'row',
@@ -784,7 +751,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 13,
   },
-  toggleLabel: { flex: 1, fontSize: 14.5, fontWeight: '600' },
+  toggleLabel: { fontSize: 14.5, fontWeight: '600' },
   toggleSub: { fontSize: 12, marginTop: 1 },
   switch: { width: 44, height: 26, borderRadius: 13, padding: 3, justifyContent: 'center' },
   knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' },
