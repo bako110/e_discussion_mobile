@@ -499,6 +499,15 @@
     "cameraOn": "Caméra",
     "cameraOff": "Couper cam."
   },
+  "callRating": {
+    "title": "Comment était cet appel ?",
+    "titleWith": "Comment était votre appel avec {{name}} ?",
+    "callLabel": "Qualité de l'appel",
+    "appLabel": "Et l'application E-discussion ?",
+    "submit": "Envoyer",
+    "skip": "Pas maintenant",
+    "thanks": "Merci pour votre avis !"
+  },
   "settings": {
     "title": "Réglages",
     "tapForAccount": "Appuyez pour gérer votre compte",

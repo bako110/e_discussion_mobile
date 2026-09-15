@@ -499,6 +499,15 @@
     "cameraOn": "Camera",
     "cameraOff": "Camera off"
   },
+  "callRating": {
+    "title": "How was that call?",
+    "titleWith": "How was your call with {{name}}?",
+    "callLabel": "Call quality",
+    "appLabel": "And the E-discussion app?",
+    "submit": "Send",
+    "skip": "Not now",
+    "thanks": "Thanks for your feedback!"
+  },
   "settings": {
     "title": "Settings",
     "tapForAccount": "Tap to manage your account",

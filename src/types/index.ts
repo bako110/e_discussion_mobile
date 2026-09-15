@@ -107,11 +107,17 @@ export interface PinnedMessagePreview {
   sender_id: string;
 }
 
+/** Durée d'épinglage — 'forever' = indéterminé (jamais expiré tout seul). */
+export type PinDuration = '24h' | '7d' | '30d' | 'forever';
+
 export interface PinnedMessage {
   id: string;
   message_id: string;
   pinned_by: string;
   created_at: string;
+  /** null = épinglé indéfiniment ; sinon désépinglé automatiquement passé
+   * cette date (vérifié côté serveur à la lecture). */
+  expires_at: string | null;
   message: PinnedMessagePreview | null;
 }
 
@@ -430,6 +436,15 @@ export interface CallsConfig {
   enabled: boolean;
   livekit_url: string | null;
   ring_timeout: number;
+}
+
+/** Réponse de POST /calls/{id}/rating. */
+export interface CallRating {
+  id: string;
+  call_id: string;
+  call_score: number;
+  app_score: number | null;
+  created_at: string;
 }
 
 // ── Diffusion en direct d'une chaîne (LiveKit self-hosted) ───────────────

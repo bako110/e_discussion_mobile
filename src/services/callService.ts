@@ -12,7 +12,7 @@
 import { apiClient, Endpoints } from '@/api';
 import { randomBytes, toBase64 } from '@/crypto/primitives';
 import { storage } from '@/utils/storage';
-import type { CallLog, CallsConfig, CallStart, CallToken, CallType } from '@/types';
+import type { CallLog, CallRating, CallsConfig, CallStart, CallToken, CallType } from '@/types';
 
 const K_HISTORY = 'calls.history.cache';
 
@@ -84,6 +84,16 @@ export const callService = {
   /** Un des deux participants raccroche un appel en cours. */
   hangup(callId: string): Promise<CallLog> {
     return apiClient.post<CallLog>(Endpoints.calls.hangup(callId));
+  },
+
+  /** Note de l'appel (1-5, obligatoire) + note de l'app (1-5, facultative),
+   * proposées occasionnellement après un appel connecté. */
+  rate(callId: string, callScore: number, appScore?: number | null, comment?: string): Promise<CallRating> {
+    return apiClient.post<CallRating>(Endpoints.calls.rating(callId), {
+      call_score: callScore,
+      app_score: appScore ?? null,
+      comment: comment ?? null,
+    });
   },
 
   /** Supprime une entrée d'historique (cache local + serveur). */

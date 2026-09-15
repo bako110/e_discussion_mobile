@@ -81,12 +81,25 @@ export interface ActiveCall {
   e2eeKey: string | null;
 }
 
+/** Appel qui vient de se terminer APRÈS avoir été réellement connecté (média
+ * établi) — sert à proposer occasionnellement la notation post-appel. Un
+ * appel manqué/refusé/annulé (jamais connecté) ne doit PAS déclencher cette
+ * invite. */
+export interface JustEndedCall {
+  callId: string;
+  peer: UserPublic | null;
+}
+
 interface CallContextValue {
   phase: CallPhase;
   /** motif de fin, valable pendant la phase 'ended'. */
   endReason: EndReason | null;
   call: ActiveCall | null;
   room: Room | null;
+  /** dernier appel connecté qui vient de se terminer — à consommer une fois
+   * (voir `clearJustEndedCall`) pour décider de proposer une notation. */
+  justEndedCall: JustEndedCall | null;
+  clearJustEndedCall: () => void;
   /** secondes écoulées depuis la connexion média (0 hors appel actif). */
   elapsed: number;
   muted: boolean;
@@ -130,6 +143,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [minimized, setMinimized] = useState(false);
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [room, setRoom] = useState<Room | null>(null);
+  const [justEndedCall, setJustEndedCall] = useState<JustEndedCall | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [muted, setMuted] = useState(false);
   const [speaker, setSpeaker] = useState(false);
@@ -255,8 +269,16 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const minimize = useCallback(() => setMinimized(true), []);
   const restore = useCallback(() => setMinimized(false), []);
+  const clearJustEndedCall = useCallback(() => setJustEndedCall(null), []);
 
   const resetToIdle = useCallback((reason?: EndReason) => {
+    // média établi (phase 'active') avant cette fin -> appel réellement
+    // connecté, éligible à l'invite de notation (voir callRatingPrompt).
+    // Un appel manqué/refusé/annulé (jamais 'active') ne l'est pas.
+    if (phaseRef.current === 'active') {
+      const c = callRef.current;
+      if (c) setJustEndedCall({ callId: c.callId, peer: c.peer });
+    }
     setEndReason(reason ?? 'ended');
     setMinimized(false);
     setPhase('ended');
@@ -895,6 +917,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       endReason,
       call,
       room,
+      justEndedCall,
+      clearJustEndedCall,
       elapsed,
       muted,
       speaker,
@@ -919,6 +943,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       endReason,
       call,
       room,
+      justEndedCall,
+      clearJustEndedCall,
       elapsed,
       muted,
       speaker,

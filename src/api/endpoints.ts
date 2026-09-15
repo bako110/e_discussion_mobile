@@ -127,6 +127,7 @@ export const Endpoints = {
       `${V1}/calls/${id}/reject${reason ? `?reason=${encodeURIComponent(reason)}` : ''}`,
     cancel: (id: string) => `${V1}/calls/${id}/cancel`,
     hangup: (id: string) => `${V1}/calls/${id}/hangup`,
+    rating: (id: string) => `${V1}/calls/${id}/rating`,
   },
   devices: {
     registerKeys: `${V1}/devices/keys`,
