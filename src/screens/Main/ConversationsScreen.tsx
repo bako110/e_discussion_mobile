@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   FlatList,
@@ -11,10 +12,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Icon, Screen, showSheet } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, confirmAlert, showSheet, showToast } from '@/components/common';
 import { useStories } from '@/context/StoriesContext';
 import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -157,6 +159,32 @@ export const ConversationsScreen: React.FC = () => {
     }, [load]),
   );
 
+  // `conversationService.list()` ne lit QUE le cache SQLite local — au tout
+  // premier login (ou relance d'app), ce cache peut encore être vide tant
+  // que la synchro réseau lancée par SyncContext (fire-and-forget, au
+  // montage) n'a pas fini d'écrire les conversations en base. Sans ceci,
+  // `load()` lisait une base vide une seule fois et ne rechargeait plus
+  // jamais tout seul — d'où le besoin de tirer manuellement pour rafraîchir.
+  // On relit donc AUSSI dès qu'une passe de synchro se termine (`syncing`
+  // true -> false), tant qu'on n'a encore rien à afficher.
+  const [hasSyncedOnce, setHasSyncedOnce] = useState(false);
+  const prevSyncing = useRef(syncing);
+  useEffect(() => {
+    if (prevSyncing.current && !syncing) {
+      setHasSyncedOnce(true);
+      void load();
+    }
+    prevSyncing.current = syncing;
+  }, [syncing, load]);
+
+  // Tant qu'aucune conversation n'est encore affichée ET qu'aucune synchro
+  // ne s'est encore terminée depuis le montage, on reste en chargement
+  // (spinner) plutôt que de montrer prématurément l'état vide — la 1ère
+  // synchro peut prendre quelques centaines de ms à quelques secondes après
+  // le login. `hasSyncedOnce` évite un flash "vide" entre le tout premier
+  // rendu (avant que `syncing` ne passe à `true`) et le début réel de la sync.
+  const initialLoading = items.length === 0 && (loading || syncing || !hasSyncedOnce);
+
   // message entrant ingéré globalement -> on recharge la liste (dernier msg,
   // ordre, non-lus). Les autres events (lecture, présence, suppression) via WS.
   useEffect(() => onLocalMessageEvent(() => void load()), [load]);
@@ -247,6 +275,60 @@ export const ConversationsScreen: React.FC = () => {
     });
   };
 
+  /** « Supprimer la conversation » — retire la ligne de MA liste (l'autre
+   * garde la sienne, l'historique n'est pas effacé ; réapparaît si l'autre
+   * réécrit). Optimiste : la ligne disparaît immédiatement de l'écran. */
+  const deleteConversation = useCallback(
+    (item: ConversationSummary) => {
+      const name = item.partner.display_name || item.partner.username || '—';
+      confirmAlert(
+        t('chat.deleteConvTitle'),
+        t('chat.deleteConvBody', { name }),
+        async () => {
+          setItems((cur) => cur.filter((conv) => conv.id !== item.id));
+          try {
+            await conversationService.hide(item.id);
+          } catch {
+            showToast(t('errors.generic'), { type: 'error' });
+            void load(); // échec réseau -> on la fait réapparaître
+          }
+        },
+        { destructive: true, confirmText: t('common.delete') },
+      );
+    },
+    [t, load],
+  );
+
+  const openRowMenu = (item: ConversationSummary) => {
+    const name = item.partner.display_name || item.partner.username || '—';
+    showSheet({
+      title: name,
+      actions: [
+        {
+          label: item.muted ? t('chat.unmute') : t('chat.mute'),
+          icon: item.muted ? 'bell-outline' : 'bell-off-outline',
+          onPress: () => void conversationService.setMuted(item.id, !item.muted).then(load),
+        },
+        {
+          label: t('chat.deleteConversation'),
+          icon: 'delete-outline',
+          destructive: true,
+          onPress: () => deleteConversation(item),
+        },
+      ],
+    });
+  };
+
+  const renderDeleteAction = (item: ConversationSummary) => (
+    <Pressable
+      onPress={() => deleteConversation(item)}
+      style={[styles.swipeDelete, { backgroundColor: c.danger }]}
+    >
+      <Icon name="delete-outline" size={22} color="#fff" />
+      <Text style={styles.swipeDeleteTxt}>{t('common.delete')}</Text>
+    </Pressable>
+  );
+
   const renderRow = ({ item, index }: { item: ConversationSummary; index: number }) => {
     const name = item.partner.display_name || item.partner.username || '—';
     const incoming = item.request_status === 'pending_incoming';
@@ -255,9 +337,13 @@ export const ConversationsScreen: React.FC = () => {
     const unread = item.unread_count > 0;
     return (
       <AnimatedRow index={index}>
+      <Swipeable
+        renderRightActions={() => renderDeleteAction(item)}
+        overshootRight={false}
+      >
       <Pressable
         android_ripple={{ color: c.surfaceAlt }}
-        style={styles.row}
+        style={[styles.card, { backgroundColor: c.card, borderColor: c.border, shadowColor: c.text }]}
         onPress={() =>
           navigation.navigate('Chat', {
             conversationId: item.id,
@@ -266,6 +352,7 @@ export const ConversationsScreen: React.FC = () => {
             partnerAvatar: item.partner.avatar_url,
           })
         }
+        onLongPress={() => openRowMenu(item)}
       >
         {hasStory ? (
           <Pressable
@@ -370,6 +457,7 @@ export const ConversationsScreen: React.FC = () => {
           </View>
         </View>
       </Pressable>
+      </Swipeable>
       </AnimatedRow>
     );
   };
@@ -380,7 +468,7 @@ export const ConversationsScreen: React.FC = () => {
         left={
           <View style={styles.brandRow}>
             <Image source={BADGE} style={styles.brandLogo} />
-            <Text style={styles.brandText}>E-discussion</Text>
+            <Text style={[styles.brandText, { color: c.onHeader }]}>E-discussion</Text>
           </View>
         }
         right={
@@ -389,9 +477,9 @@ export const ConversationsScreen: React.FC = () => {
               onPress={() => navigation.navigate('NotificationHistory')}
               style={styles.bellBtn}
               hitSlop={8}
-              android_ripple={{ color: 'rgba(255,255,255,0.18)', borderless: true }}
+              android_ripple={{ color: c.overlay, borderless: true }}
             >
-              <Icon name="bell-outline" size={20} color="#fff" />
+              <Icon name="bell-outline" size={20} color={c.onHeader} />
               {notifUnread > 0 ? (
                 <View style={styles.bellDot}>
                   <Text style={styles.bellDotTxt}>
@@ -402,11 +490,11 @@ export const ConversationsScreen: React.FC = () => {
             </Pressable>
             <Pressable
               onPress={() => navigation.navigate('NewConversation')}
-              style={styles.newBtn}
-              android_ripple={{ color: 'rgba(255,255,255,0.18)', borderless: false }}
+              style={[styles.newBtn, { borderColor: c.onHeaderMuted }]}
+              android_ripple={{ color: c.overlay, borderless: false }}
             >
-              <Icon name="square-edit-outline" size={15} color="#fff" />
-              <Text style={styles.newBtnText}>{t('conversations.newShort')}</Text>
+              <Icon name="square-edit-outline" size={15} color={c.onHeader} />
+              <Text style={[styles.newBtnText, { color: c.onHeader }]}>{t('conversations.newShort')}</Text>
             </Pressable>
           </View>
         }
@@ -516,9 +604,12 @@ export const ConversationsScreen: React.FC = () => {
             tintColor={c.primary}
           />
         }
-        ItemSeparatorComponent={() => <View style={[styles.sep, { backgroundColor: c.divider }]} />}
         ListEmptyComponent={
-          !loading ? (
+          initialLoading ? (
+            <View style={styles.loadingWrap}>
+              <ActivityIndicator color={c.primary} />
+            </View>
+          ) : (
             <View style={styles.empty}>
               <View style={[styles.emptyIcon, { backgroundColor: c.surfaceAlt }]}>
                 <Icon name={query ? 'magnify' : 'chat-plus-outline'} size={36} color={c.textFaint} />
@@ -532,7 +623,7 @@ export const ConversationsScreen: React.FC = () => {
                 </Text>
               ) : null}
             </View>
-          ) : null
+          )
         }
         renderItem={renderRow}
       />
@@ -628,6 +719,22 @@ const styles = StyleSheet.create({
   sectionState: { fontSize: 12.5, fontWeight: '700', flexShrink: 1 },
 
   row: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 12, alignItems: 'center' },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 14,
+    marginVertical: 5,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 1,
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  swipeDelete: { width: 84, alignItems: 'center', justifyContent: 'center', gap: 3 },
+  swipeDeleteTxt: { color: '#fff', fontSize: 11.5, fontWeight: '700' },
   storyRing: {
     width: 54,
     height: 54,
@@ -647,9 +754,9 @@ const styles = StyleSheet.create({
   previewItalic: { fontStyle: 'italic', flex: 1, marginRight: 8 },
   badge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
   badgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
-  sep: { height: StyleSheet.hairlineWidth, marginLeft: 82 },
   listContent: { paddingBottom: 8 },
   emptyWrap: { flexGrow: 1 },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingBottom: 60 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 40, paddingBottom: 60 },
   emptyIcon: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 16, fontWeight: '700', textAlign: 'center' },

@@ -201,6 +201,20 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16, borderWidth: 1.5 },
   chipTxt: { fontSize: 13, fontWeight: '700' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 14,
+    marginVertical: 5,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 1,
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
   rowBody: { flex: 1, justifyContent: 'center' },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   rowBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 },
@@ -392,7 +406,10 @@ export const GroupsTabScreen: React.FC = () => {
     const g = item.g;
     return (
       <Pressable
-        style={styles.row}
+        style={[
+          styles.card,
+          { backgroundColor: c.card, borderColor: c.border, shadowColor: c.text },
+        ]}
         android_ripple={{ color: c.surfaceAlt }}
         onPress={() => openChat(g)}
       >
@@ -510,6 +527,13 @@ export const GroupsTabScreen: React.FC = () => {
         }
         right={
           <View style={styles.tabHdrActions}>
+            <Pressable
+              onPress={() => navigation.navigate('DiscoverChannels')}
+              hitSlop={10}
+              style={styles.hdrBtn}
+            >
+              <Icon name="compass-outline" size={22} color={c.onHeader} />
+            </Pressable>
             <Pressable onPress={() => navigation.navigate('Scanner')} hitSlop={10} style={styles.hdrBtn}>
               <Icon name="qrcode-scan" size={21} color={c.onHeader} />
             </Pressable>
@@ -534,7 +558,6 @@ export const GroupsTabScreen: React.FC = () => {
           keyExtractor={(it) => it.g.id}
           renderItem={renderRow}
           ListHeaderComponent={header}
-          ItemSeparatorComponent={() => <View style={[styles.sep, { backgroundColor: c.divider }]} />}
           contentContainerStyle={list.length === 0 ? styles.emptyWrap : styles.tabListContent}
           refreshControl={
             <RefreshControl
