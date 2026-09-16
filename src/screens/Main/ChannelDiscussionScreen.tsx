@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen, confirmAlert, showToast } from '@/components/common';
+import { AppHeader, Avatar, Icon, Screen, confirmAlert, showToast } from '@/components/common';
 import { SettingsRow, SettingsSection } from '@/components/settings';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
@@ -140,20 +140,43 @@ export const ChannelDiscussionScreen: React.FC<MainScreenProps<'ChannelDiscussio
           </Text>
 
           {linked.length > 0 ? (
-            <SettingsSection title={t('groupSettings.discussionLinkedCount', { count: linked.length, max: MAX_DISCUSSION_CHANNELS })}>
-              {linked.map((d, i) => (
-                <SettingsRow
+            <>
+              <Text style={[styles.sectionTitle, { color: c.textMuted }]}>
+                {t('groupSettings.discussionLinkedCount', {
+                  count: linked.length,
+                  max: MAX_DISCUSSION_CHANNELS,
+                })}
+              </Text>
+              {linked.map((d) => (
+                <Pressable
                   key={d.id}
-                  icon="message-reply-text-outline"
-                  label={d.name}
-                  value={t('groups.membersCount', { count: d.member_count })}
-                  onPress={() =>
-                    navigation.navigate('GroupChat', { groupId: d.id, name: d.name })
-                  }
-                  last={i === linked.length - 1 && mode === 'none'}
-                />
+                  style={[
+                    styles.card,
+                    { backgroundColor: c.card, borderColor: c.border, shadowColor: c.text },
+                  ]}
+                  android_ripple={{ color: c.surfaceAlt }}
+                  onPress={() => navigation.navigate('GroupChat', { groupId: d.id, name: d.name })}
+                >
+                  <View>
+                    <Avatar uri={d.avatar_url} name={d.name} size={52} />
+                    <View style={[styles.kindDot, { backgroundColor: c.primary, borderColor: c.card }]}>
+                      <Icon name="bullhorn" size={11} color="#fff" />
+                    </View>
+                  </View>
+                  <View style={styles.cardBody}>
+                    <Text style={[styles.cardName, { color: c.text }]} numberOfLines={1}>
+                      {d.name}
+                    </Text>
+                    <View style={styles.metaRow}>
+                      <Icon name="account-multiple-outline" size={12} color={c.textFaint} />
+                      <Text style={[styles.metaTxt, { color: c.textFaint }]}>
+                        {t('groups.membersCount', { count: d.member_count })}
+                      </Text>
+                    </View>
+                  </View>
+                </Pressable>
               ))}
-            </SettingsSection>
+            </>
           ) : null}
 
           {linked.length > 0 ? (
@@ -250,6 +273,42 @@ const styles = StyleSheet.create({
   hdrBtn: { padding: 4 },
   body: { flex: 1, padding: 16 },
   hint: { fontSize: 13, lineHeight: 18, marginBottom: 4 },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 12,
+    marginBottom: 4,
+    marginLeft: 2,
+  },
+  // même style de carte que la liste principale des chaînes (GroupsListScreen)
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginVertical: 5,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 1,
+    shadowOpacity: 0.06,
+  },
+  kindDot: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+  },
+  cardBody: { flex: 1, justifyContent: 'center' },
+  cardName: { fontSize: 16, fontWeight: '700' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  metaTxt: { fontSize: 11.5, fontWeight: '600' },
   unlinkList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10, marginBottom: 4 },
   unlinkChip: {
     flexDirection: 'row',
