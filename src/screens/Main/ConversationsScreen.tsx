@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  ScrollView,
   View,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -285,22 +286,12 @@ export const ConversationsScreen: React.FC = () => {
     });
   }, [items, query, convFilter]);
 
-  const openFilterMenu = () => {
-    const opts: { key: ConvFilter; label: string; icon: string }[] = [
-      { key: 'all', label: t('conversations.filterAll'), icon: 'checkbox-multiple-blank-circle-outline' },
-      { key: 'unread', label: t('conversations.filterUnread'), icon: 'email-mark-as-unread' },
-      { key: 'muted', label: t('conversations.filterMuted'), icon: 'bell-off-outline' },
-      { key: 'requests', label: t('conversations.filterRequests'), icon: 'account-clock-outline' },
-    ];
-    showSheet({
-      title: t('conversations.filterTitle'),
-      actions: opts.map((o) => ({
-        label: o.label + (convFilter === o.key ? '  ✓' : ''),
-        icon: o.icon,
-        onPress: () => setConvFilter(o.key),
-      })),
-    });
-  };
+  const FILTER_OPTS: { key: ConvFilter; label: string; icon: string }[] = [
+    { key: 'all', label: t('conversations.filterAll'), icon: 'checkbox-multiple-blank-circle-outline' },
+    { key: 'unread', label: t('conversations.filterUnread'), icon: 'email-mark-as-unread' },
+    { key: 'muted', label: t('conversations.filterMuted'), icon: 'bell-off-outline' },
+    { key: 'requests', label: t('conversations.filterRequests'), icon: 'account-clock-outline' },
+  ];
 
   /** « Supprimer la conversation » — retire la ligne de MA liste (l'autre
    * garde la sienne, l'historique n'est pas effacé ; réapparaît si l'autre
@@ -534,36 +525,49 @@ export const ConversationsScreen: React.FC = () => {
                 </Pressable>
               ) : null}
             </View>
-            <Pressable
-              style={[
-                styles.filterBtn,
-                { backgroundColor: convFilter === 'all' ? c.background : c.primary },
-              ]}
-              hitSlop={6}
-              onPress={openFilterMenu}
-            >
-              <Icon
-                name="tune-variant"
-                size={18}
-                color={convFilter === 'all' ? c.textMuted : '#fff'}
-              />
-            </Pressable>
+            <View style={styles.syncIconWrap}>
+              {!online ? (
+                <Icon name="cloud-off-outline" size={19} color={c.onHeader} />
+              ) : pending > 0 || syncing ? (
+                <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
+                  <Icon name="sync" size={19} color={c.onHeader} />
+                </Animated.View>
+              ) : (
+                <Icon name="check-circle-outline" size={19} color={c.onHeader} />
+              )}
+            </View>
           </View>
         }
       />
 
-      {convFilter !== 'all' ? (
-        <Pressable
-          onPress={() => setConvFilter('all')}
-          style={[styles.activeFilter, { backgroundColor: c.primary + '18', borderColor: c.primary }]}
-        >
-          <Icon name="filter-variant" size={13} color={c.primary} />
-          <Text style={[styles.activeFilterTxt, { color: c.primary }]}>
-            {t(`conversations.filter${convFilter[0]!.toUpperCase()}${convFilter.slice(1)}`)}
-          </Text>
-          <Icon name="close" size={13} color={c.primary} />
-        </Pressable>
-      ) : null}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterChipsRow}
+        style={styles.filterChipsScroll}
+      >
+        {FILTER_OPTS.map((o) => {
+          const active = convFilter === o.key;
+          return (
+            <Pressable
+              key={o.key}
+              onPress={() => setConvFilter(o.key)}
+              style={[
+                styles.filterChip,
+                {
+                  backgroundColor: active ? c.primary : c.surfaceAlt,
+                  borderColor: active ? c.primary : c.border,
+                },
+              ]}
+            >
+              <Icon name={o.icon} size={14} color={active ? '#fff' : c.textMuted} />
+              <Text style={[styles.filterChipTxt, { color: active ? '#fff' : c.textMuted }]}>
+                {o.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
       <FlatList
         data={filtered}
@@ -571,46 +575,7 @@ export const ConversationsScreen: React.FC = () => {
         contentContainerStyle={
           filtered.length === 0 ? styles.emptyWrap : styles.listContent
         }
-        ListHeaderComponent={
-          filtered.length > 0 || !query ? (
-            <View style={styles.sectionHead}>
-              <View style={styles.sectionLeft}>
-                <Icon name="message-text" size={17} color={c.primary} />
-                <Text style={[styles.sectionTitle, { color: c.text }]}>
-                  {t('conversations.sectionTitle')}
-                </Text>
-              </View>
-              <View style={styles.sectionRight}>
-                {!online ? (
-                  <>
-                    <Icon name="cloud-off-outline" size={14} color={c.textMuted} />
-                    <Text style={[styles.sectionState, { color: c.textMuted }]}>
-                      {t('sync.offline')}
-                    </Text>
-                  </>
-                ) : pending > 0 || syncing ? (
-                  <>
-                    <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
-                      <Icon name="sync" size={14} color={c.primary} />
-                    </Animated.View>
-                    <Text style={[styles.sectionState, { color: c.primary }]} numberOfLines={1}>
-                      {pending > 0
-                        ? t('sync.pendingCount', { count: pending })
-                        : t('sync.syncing')}
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Icon name="check-circle-outline" size={14} color={c.textFaint} />
-                    <Text style={[styles.sectionState, { color: c.textFaint }]}>
-                      {t('sync.upToDate')}
-                    </Text>
-                  </>
-                )}
-              </View>
-            </View>
-          ) : null
-        }
+        ListHeaderComponent={null}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -711,45 +676,20 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   searchInput: { flex: 1, fontSize: 14 },
-  filterBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 2,
-    shadowColor: '#0A1730',
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  activeFilter: {
+  syncIconWrap: { width: 32, height: 44, alignItems: 'center', justifyContent: 'center' },
+
+  filterChipsScroll: { flexGrow: 0 },
+  filterChipsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
+  filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 2,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
     borderWidth: 1,
   },
-  activeFilterTxt: { fontSize: 12, fontWeight: '700' },
-
-  sectionHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 8,
-  },
-  sectionLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sectionTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
-  sectionRight: { flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: '55%' },
-  sectionState: { fontSize: 12.5, fontWeight: '700', flexShrink: 1 },
+  filterChipTxt: { fontSize: 12.5, fontWeight: '700' },
 
   row: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 12, alignItems: 'center' },
   card: {
