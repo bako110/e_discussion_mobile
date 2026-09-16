@@ -51,6 +51,8 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingDesc, setEditingDesc] = useState(false);
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [descTruncated, setDescTruncated] = useState(false);
   const [descDraft, setDescDraft] = useState('');
   const [savingDesc, setSavingDesc] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -63,6 +65,8 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
       setGroup(g);
       setDescDraft(g.description ?? '');
       setNameDraft(g.name);
+      setDescExpanded(false);
+      setDescTruncated(false);
     }
     setLoading(false);
     // best-effort serveur
@@ -426,18 +430,31 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
               </View>
             </View>
           ) : (
-            <Pressable
-              onPress={() => canEdit && setEditingDesc(true)}
-              disabled={!canEdit}
-              style={styles.descRow}
-            >
-              <Text
-                style={[styles.desc, { color: group?.description ? c.textMuted : c.textFaint }]}
+            <>
+              <Pressable
+                onPress={() => canEdit && setEditingDesc(true)}
+                disabled={!canEdit}
+                style={styles.descRow}
               >
-                {group?.description || (canEdit ? t('groups.addDescription') : '')}
-              </Text>
-              {canEdit ? <Icon name="pencil-outline" size={14} color={c.textFaint} /> : null}
-            </Pressable>
+                <Text
+                  style={[styles.desc, { color: group?.description ? c.textMuted : c.textFaint }]}
+                  numberOfLines={descExpanded ? undefined : 3}
+                  onTextLayout={(e) => {
+                    if (!descExpanded && e.nativeEvent.lines.length > 3) setDescTruncated(true);
+                  }}
+                >
+                  {group?.description || (canEdit ? t('groups.addDescription') : '')}
+                </Text>
+                {canEdit ? <Icon name="pencil-outline" size={14} color={c.textFaint} /> : null}
+              </Pressable>
+              {descTruncated ? (
+                <Pressable onPress={() => setDescExpanded((v) => !v)} hitSlop={8}>
+                  <Text style={[styles.descMore, { color: c.primary }]}>
+                    {descExpanded ? t('common.seeLess') : t('common.seeMore')}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </>
           )}
         </View>
 
@@ -766,6 +783,7 @@ const styles = StyleSheet.create({
   reqBadgeTxt: { color: '#fff', fontSize: 11, fontWeight: '800' },
   kindText: { fontSize: 13, fontWeight: '600' },
   desc: { fontSize: 14, textAlign: 'center', marginTop: 6, lineHeight: 20 },
+  descMore: { fontSize: 13, fontWeight: '700', textAlign: 'center', marginTop: 4 },
   descRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   descEdit: { alignSelf: 'stretch', marginTop: 8, gap: 6 },
   descInput: {
