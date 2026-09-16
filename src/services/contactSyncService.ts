@@ -2,12 +2,22 @@ import { PermissionsAndroid, Platform } from 'react-native';
 import Contacts from 'react-native-contacts';
 
 import { userService } from './userService';
+import { authService } from '@/services/authService';
 import type { ContactMatch } from '@/types';
 import { storage } from '@/utils/storage';
 import { dialFromE164, normalizeToE164 } from '@/utils/phone';
 
-const LAST_SYNC_KEY = 'contacts.lastSyncAt';
-const DONE_ONCE_KEY = 'contacts.syncedOnce';
+// partitionnées par compte ACTIF (multi-compte) — sinon basculer de compte
+// gardait le statut "déjà synchronisé" de l'ancien compte.
+function accountSuffix(): string {
+  return authService.getActiveAccountId() ?? 'anon';
+}
+function LAST_SYNC_KEY(): string {
+  return `contacts.lastSyncAt_${accountSuffix()}`;
+}
+function DONE_ONCE_KEY(): string {
+  return `contacts.syncedOnce_${accountSuffix()}`;
+}
 
 export type ContactPermission = 'granted' | 'denied' | 'blocked' | 'undetermined';
 
@@ -118,21 +128,21 @@ export async function syncPhoneContacts(opts?: {
 
   const entries = await readAndNormalize(opts?.userPhone ?? null);
   if (entries.length === 0) {
-    storage.set(LAST_SYNC_KEY, String(Date.now()));
-    storage.set(DONE_ONCE_KEY, '1');
+    storage.set(LAST_SYNC_KEY(), String(Date.now()));
+    storage.set(DONE_ONCE_KEY(), '1');
     return { permission: perm, scanned: 0, matches: [] };
   }
 
   const matches = await userService.syncContacts(entries);
-  storage.set(LAST_SYNC_KEY, String(Date.now()));
-  storage.set(DONE_ONCE_KEY, '1');
+  storage.set(LAST_SYNC_KEY(), String(Date.now()));
+  storage.set(DONE_ONCE_KEY(), '1');
   return { permission: perm, scanned: entries.length, matches };
 }
 
 /** Vrai si aucune synchro n'a jamais été faite (pour la proposer au 1er lancement). */
 export function neverSyncedContacts(): boolean {
   try {
-    return storage.getString(DONE_ONCE_KEY) !== '1';
+    return storage.getString(DONE_ONCE_KEY()) !== '1';
   } catch {
     return true;
   }
@@ -140,7 +150,7 @@ export function neverSyncedContacts(): boolean {
 
 export function lastContactsSyncAt(): number | null {
   try {
-    const v = storage.getString(LAST_SYNC_KEY);
+    const v = storage.getString(LAST_SYNC_KEY());
     return v ? Number(v) : null;
   } catch {
     return null;

@@ -11,10 +11,16 @@
  */
 import { apiClient, Endpoints } from '@/api';
 import { randomBytes, toBase64 } from '@/crypto/primitives';
+import { authService } from '@/services/authService';
 import { storage } from '@/utils/storage';
 import type { CallLog, CallRating, CallsConfig, CallStart, CallToken, CallType } from '@/types';
 
-const K_HISTORY = 'calls.history.cache';
+// partitionné par compte ACTIF (multi-compte) — sinon basculer de compte
+// affichait un instant l'historique d'appels de l'ancien compte (cache
+// global relu tel quel avant que le premier `history()` réseau ne l'écrase).
+function K_HISTORY(): string {
+  return `calls.history.cache_${authService.getActiveAccountId() ?? 'anon'}`;
+}
 
 export const callService = {
   /** Génère une clé E2EE aléatoire (256 bits, base64) pour un nouvel appel. */
@@ -29,7 +35,7 @@ export const callService = {
 
   /** Historique local (cache MMKV) — instantané, hors-ligne OK. */
   readHistoryCache(): CallLog[] {
-    return storage.getJSON<CallLog[]>(K_HISTORY) ?? [];
+    return storage.getJSON<CallLog[]>(K_HISTORY()) ?? [];
   },
 
   /** Historique d'appels (paginé) — rafraîchit le cache local au passage. */
@@ -37,16 +43,16 @@ export const callService = {
     const logs = await apiClient.get<CallLog[]>(
       `${Endpoints.calls.history}?page=${page}&limit=${limit}`,
     );
-    if (page === 1) storage.setJSON(K_HISTORY, logs);
+    if (page === 1) storage.setJSON(K_HISTORY(), logs);
     return logs;
   },
 
   /** Retire une entrée du cache local (suppression optimiste). */
   removeFromCache(callId: string): void {
-    storage.setJSON(K_HISTORY, callService.readHistoryCache().filter((l) => l.id !== callId));
+    storage.setJSON(K_HISTORY(), callService.readHistoryCache().filter((l) => l.id !== callId));
   },
   clearCache(): void {
-    storage.setJSON(K_HISTORY, []);
+    storage.setJSON(K_HISTORY(), []);
   },
 
   /**
