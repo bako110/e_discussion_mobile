@@ -15,7 +15,8 @@ import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
 import { useGroups } from '@/context/GroupsContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainNav, MainScreenProps } from '@/navigation/types';
-import type { Group, GroupCategory } from '@/types';
+import { groupService } from '@/services';
+import type { Group, GroupCategory, GroupPreview } from '@/types';
 import { relativeTime } from '@/utils/time';
 
 /**
@@ -373,10 +374,18 @@ export const GroupsTabScreen: React.FC = () => {
   const c = theme.colors;
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<GroupFilter>('all');
+  // chaînes publiques que je n'ai pas encore rejointes — affichées d'emblée
+  // dans l'onglet Groupes (pas besoin d'aller dans « Découvrir » pour les
+  // voir, n'importe qui peut consulter une chaîne publique).
+  const [publicChannels, setPublicChannels] = useState<GroupPreview[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       void reload();
+      void groupService
+        .discover({})
+        .then((res) => setPublicChannels(res.items.filter((it) => !it.is_member)))
+        .catch(() => setPublicChannels([]));
     }, [reload]),
   );
 
@@ -399,6 +408,14 @@ export const GroupsTabScreen: React.FC = () => {
 
   const openChat = useCallback(
     (g: Group) => navigation.navigate('GroupChat', { groupId: g.id, name: g.name }),
+    [navigation],
+  );
+
+  const openPublicPreview = useCallback(
+    (item: GroupPreview) => {
+      if (!item.invite_code) return;
+      navigation.navigate('JoinPreview', { code: item.invite_code, preview: item });
+    },
     [navigation],
   );
 
@@ -471,6 +488,46 @@ export const GroupsTabScreen: React.FC = () => {
       </Pressable>
     );
   };
+
+  const renderPublicChannel = (item: GroupPreview) => (
+    <Pressable
+      key={item.id}
+      style={[
+        styles.card,
+        { backgroundColor: c.card, borderColor: c.border, shadowColor: c.text },
+      ]}
+      android_ripple={{ color: c.surfaceAlt }}
+      onPress={() => openPublicPreview(item)}
+    >
+      <View>
+        <Avatar uri={item.avatar_url} name={item.name} size={52} />
+        <View style={[styles.kindDot, { backgroundColor: c.primary, borderColor: c.card }]}>
+          <Icon name="bullhorn" size={11} color="#fff" />
+        </View>
+      </View>
+      <View style={styles.rowBody}>
+        <View style={styles.rowTop}>
+          <View style={styles.nameRow}>
+            <Icon name="earth" size={13} color={c.primary} />
+            <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+              {item.name}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.rowBottom}>
+          <Text style={[styles.preview, { color: c.textMuted }]} numberOfLines={1}>
+            {item.description || t('groups.publicChannelSuggested')}
+          </Text>
+        </View>
+        <View style={styles.metaRow}>
+          <Icon name="account-multiple-outline" size={12} color={c.textFaint} />
+          <Text style={[styles.metaTxt, { color: c.textFaint }]}>
+            {t('groups.subscribersCount', { count: item.member_count })}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
+  );
 
   const SEGMENTS: { key: GroupFilter; label: string; count: number }[] = [
     { key: 'all', label: t('groups.allTitle'), count: groups.length + channels.length },
@@ -558,6 +615,18 @@ export const GroupsTabScreen: React.FC = () => {
           keyExtractor={(it) => it.g.id}
           renderItem={renderRow}
           ListHeaderComponent={header}
+          ListFooterComponent={
+            filter !== 'group' && publicChannels.length > 0 ? (
+              <View>
+                <View style={styles.sectionHead}>
+                  <Text style={[styles.tabSectionTitle, { color: c.text, fontSize: 14 }]}>
+                    {t('groups.publicChannelsSection')}
+                  </Text>
+                </View>
+                {publicChannels.map(renderPublicChannel)}
+              </View>
+            ) : null
+          }
           contentContainerStyle={list.length === 0 ? styles.emptyWrap : styles.tabListContent}
           refreshControl={
             <RefreshControl

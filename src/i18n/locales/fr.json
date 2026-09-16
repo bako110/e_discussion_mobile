@@ -268,6 +268,8 @@
     "leaveConfirm": "Vous ne recevrez plus les messages.",
     "noGroups": "Aucun groupe",
     "noChannels": "Aucune chaîne",
+    "publicChannelsSection": "Chaînes publiques",
+    "publicChannelSuggested": "Chaîne publique — appuyez pour découvrir",
     "scanTitle": "Scanner un code",
     "scanHint": "Placez le QR code dans le cadre",
     "invalidCode": "Code d'invitation invalide.",
