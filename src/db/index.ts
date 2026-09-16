@@ -2,16 +2,78 @@
  * Connexion SQLite locale + exécution des migrations. `getDb()` est
  * synchrone une fois `initDb()` résolu.
  */
-import { type DB, open } from '@op-engineering/op-sqlite';
+import { ANDROID_DATABASE_PATH, type DB, open } from '@op-engineering/op-sqlite';
+import { Platform } from 'react-native';
+import ReactNativeBlobUtil from 'react-native-blob-util';
 
 import { MIGRATIONS, SCHEMA_VERSION } from './schema';
+import { storage } from '@/utils/storage';
 
 let db: DB | null = null;
 
 const DB_NAME = 'ediscussion.db';
 
+/**
+ * Migration ponctuelle : un système multi-compte (supprimé depuis) stockait
+ * la base de chaque compte non-legacy dans un fichier séparé
+ * `ediscussion-{accountId}.db`. Un appareil ayant utilisé ce système garde
+ * ce fichier sur disque — orphelin depuis que le code n'ouvre plus qu'un
+ * fichier fixe `ediscussion.db` — avec TOUT l'historique de messages de
+ * l'utilisateur dedans (jamais rejoué depuis le serveur, E2E local-only).
+ * Sans cette migration, ces utilisateurs perdaient l'accès à tous leurs
+ * messages : la liste de conversations réapparaît (resynchronisée depuis le
+ * serveur dans le nouveau fichier vide), mais chaque conversation ouverte
+ * reste vide.
+ *
+ * Stratégie : au premier démarrage suivant la mise à jour, si `ediscussion.db`
+ * n'existe pas encore sur ce chemin, on cherche un fichier orphelin
+ * `ediscussion-*.db` dans le même dossier et on le RENOMME vers le nom fixe
+ * avant l'ouverture — aucune copie, aucune perte, idempotent (ne fait plus
+ * rien une fois `ediscussion.db` créé). `active_account_id` (laissé en MMKV
+ * par l'ancien système, jamais nettoyé) sert à désambiguïser s'il y a
+ * plusieurs candidats orphelins sur le même appareil.
+ */
+async function migrateOrphanAccountDb(): Promise<void> {
+  if (Platform.OS !== 'android') return; // iOS n'a jamais eu ce multi-compte en prod
+  const dir = ANDROID_DATABASE_PATH as string;
+  const target = `${dir}/${DB_NAME}`;
+  try {
+    if (await ReactNativeBlobUtil.fs.exists(target)) return; // déjà migré / compte neuf
+
+    const entries = await ReactNativeBlobUtil.fs.ls(dir);
+    const candidates = entries.filter((f) => /^ediscussion-[0-9a-fA-F-]{36}\.db$/.test(f));
+    if (candidates.length === 0) return;
+
+    let chosen = candidates[0]!;
+    if (candidates.length > 1) {
+      const activeId = storage.getString('active_account_id');
+      const match = activeId && candidates.find((f) => f.includes(activeId));
+      if (match) chosen = match;
+      // sinon : plusieurs candidats, aucun ne correspond au compte actif —
+      // on prend le premier plutôt que de laisser l'utilisateur sans aucune
+      // donnée ; un cas à un seul candidat (de très loin le plus fréquent)
+      // n'a de toute façon pas cette ambiguïté.
+    }
+
+    for (const suffix of ['', '-wal', '-shm']) {
+      const src = `${dir}/${chosen}${suffix}`;
+      const dst = `${target}${suffix}`;
+      if (await ReactNativeBlobUtil.fs.exists(src)) {
+        await ReactNativeBlobUtil.fs.mv(src, dst);
+      }
+    }
+    console.warn(`[db] fichier orphelin migré: ${chosen} -> ${DB_NAME}`);
+  } catch (e) {
+    // best-effort : une DB vide vaut mieux qu'un crash au démarrage. Un
+    // utilisateur concerné qui tombe ici garde son ancien fichier intact
+    // sur disque (rien n'est supprimé), donc rien d'irréversible.
+    console.warn('[db] migration fichier orphelin ignorée:', e);
+  }
+}
+
 export async function initDb(): Promise<DB> {
   if (db) return db;
+  await migrateOrphanAccountDb();
   db = open({ name: DB_NAME });
 
   await db.execute('PRAGMA journal_mode = WAL;');
