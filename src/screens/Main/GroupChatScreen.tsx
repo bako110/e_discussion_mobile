@@ -741,24 +741,25 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
                 </Text>
               </View>
             </Pressable>
-            {linkedChannels.length > 0 ? (
-              <Pressable
-                onPress={() => setLinkedSheetOpen(true)}
-                hitSlop={8}
-                style={[styles.channelsBadge, { backgroundColor: c.surfaceAlt }]}
-              >
-                <Icon name="message-reply-text-outline" size={14} color={c.primary} />
-                <Text style={[styles.channelsBadgeTxt, { color: c.primary }]}>
-                  {t('groupSettings.linkedChannelsBadge', { count: linkedChannels.length })}
-                </Text>
-              </Pressable>
-            ) : null}
             <Pressable onPress={openGroupMenu} hitSlop={10}>
               <Icon name="dots-vertical" size={22} color={c.text} />
             </Pressable>
           </View>
         }
       />
+
+      {linkedChannels.length > 0 ? (
+        <Pressable
+          onPress={() => setLinkedSheetOpen(true)}
+          style={[styles.channelsStrip, { backgroundColor: c.surfaceAlt }]}
+        >
+          <Icon name="message-reply-text-outline" size={15} color={c.primary} />
+          <Text style={[styles.channelsStripTxt, { color: c.primary }]} numberOfLines={1}>
+            {t('groupSettings.linkedChannelsBadge', { count: linkedChannels.length })}
+          </Text>
+          <Icon name="chevron-right" size={16} color={c.primary} />
+        </Pressable>
+      ) : null}
 
       <LinkedChannelsSheet
         visible={linkedSheetOpen}
@@ -927,15 +928,15 @@ const styles = StyleSheet.create({
   hdrCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   hdrTitle: { fontSize: 16, fontWeight: '800' },
   hdrSub: { fontSize: 12, marginTop: 1 },
-  channelsBadge: {
+  channelsStrip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 12,
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
   },
-  channelsBadgeTxt: { fontSize: 12, fontWeight: '700' },
+  channelsStripTxt: { flex: 1, fontSize: 13, fontWeight: '700', textAlign: 'center' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   offlineStrip: {
     flexDirection: 'row',
