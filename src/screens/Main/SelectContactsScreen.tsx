@@ -89,11 +89,15 @@ export const SelectContactsScreen: React.FC<MainScreenProps<'SelectContacts'>> =
     let alive = true;
     (async () => {
       try {
-        const list = await userService.contacts();
-        if (alive) setContacts(list);
+        // cache local d'abord — instantané, hors-ligne OK
+        const cached = await userService.readContactsCache().catch(() => []);
+        if (alive) setContacts(cached);
       } finally {
         if (alive) setLoading(false);
       }
+      // puis rafraîchissement serveur best-effort (silencieux si hors-ligne)
+      const fresh = await userService.refreshContacts().catch(() => null);
+      if (alive && fresh) setContacts(fresh);
     })();
     return () => {
       alive = false;

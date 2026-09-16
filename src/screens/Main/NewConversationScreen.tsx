@@ -51,14 +51,17 @@ export const NewConversationScreen: React.FC<MainScreenProps<'NewConversation'>>
 
   const loadContacts = useCallback(async () => {
     try {
-      const [list, existing] = await Promise.all([
-        userService.contacts(),
+      // cache local d'abord — instantané, hors-ligne OK
+      const [cached, existing] = await Promise.all([
+        userService.readContactsCache().catch(() => [] as UserPublic[]),
         conversationService.list().catch(() => []),
       ]);
-      setContacts(list);
+      setContacts(cached);
       setExistingPartnerIds(new Set(existing.map((conv) => conv.partner.id)));
-    } catch {
-      setContacts([]);
+      setLoadingContacts(false);
+      // puis rafraîchissement serveur best-effort (silencieux si hors-ligne)
+      const fresh = await userService.refreshContacts().catch(() => null);
+      if (fresh) setContacts(fresh);
     } finally {
       setLoadingContacts(false);
     }

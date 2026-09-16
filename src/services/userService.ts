@@ -1,5 +1,6 @@
 import { apiClient, Endpoints } from '@/api';
 import { authService } from '@/services/authService';
+import { contactRepo } from '@/db/repositories/contactRepo';
 import { newClientId, outbox } from '@/sync/outbox';
 import type { ContactMatch, PrivacyLevel, UserMe, UserPublic } from '@/types';
 import { storage } from '@/utils/storage';
@@ -76,7 +77,21 @@ export const userService = {
     const list = await apiClient.get<UserPublic[]>(Endpoints.contacts.list);
     // cache local des IDs -> blocage des appels d'inconnus (CallContext)
     storage.setJSON(KNOWN_CONTACT_IDS, list.map((u) => u.id));
+    void contactRepo.bulkReplace(list).catch(() => undefined);
     return list;
+  },
+
+  /** Cache local des contacts (SQLite) — instantané, hors-ligne OK. À
+   * afficher tout de suite, puis rafraîchir avec `refreshContacts()`. */
+  readContactsCache(): Promise<UserPublic[]> {
+    return contactRepo.list();
+  },
+
+  /** Rafraîchit les contacts depuis le serveur et met à jour le cache local
+   * — best-effort, échoue silencieusement si hors-ligne (l'appelant garde
+   * alors le cache déjà affiché). */
+  refreshContacts(): Promise<UserPublic[]> {
+    return userService.contacts();
   },
 
   /** IDs des contacts connus (cache MMKV alimenté par `contacts()`). */

@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -272,5 +272,25 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE messages ADD COLUMN forwarded_from_id TEXT;
   ALTER TABLE group_messages ADD COLUMN forwarded_from_id TEXT;
+  `,
+
+  // ── v13 : cache local des contacts — pour que l'écran « nouvelle
+  // discussion » affiche instantanément la dernière liste connue même hors
+  // ligne (comme groups/groupRepo), rafraîchie best-effort depuis le
+  // serveur dès que le réseau est là. `is_online`/`last_seen_at` sont
+  // volatiles (calculées via Redis côté serveur) — traitées en best-effort,
+  // jamais comme source de vérité figée hors-ligne longtemps.
+  `
+  CREATE TABLE IF NOT EXISTS contacts (
+    id            TEXT PRIMARY KEY,
+    username      TEXT,
+    display_name  TEXT,
+    avatar_url    TEXT,
+    about         TEXT,
+    last_seen_at  TEXT,
+    is_online     INTEGER NOT NULL DEFAULT 0,
+    updated_at    TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(display_name, username);
   `,
 ];
