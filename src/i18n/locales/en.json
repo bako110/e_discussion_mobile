@@ -1,7 +1,6 @@
 {
   "exitApp": {
-    "title": "Exit app?",
-    "message": "You're about to leave E-discussion."
+    "pressAgain": "Press back again to exit"
   },
   "common": {
     "ok": "OK",
@@ -315,6 +314,7 @@
     "muteChannel": "Mute notifications",
     "muteChannelDesc": "Stop receiving notifications for this channel",
     "shareChannel": "Share channel",
+    "shareGroup": "Share group",
     "manageChannel": "Manage channel",
     "addSubscribers": "Add subscribers",
     "resetInvite": "Reset invite link",

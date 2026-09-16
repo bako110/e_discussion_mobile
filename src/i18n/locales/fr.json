@@ -1,7 +1,6 @@
 {
   "exitApp": {
-    "title": "Quitter l'application ?",
-    "message": "Vous êtes sur le point de quitter E-discussion."
+    "pressAgain": "Appuyez encore sur retour pour quitter"
   },
   "common": {
     "ok": "OK",
@@ -315,6 +314,7 @@
     "muteChannel": "Masquer les notifications",
     "muteChannelDesc": "Ne plus recevoir de notifications pour cette chaîne",
     "shareChannel": "Partager la chaîne",
+    "shareGroup": "Partager le groupe",
     "manageChannel": "Gérer la chaîne",
     "addSubscribers": "Ajouter des abonnés",
     "resetInvite": "Régénérer le lien d'invitation",

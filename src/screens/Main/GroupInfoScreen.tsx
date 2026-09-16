@@ -263,6 +263,25 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
     }
   };
 
+  /** Un seul bouton « Partager » -> choix entre lien et QR code. */
+  const openShareSheet = () => {
+    showSheet({
+      title: isChannel ? t('groups.shareChannel') : t('groups.shareGroup'),
+      actions: [
+        {
+          label: t('groups.inviteViaLink'),
+          icon: 'link-variant',
+          onPress: () => void shareInvite(),
+        },
+        {
+          label: t('groups.inviteQr'),
+          icon: 'qrcode',
+          onPress: () => navigation.navigate('GroupQr', { groupId }),
+        },
+      ],
+    });
+  };
+
   const confirmLeave = () => {
     showAlert(
       isChannel ? t('groups.leaveChannelTitle') : t('groups.leaveGroupTitle'),
@@ -476,9 +495,9 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
         {isChannel ? (
           /* ─────────── PROFIL DE CHAÎNE ─────────── */
           <>
-            {/* Partager la chaîne — action mise en avant */}
+            {/* Partager — un seul bouton, ouvre le choix lien / QR */}
             <Pressable
-              onPress={shareInvite}
+              onPress={openShareSheet}
               style={[styles.action, { backgroundColor: c.primary, marginTop: 10 }]}
               android_ripple={{ color: c.surface }}
             >
@@ -493,24 +512,6 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
                   {inviteLink(group?.invite_code ?? '')}
                 </Text>
               </View>
-            </Pressable>
-
-            {/* QR */}
-            <Pressable
-              onPress={() => navigation.navigate('GroupQr', { groupId })}
-              style={[styles.action, { backgroundColor: c.surfaceAlt, marginTop: 6 }]}
-              android_ripple={{ color: c.surface }}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: c.accent }]}>
-                <Icon name="qrcode" size={18} color="#fff" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.actionTitle, { color: c.text }]}>{t('groups.inviteQr')}</Text>
-                <Text style={[styles.actionSub, { color: c.textMuted }]} numberOfLines={1}>
-                  {t('groups.qrHint')}
-                </Text>
-              </View>
-              <Icon name="chevron-right" size={18} color={c.textMuted} />
             </Pressable>
 
             {/* Bloc admin : gérer la chaîne */}
@@ -578,42 +579,24 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
         ) : (
           /* ─────────── PROFIL DE GROUPE ─────────── */
           <>
-            {/* invitation : QR à scanner */}
+            {/* Partager — un seul bouton, ouvre le choix lien / QR */}
             <Pressable
-              onPress={() => navigation.navigate('GroupQr', { groupId })}
+              onPress={openShareSheet}
               style={[styles.action, { backgroundColor: c.surfaceAlt }]}
               android_ripple={{ color: c.surface }}
             >
               <View style={[styles.actionIcon, { backgroundColor: c.primary }]}>
-                <Icon name="qrcode" size={18} color="#fff" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.actionTitle, { color: c.text }]}>{t('groups.inviteQr')}</Text>
-                <Text style={[styles.actionSub, { color: c.textMuted }]} numberOfLines={1}>
-                  {t('groups.qrHint')}
-                </Text>
-              </View>
-              <Icon name="chevron-right" size={18} color={c.textMuted} />
-            </Pressable>
-
-            {/* invitation : partage du lien */}
-            <Pressable
-              onPress={shareInvite}
-              style={[styles.action, { backgroundColor: c.surfaceAlt, marginTop: 6 }]}
-              android_ripple={{ color: c.surface }}
-            >
-              <View style={[styles.actionIcon, { backgroundColor: c.accent }]}>
-                <Icon name="link-variant" size={18} color="#fff" />
+                <Icon name="share-variant" size={18} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.actionTitle, { color: c.text }]}>
-                  {t('groups.inviteViaLink')}
+                  {t('groups.shareGroup')}
                 </Text>
                 <Text style={[styles.actionSub, { color: c.textMuted }]} numberOfLines={1}>
                   {inviteLink(group?.invite_code ?? '')}
                 </Text>
               </View>
-              <Icon name="share-variant" size={18} color={c.primary} />
+              <Icon name="chevron-right" size={18} color={c.textMuted} />
             </Pressable>
 
             {/* Membres : une seule ligne -> bottom sheet avec la liste */}
