@@ -401,10 +401,21 @@ export const GroupsTabScreen: React.FC = () => {
     [groups, channels],
   );
 
-  const list = useMemo(
-    () => (filter === 'all' ? all : all.filter((x) => (filter === 'channel') === x.channel)),
-    [all, filter],
-  );
+  type Row =
+    | { kind: 'mine'; g: Group; channel: boolean }
+    | { kind: 'public'; preview: GroupPreview };
+
+  // mes chaînes/groupes d'abord (triés par activité), puis les chaînes
+  // publiques non rejointes en dessous — une chaîne publique est accessible
+  // à tous, pas besoin d'un onglet séparé pour la découvrir.
+  const list = useMemo<Row[]>(() => {
+    const mine: Row[] = (
+      filter === 'all' ? all : all.filter((x) => (filter === 'channel') === x.channel)
+    ).map((x) => ({ kind: 'mine', ...x }));
+    if (filter === 'group') return mine;
+    const public_: Row[] = publicChannels.map((preview) => ({ kind: 'public', preview }));
+    return [...mine, ...public_];
+  }, [all, filter, publicChannels]);
 
   const openChat = useCallback(
     (g: Group) => navigation.navigate('GroupChat', { groupId: g.id, name: g.name }),
@@ -419,7 +430,49 @@ export const GroupsTabScreen: React.FC = () => {
     [navigation],
   );
 
-  const renderRow = ({ item }: { item: { g: Group; channel: boolean } }) => {
+  const renderRow = ({ item }: { item: Row }) => {
+    if (item.kind === 'public') {
+      const p = item.preview;
+      return (
+        <Pressable
+          style={[
+            styles.card,
+            { backgroundColor: c.card, borderColor: c.border, shadowColor: c.text },
+          ]}
+          android_ripple={{ color: c.surfaceAlt }}
+          onPress={() => openPublicPreview(p)}
+        >
+          <View>
+            <Avatar uri={p.avatar_url} name={p.name} size={52} />
+            <View style={[styles.kindDot, { backgroundColor: c.primary, borderColor: c.card }]}>
+              <Icon name="earth" size={11} color="#fff" />
+            </View>
+          </View>
+          <View style={styles.rowBody}>
+            <View style={styles.rowTop}>
+              <View style={styles.nameRow}>
+                <Icon name="bullhorn" size={13} color={c.primary} />
+                <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+                  {p.name}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.rowBottom}>
+              <Text style={[styles.preview, { color: c.textMuted }]} numberOfLines={1}>
+                {p.description || t('groups.publicChannelSuggested')}
+              </Text>
+            </View>
+            <View style={styles.metaRow}>
+              <Icon name="account-multiple-outline" size={12} color={c.textFaint} />
+              <Text style={[styles.metaTxt, { color: c.textFaint }]}>
+                {t('groups.subscribersCount', { count: p.member_count })}
+              </Text>
+            </View>
+          </View>
+        </Pressable>
+      );
+    }
+
     const g = item.g;
     return (
       <Pressable
@@ -488,46 +541,6 @@ export const GroupsTabScreen: React.FC = () => {
       </Pressable>
     );
   };
-
-  const renderPublicChannel = (item: GroupPreview) => (
-    <Pressable
-      key={item.id}
-      style={[
-        styles.card,
-        { backgroundColor: c.card, borderColor: c.border, shadowColor: c.text },
-      ]}
-      android_ripple={{ color: c.surfaceAlt }}
-      onPress={() => openPublicPreview(item)}
-    >
-      <View>
-        <Avatar uri={item.avatar_url} name={item.name} size={52} />
-        <View style={[styles.kindDot, { backgroundColor: c.primary, borderColor: c.card }]}>
-          <Icon name="bullhorn" size={11} color="#fff" />
-        </View>
-      </View>
-      <View style={styles.rowBody}>
-        <View style={styles.rowTop}>
-          <View style={styles.nameRow}>
-            <Icon name="earth" size={13} color={c.primary} />
-            <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
-              {item.name}
-            </Text>
-          </View>
-        </View>
-        <View style={styles.rowBottom}>
-          <Text style={[styles.preview, { color: c.textMuted }]} numberOfLines={1}>
-            {item.description || t('groups.publicChannelSuggested')}
-          </Text>
-        </View>
-        <View style={styles.metaRow}>
-          <Icon name="account-multiple-outline" size={12} color={c.textFaint} />
-          <Text style={[styles.metaTxt, { color: c.textFaint }]}>
-            {t('groups.subscribersCount', { count: item.member_count })}
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  );
 
   const SEGMENTS: { key: GroupFilter; label: string; count: number }[] = [
     { key: 'all', label: t('groups.allTitle'), count: groups.length + channels.length },
@@ -612,21 +625,9 @@ export const GroupsTabScreen: React.FC = () => {
       ) : (
         <FlatList
           data={list}
-          keyExtractor={(it) => it.g.id}
+          keyExtractor={(it) => (it.kind === 'public' ? `public-${it.preview.id}` : it.g.id)}
           renderItem={renderRow}
           ListHeaderComponent={header}
-          ListFooterComponent={
-            filter !== 'group' && publicChannels.length > 0 ? (
-              <View>
-                <View style={styles.sectionHead}>
-                  <Text style={[styles.tabSectionTitle, { color: c.text, fontSize: 14 }]}>
-                    {t('groups.publicChannelsSection')}
-                  </Text>
-                </View>
-                {publicChannels.map(renderPublicChannel)}
-              </View>
-            ) : null
-          }
           contentContainerStyle={list.length === 0 ? styles.emptyWrap : styles.tabListContent}
           refreshControl={
             <RefreshControl

@@ -268,7 +268,6 @@
     "leaveConfirm": "Vous ne recevrez plus les messages.",
     "noGroups": "Aucun groupe",
     "noChannels": "Aucune chaîne",
-    "publicChannelsSection": "Chaînes publiques",
     "publicChannelSuggested": "Chaîne publique — appuyez pour découvrir",
     "scanTitle": "Scanner un code",
     "scanHint": "Placez le QR code dans le cadre",
@@ -509,6 +508,17 @@
     "submit": "Envoyer",
     "skip": "Pas maintenant",
     "thanks": "Merci pour votre avis !"
+  },
+  "accounts": {
+    "title": "Comptes",
+    "settingsDesc": "{{count}} compte sur cet appareil",
+    "settingsDesc_other": "{{count}} comptes sur cet appareil",
+    "active": "Actif",
+    "add": "Ajouter un compte",
+    "limitReached": "Maximum {{count}} comptes sur cet appareil",
+    "switchFailed": "Impossible de basculer vers ce compte",
+    "removeTitle": "Retirer ce compte",
+    "removeConfirm": "{{name}} sera déconnecté de cet appareil. Les données déjà téléchargées seront supprimées."
   },
   "settings": {
     "title": "Réglages",
