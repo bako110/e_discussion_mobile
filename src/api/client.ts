@@ -34,12 +34,37 @@ let refreshPromise: Promise<string> | null = null;
 export const setAccessToken = (t: string | null) => {
   accessToken = t;
 };
+/** Token du compte ACTUELLEMENT actif (multi-compte, façon Gmail) — tenu à
+ * jour par authService à chaque bascule/refresh. Utilisé par WebSocketContext
+ * pour authentifier la socket sur le bon compte plutôt que de relire le
+ * Keychain sous un service fixe (qui ne correspond qu'au tout premier
+ * compte historique). */
+export const getAccessToken = () => accessToken;
 export const setRefreshFn = (fn: () => Promise<string>) => {
   refreshFn = fn;
 };
 export const setOnUnauthorized = (fn: () => void) => {
   onUnauthorized = fn;
 };
+
+/** Rafraîchit le token d'accès à la demande — pour un chemin qui ne passe
+ * PAS par `request()`/`upload()` (ex: authentification WebSocket), qui ne
+ * bénéficie donc jamais du refresh réactif-sur-401 ci-dessous. Partage la
+ * même `refreshPromise` (une seule requête de refresh en vol à la fois). */
+export async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshFn) return null;
+  try {
+    refreshPromise ??= refreshFn().finally(() => {
+      refreshPromise = null;
+    });
+    const fresh = await refreshPromise;
+    setAccessToken(fresh);
+    return fresh;
+  } catch {
+    onUnauthorized?.();
+    return null;
+  }
+}
 
 const TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;

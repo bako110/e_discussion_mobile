@@ -23,9 +23,14 @@ import React, {
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import * as Keychain from 'react-native-keychain';
 
+import { getAccessToken, refreshAccessToken } from '@/api/client';
 import { WS_URL } from '@/utils/constants';
+
+/** Code de fermeture envoyé par le serveur quand l'auth WS échoue (token
+ * expiré/invalide) — voir `app/api/v1/routers/ws.py::websocket_endpoint`,
+ * `ws.close(code=4401)`. */
+const WS_CLOSE_UNAUTHORIZED = 4401;
 
 export interface WsEvent {
   type: string;
@@ -48,23 +53,11 @@ interface WsContextValue {
 
 const WsContext = createContext<WsContextValue | null>(null);
 
-const KEYCHAIN_SERVICE = 'ediscussion-auth-tokens';
-
 // intervalles (ms)
 const PING_NORMAL = 25_000;
 const PING_KEEPALIVE = 8_000;
 const PONG_TIMEOUT_NORMAL = 40_000;
 const PONG_TIMEOUT_KEEPALIVE = 18_000;
-
-async function currentAccessToken(): Promise<string | null> {
-  try {
-    const creds = await Keychain.getGenericPassword({ service: KEYCHAIN_SERVICE });
-    if (!creds || !creds.password) return null;
-    return (JSON.parse(creds.password) as { access: string }).access ?? null;
-  } catch {
-    return null;
-  }
-}
 
 export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.ReactNode }> = ({
   enabled,
@@ -80,6 +73,7 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
   const closedByUs = useRef(false);
   const keepAliveRef = useRef(false);
   const lastPong = useRef(Date.now());
+  const needsTokenRefresh = useRef(false);
 
   const clearTimers = useCallback(() => {
     if (pingTimer.current) clearInterval(pingTimer.current);
@@ -161,7 +155,17 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
     ) {
       return;
     }
-    const token = await currentAccessToken();
+    // la dernière tentative a été rejetée pour auth (token expiré) — le WS
+    // n'a aucune notion de 401/refresh réactif comme les requêtes REST
+    // (`client.ts`), donc SANS cet appel explicite le même token périmé
+    // était renvoyé indéfiniment (boucle de reconnexion toutes les ~30s,
+    // jamais résolue tant qu'aucune requête HTTP ne rafraîchissait le token
+    // par ailleurs).
+    if (needsTokenRefresh.current) {
+      needsTokenRefresh.current = false;
+      await refreshAccessToken();
+    }
+    const token = getAccessToken();
     if (!token) {
       console.warn('[ws] pas de token access — connexion differee');
       return;
@@ -187,6 +191,12 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
         setConnected(true);
         reconnectAttempt.current = 0;
         lastPong.current = Date.now();
+        // socket prête juste après (re)connexion — signale l'état courant
+        // de l'app pour que la présence "en ligne" reflète tout de suite
+        // la réalité (pas seulement à partir du prochain changement AppState).
+        if (AppState.currentState === 'active') {
+          ws.send(JSON.stringify({ type: 'app.foreground' }));
+        }
         return;
       }
       if (data.type === 'pong') {
@@ -201,10 +211,13 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
       listeners.current.forEach((fn) => fn(data));
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       setConnected(false);
       if (pingTimer.current) clearInterval(pingTimer.current);
       if (pongWatchdog.current) clearInterval(pongWatchdog.current);
+      if (ev.code === WS_CLOSE_UNAUTHORIZED) {
+        needsTokenRefresh.current = true;
+      }
       if (!closedByUs.current && enabled) {
         scheduleReconnect(() => void connect());
       }
@@ -233,9 +246,19 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
     void connect();
 
     const appSub = AppState.addEventListener('change', (s: AppStateStatus) => {
-      if (s !== 'active') return;
-      // en arrière-plan : on NE ferme rien — la socket vit tant que l'OS
-      // laisse le process tourner (indispensable pendant un appel).
+      // en arrière-plan : on NE FERME rien — la socket vit tant que l'OS
+      // laisse le process tourner (indispensable pendant un appel), MAIS on
+      // signale explicitement l'état au serveur pour que la présence "en
+      // ligne" reflète le premier plan réel, pas juste le process vivant
+      // (un service natif Android maintient volontairement ce dernier en
+      // arrière-plan pour les notifications/appels — voir ws.py côté backend).
+      if (s !== 'active') {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'app.background' }));
+        }
+        return;
+      }
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         reconnectAttempt.current = 0;
@@ -253,6 +276,7 @@ export const WebSocketProvider: React.FC<{ enabled: boolean; children: React.Rea
       const graceMs = keepAliveRef.current ? PONG_TIMEOUT_KEEPALIVE : PONG_TIMEOUT_NORMAL;
       lastPong.current = Date.now() - 1; // force le prochain check
       ws.send(JSON.stringify({ type: 'ping' }));
+      ws.send(JSON.stringify({ type: 'app.foreground' }));
       setTimeout(() => {
         if (
           wsRef.current === ws &&
