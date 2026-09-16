@@ -14,14 +14,15 @@ import { AppState } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useWs, type WsEvent } from '@/context/WebSocketContext';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
+import { groupRepo } from '@/db/repositories/groupRepo';
 import { notificationRepo } from '@/db/repositories/notificationRepo';
-import { activeConversationId, navigationRef } from '@/navigation/navigationRef';
+import { activeConversationId, activeThreadId, navigationRef } from '@/navigation/navigationRef';
 import {
   clearConversationNotification,
   displayMessageNotification,
 } from '@/services/notificationService';
 import { getNotifPrefs } from '@/services/notificationPrefs';
-import type { ChatMessage } from '@/types';
+import type { ChatMessage, GroupMessage } from '@/types';
 
 /** Libellé court d'une pièce jointe pour l'aperçu de notif (sans emoji). */
 function attachmentLabel(type: string): string {
@@ -63,8 +64,43 @@ export const MessageNotifications: React.FC = () => {
 
   useEffect(() => {
     if (!me) return;
-    console.warn('[notif] MessageNotifications monté, écoute WS');
     const off = addListener((e: WsEvent) => {
+      if (e.type === 'group.message') {
+        const gm = e.message as GroupMessage | undefined;
+        if (!gm?.group_id) return;
+
+        const prefs = getNotifPrefs();
+        const focused = AppState.currentState === 'active';
+        const onThisGroup =
+          navigationRef.isReady() && activeThreadId() === gm.group_id;
+
+        if (!prefs.messages) return;
+        // pas de notif pour mes propres messages (echo multi-device)
+        if (gm.sender_id === me.id) return;
+        // ni si je regarde déjà ce groupe, app au premier plan
+        if (focused && onThisGroup) return;
+
+        const type = gm.type ?? 'text';
+        const preview = type !== 'text' ? attachmentLabel(type) : gm.body ?? '';
+        const senderName = gm.sender?.display_name || gm.sender?.username || 'Message';
+
+        // groupe/chaîne en sourdine -> pas de notif OS
+        void groupRepo.get(gm.group_id).then((group) => {
+          if (group?.muted) return;
+          void displayMessageNotification({
+            conversationId: '',
+            senderId: gm.sender_id,
+            senderName,
+            senderAvatar: gm.sender?.avatar_url ?? null,
+            preview,
+            messageId: gm.id,
+            groupId: gm.group_id,
+            groupName: group?.name,
+          });
+        });
+        return;
+      }
+
       if (e.type !== 'message.new') return;
       const msg = e.message as ChatMessage | undefined;
       if (!msg) return;
@@ -76,28 +112,15 @@ export const MessageNotifications: React.FC = () => {
       const focused = AppState.currentState === 'active';
       const onThisChat =
         navigationRef.isReady() && activeConversationId() === convId;
-      console.warn(
-        `[notif] message.new conv=${convId.slice(0, 8)} from=${String(senderId).slice(0, 8)} ` +
-          `prefs.messages=${prefs.messages} appState=${AppState.currentState} onThisChat=${onThisChat}`,
-      );
 
       // notifications de messages désactivées dans les réglages
-      if (!prefs.messages) {
-        console.warn('[notif] -> ABANDON: prefs.messages=false');
-        return;
-      }
+      if (!prefs.messages) return;
 
       // pas de notif pour mes propres messages (echo multi-device)
-      if (senderId && senderId === me.id) {
-        console.warn('[notif] -> ABANDON: mon propre message');
-        return;
-      }
+      if (senderId && senderId === me.id) return;
 
       // ni si je regarde déjà cette conversation, app au premier plan
-      if (focused && onThisChat) {
-        console.warn('[notif] -> ABANDON: app active sur cette conv');
-        return;
-      }
+      if (focused && onThisChat) return;
 
       const sender = (msg as {
         sender?: {
@@ -118,11 +141,7 @@ export const MessageNotifications: React.FC = () => {
 
       // conversation en sourdine -> pas de notif OS (le compteur reste à jour)
       void conversationRepo.get(convId).then((conv) => {
-        if (conv?.muted) {
-          console.warn('[notif] -> ABANDON: conversation en sourdine');
-          return;
-        }
-        console.warn('[notif] -> displayMessageNotification()');
+        if (conv?.muted) return;
         void displayMessageNotification({
           conversationId: convId,
           senderId: senderId ?? '',
@@ -130,10 +149,7 @@ export const MessageNotifications: React.FC = () => {
           senderAvatar: sender?.avatar_url ?? null,
           preview,
           messageId: (msg as { id?: string }).id ?? '',
-        }).then(
-          () => console.warn('[notif] displayMessageNotification OK'),
-          (err) => console.warn('[notif] displayMessageNotification ERREUR:', String(err)),
-        );
+        });
       });
     });
     return off;
