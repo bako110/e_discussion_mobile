@@ -58,6 +58,12 @@ export function onSyncProgress(fn: Progress): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
+
+/** true si une passe push/pull est en cours d'écriture sur la base locale. */
+export function isSyncBusy(): boolean {
+  return running || pushing;
+}
+
 function emit(phase: 'push' | 'pull' | 'idle', pending: number): void {
   listeners.forEach((fn) => fn({ phase, pending }));
 }

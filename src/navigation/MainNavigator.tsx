@@ -10,7 +10,10 @@ import { ChatScreen } from '@/screens/Main/ChatScreen';
 import { ConversationInfoScreen } from '@/screens/Main/ConversationInfoScreen';
 import { ChatsSettingsScreen } from '@/screens/Main/ChatsSettingsScreen';
 import { CallsSettingsScreen } from '@/screens/Main/CallsSettingsScreen';
+import { ChannelDiscussionScreen } from '@/screens/Main/ChannelDiscussionScreen';
+import { ChannelSubscriptionScreen } from '@/screens/Main/ChannelSubscriptionScreen';
 import { CreateGroupScreen } from '@/screens/Main/CreateGroupScreen';
+import { DiscoverChannelsScreen } from '@/screens/Main/DiscoverChannelsScreen';
 import { DevicesScreen } from '@/screens/Main/DevicesScreen';
 import { EditProfileScreen } from '@/screens/Main/EditProfileScreen';
 import { GroupChatScreen } from '@/screens/Main/GroupChatScreen';
@@ -129,6 +132,9 @@ export const MainNavigator: React.FC = () => (
     <Stack.Screen name="GroupInfo" component={GroupInfoScreen} />
     <Stack.Screen name="GroupSettings" component={GroupSettingsScreen} />
     <Stack.Screen name="GroupJoinRequests" component={GroupJoinRequestsScreen} />
+    <Stack.Screen name="ChannelDiscussion" component={ChannelDiscussionScreen} />
+    <Stack.Screen name="ChannelSubscription" component={ChannelSubscriptionScreen} />
+    <Stack.Screen name="DiscoverChannels" component={DiscoverChannelsScreen} />
     <Stack.Screen name="AddGroupMembers" component={AddGroupMembersScreen} />
     <Stack.Screen name="GroupQr" component={GroupQrScreen} />
     <Stack.Screen

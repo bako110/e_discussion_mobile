@@ -5,18 +5,8 @@ import { newClientId, outbox } from '@/sync/outbox';
 import type { ContactMatch, PrivacyLevel, UserMe, UserPublic } from '@/types';
 import { storage } from '@/utils/storage';
 
-// partitionnées par compte ACTIF (multi-compte) — sinon basculer de compte
-// gardait les contacts connus / réglages de confidentialité de l'ancien
-// compte affichés jusqu'au premier rafraîchissement réseau réussi.
-function accountSuffix(): string {
-  return authService.getActiveAccountId() ?? 'anon';
-}
-function KNOWN_CONTACT_IDS(): string {
-  return `contacts.knownIds_${accountSuffix()}`;
-}
-function PRIVACY_CACHE(): string {
-  return `privacy.settings.cache_${accountSuffix()}`;
-}
+const KNOWN_CONTACT_IDS = 'contacts.knownIds';
+const PRIVACY_CACHE = 'privacy.settings.cache';
 
 /** Champs de profil réglables. */
 export type PrivacyField = 'online' | 'last_seen' | 'profile_photo' | 'about';
@@ -86,7 +76,7 @@ export const userService = {
   async contacts(): Promise<UserPublic[]> {
     const list = await apiClient.get<UserPublic[]>(Endpoints.contacts.list);
     // cache local des IDs -> blocage des appels d'inconnus (CallContext)
-    storage.setJSON(KNOWN_CONTACT_IDS(), list.map((u) => u.id));
+    storage.setJSON(KNOWN_CONTACT_IDS, list.map((u) => u.id));
     void contactRepo.bulkReplace(list).catch(() => undefined);
     return list;
   },
@@ -106,7 +96,7 @@ export const userService = {
 
   /** IDs des contacts connus (cache MMKV alimenté par `contacts()`). */
   knownContactIds(): string[] {
-    return storage.getJSON<string[]>(KNOWN_CONTACT_IDS()) ?? [];
+    return storage.getJSON<string[]>(KNOWN_CONTACT_IDS) ?? [];
   },
 
   getById(id: string): Promise<UserPublic> {
@@ -145,13 +135,13 @@ export const userService = {
   // ── Confidentialité du profil : 4 champs, 3 modes + liste (façon WhatsApp) ──
   /** Lecture immédiate depuis le cache (peut être les valeurs par défaut). */
   readPrivacyCache(): PrivacySettings {
-    return storage.getJSON<PrivacySettings>(PRIVACY_CACHE()) ?? DEFAULT_PRIVACY;
+    return storage.getJSON<PrivacySettings>(PRIVACY_CACHE) ?? DEFAULT_PRIVACY;
   },
 
   /** Récupère l'état serveur complet et met à jour le cache. */
   async privacy(): Promise<PrivacySettings> {
     const s = await apiClient.get<PrivacySettings>(Endpoints.users.privacy);
-    storage.setJSON(PRIVACY_CACHE(), s);
+    storage.setJSON(PRIVACY_CACHE, s);
     return s;
   },
 
@@ -168,7 +158,7 @@ export const userService = {
       mode === 'everyone_except' || mode === 'only' ? [...new Set(contactIds)] : [];
     const cur = userService.readPrivacyCache();
     const next: PrivacySettings = { ...cur, [field]: { mode, contact_ids: clean } };
-    storage.setJSON(PRIVACY_CACHE(), next);
+    storage.setJSON(PRIVACY_CACHE, next);
     // reflète aussi le champ simple sur le cache `me` (les vieux écrans le lisent)
     if (field !== 'online') {
       authService.patchCachedMe({ [`${field}_privacy`]: mode } as Partial<UserMe>);

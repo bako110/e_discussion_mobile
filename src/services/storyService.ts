@@ -1,5 +1,4 @@
 import { apiClient, Endpoints, type UploadFile } from '@/api';
-import { authService } from '@/services/authService';
 import { storage } from '@/utils/storage';
 import { mediaCache } from '@/services/mediaCache';
 import { newClientId, outbox } from '@/sync/outbox';
@@ -23,23 +22,10 @@ export interface StoryAudience {
  *    (elles disparaissent toutes seules après 24h) ;
  *  - les médias (photo/vidéo/miniature) sont mis sur disque via `mediaCache`
  *    → une story déjà vue s'affiche sans rechargement, même hors-ligne.
- *
- * Cache partitionné par compte ACTIF (multi-compte) — sinon basculer de
- * compte affichait un instant les stories de l'ancien compte (cache global
- * relu tel quel avant que le premier `reload()` réseau ne l'écrase).
  */
-function accountSuffix(): string {
-  return authService.getActiveAccountId() ?? 'anon';
-}
-function K_FEED(): string {
-  return `stories.feed.cache_${accountSuffix()}`;
-}
-function K_MINE(): string {
-  return `stories.mine.cache_${accountSuffix()}`;
-}
-function K_AUDIENCE(): string {
-  return `stories.audience.cache_${accountSuffix()}`;
-}
+const K_FEED = 'stories.feed.cache';
+const K_MINE = 'stories.mine.cache';
+const K_AUDIENCE = 'stories.audience.cache';
 
 /** Retire les stories expirées d'un item de feed ; supprime l'item si vide. */
 function pruneFeed(items: StoryFeedItem[]): StoryFeedItem[] {
@@ -68,16 +54,16 @@ function warmMedia(stories: Story[]): void {
 export const storyService = {
   /** Feed des contacts (cache local) — filtré des stories expirées. */
   readFeedCache(): StoryFeedItem[] {
-    return pruneFeed(storage.getJSON<StoryFeedItem[]>(K_FEED()) ?? []);
+    return pruneFeed(storage.getJSON<StoryFeedItem[]>(K_FEED) ?? []);
   },
   readMineCache(): Story[] {
-    return pruneMine(storage.getJSON<Story[]>(K_MINE()) ?? []);
+    return pruneMine(storage.getJSON<Story[]>(K_MINE) ?? []);
   },
 
   /** Feed des contacts, groupé par auteur. Met à jour le cache + précharge les médias. */
   async feed(): Promise<StoryFeedItem[]> {
     const f = await apiClient.get<StoryFeedItem[]>(Endpoints.stories.feed);
-    storage.setJSON(K_FEED(), f);
+    storage.setJSON(K_FEED, f);
     f.forEach((it) => warmMedia(it.stories));
     return f;
   },
@@ -91,11 +77,11 @@ export const storyService = {
    */
   async mine(): Promise<Story[]> {
     const m = await apiClient.get<Story[]>(Endpoints.stories.mine);
-    const localDrafts = (storage.getJSON<Story[]>(K_MINE()) ?? []).filter(
+    const localDrafts = (storage.getJSON<Story[]>(K_MINE) ?? []).filter(
       (s) => s.pending || s.failed,
     );
     const merged = [...localDrafts, ...m];
-    storage.setJSON(K_MINE(), merged);
+    storage.setJSON(K_MINE, merged);
     warmMedia(m);
     return merged;
   },
@@ -134,7 +120,7 @@ export const storyService = {
       is_mine: true,
       pending: true,
     };
-    storage.setJSON(K_MINE(), [pending, ...(storage.getJSON<Story[]>(K_MINE()) ?? [])]);
+    storage.setJSON(K_MINE, [pending, ...(storage.getJSON<Story[]>(K_MINE) ?? [])]);
     void outbox.enqueue('create_story', clientId, {
       client_id: clientId,
       media_type: pending.media_type,
@@ -181,7 +167,7 @@ export const storyService = {
       is_mine: true,
       pending: true,
     };
-    storage.setJSON(K_MINE(), [pending, ...(storage.getJSON<Story[]>(K_MINE()) ?? [])]);
+    storage.setJSON(K_MINE, [pending, ...(storage.getJSON<Story[]>(K_MINE) ?? [])]);
     void outbox.enqueue('upload_story', clientId, {
       client_id: clientId,
       localFile,
@@ -197,33 +183,33 @@ export const storyService = {
 
   /** Retire une story locale « en attente » du cache (rejeu réussi ou annulé). */
   removePendingLocal(clientId: string): void {
-    const list = storage.getJSON<Story[]>(K_MINE()) ?? [];
+    const list = storage.getJSON<Story[]>(K_MINE) ?? [];
     storage.setJSON(
-      K_MINE(),
+      K_MINE,
       list.filter((s) => s.client_id !== clientId),
     );
   },
 
   /** Remplace une story locale « en attente » par la version confirmée serveur. */
   confirmPendingLocal(clientId: string, saved: Story): void {
-    const list = storage.getJSON<Story[]>(K_MINE()) ?? [];
+    const list = storage.getJSON<Story[]>(K_MINE) ?? [];
     const idx = list.findIndex((s) => s.client_id === clientId);
     if (idx === -1) {
-      storage.setJSON(K_MINE(), [saved, ...list]);
+      storage.setJSON(K_MINE, [saved, ...list]);
     } else {
       list[idx] = saved;
-      storage.setJSON(K_MINE(), list);
+      storage.setJSON(K_MINE, list);
     }
     warmMedia([saved]);
   },
 
   /** Marque une story locale « en attente » comme définitivement échouée. */
   markPendingFailedLocal(clientId: string): void {
-    const list = storage.getJSON<Story[]>(K_MINE()) ?? [];
+    const list = storage.getJSON<Story[]>(K_MINE) ?? [];
     const idx = list.findIndex((s) => s.client_id === clientId);
     if (idx !== -1) {
       list[idx] = { ...list[idx]!, pending: false, failed: true };
-      storage.setJSON(K_MINE(), list);
+      storage.setJSON(K_MINE, list);
     }
   },
 
@@ -237,11 +223,11 @@ export const storyService = {
    */
   retryFailedLocal(story: Story): void {
     if (!story.client_id || !story.failed) return;
-    const list = storage.getJSON<Story[]>(K_MINE()) ?? [];
+    const list = storage.getJSON<Story[]>(K_MINE) ?? [];
     const idx = list.findIndex((s) => s.client_id === story.client_id);
     if (idx === -1) return;
     list[idx] = { ...list[idx]!, pending: true, failed: false };
-    storage.setJSON(K_MINE(), list);
+    storage.setJSON(K_MINE, list);
 
     const hasMedia = story.media_type !== 'text' && !!story.media_url;
     if (hasMedia) {
@@ -282,14 +268,14 @@ export const storyService = {
 
   /** Supprime une de mes stories. Purge le cache local aussitôt. */
   async remove(id: string): Promise<void> {
-    storage.setJSON(K_MINE(), (storage.getJSON<Story[]>(K_MINE()) ?? []).filter((s) => s.id !== id));
+    storage.setJSON(K_MINE, (storage.getJSON<Story[]>(K_MINE) ?? []).filter((s) => s.id !== id));
     await apiClient.delete(Endpoints.stories.byId(id));
   },
 
   /** Marque une story comme vue — met aussi à jour le cache local
    * (`seen_by_me`) pour que l'état survive hors-ligne. */
   markViewed(id: string): Promise<void> {
-    const feed = storage.getJSON<StoryFeedItem[]>(K_FEED());
+    const feed = storage.getJSON<StoryFeedItem[]>(K_FEED);
     if (feed) {
       let changed = false;
       for (const it of feed) {
@@ -301,7 +287,7 @@ export const storyService = {
         }
         it.has_unseen = it.stories.some((s) => !s.seen_by_me);
       }
-      if (changed) storage.setJSON(K_FEED(), feed);
+      if (changed) storage.setJSON(K_FEED, feed);
     }
     return apiClient.post(Endpoints.stories.view(id)).then(() => undefined).catch(() => undefined);
   },
@@ -351,7 +337,7 @@ export const storyService = {
       pending: true,
       failed: false,
     };
-    storage.setJSON(K_MINE(), [optimistic, ...(storage.getJSON<Story[]>(K_MINE()) ?? [])]);
+    storage.setJSON(K_MINE, [optimistic, ...(storage.getJSON<Story[]>(K_MINE) ?? [])]);
     try {
       const saved = await apiClient.post<Story>(Endpoints.stories.reshare(source.id), {
         caption: caption ?? undefined,
@@ -377,14 +363,14 @@ export const storyService = {
   /** Lecture immédiate depuis le cache (peut être vide au 1er lancement). */
   readAudienceCache(): StoryAudience {
     return (
-      storage.getJSON<StoryAudience>(K_AUDIENCE()) ?? { mode: 'contacts', contact_ids: [] }
+      storage.getJSON<StoryAudience>(K_AUDIENCE) ?? { mode: 'contacts', contact_ids: [] }
     );
   },
 
   /** Récupère la config serveur et met à jour le cache. */
   async audience(): Promise<StoryAudience> {
     const a = await apiClient.get<StoryAudience>(Endpoints.stories.audience);
-    storage.setJSON(K_AUDIENCE(), a);
+    storage.setJSON(K_AUDIENCE, a);
     return a;
   },
 
@@ -397,7 +383,7 @@ export const storyService = {
       mode: next.mode,
       contact_ids: next.mode === 'contacts' ? [] : [...new Set(next.contact_ids)],
     };
-    storage.setJSON(K_AUDIENCE(), clean);
+    storage.setJSON(K_AUDIENCE, clean);
     await outbox.enqueue('update_story_audience', newClientId(), {
       mode: clean.mode,
       contact_ids: clean.contact_ids,

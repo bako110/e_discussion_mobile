@@ -515,21 +515,6 @@
     "skip": "Not now",
     "thanks": "Thanks for your feedback!"
   },
-  "accounts": {
-    "title": "Accounts",
-    "settingsDesc": "{{count}} account on this device",
-    "settingsDesc_other": "{{count}} accounts on this device",
-    "active": "Active",
-    "add": "Add account",
-    "limitReached": "Maximum {{count}} accounts on this device",
-    "switchFailed": "Couldn't switch to this account",
-    "removeTitle": "Remove this account",
-    "removeConfirm": "{{name}} will be signed out of this device. Already-downloaded data will be deleted.",
-    "switchedTitle": "Account switched",
-    "switchedBody": "You're now signed in as {{name}}.",
-    "switchTitle": "Switch account",
-    "switchConfirm": "Switch to {{name}}'s account?"
-  },
   "settings": {
     "title": "Settings",
     "tapForAccount": "Tap to manage your account",

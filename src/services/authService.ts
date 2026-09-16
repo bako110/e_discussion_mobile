@@ -7,14 +7,6 @@
  *
  * Les tokens sont stockes dans le Keychain (protection materielle),
  * jamais dans MMKV non chiffre.
- *
- * Multi-compte (jusqu'à 4, façon Gmail) : chaque compte a sa PROPRE entrée
- * Keychain et son propre cache profil MMKV, partitionnés par `accountId`
- * (= user.id). `setActiveAccountId()` fixe le compte sur lequel ce module
- * opère — appelé par accountSwitch.ts à chaque bascule. Les fonctions qui ne
- * prennent pas explicitement d'accountId (getCachedMe, setCachedMe,
- * patchCachedMe, bootstrap, logout…) agissent TOUJOURS sur le compte actif
- * courant, pour ne pas devoir modifier tous leurs appelants existants.
  */
 import { Platform } from 'react-native';
 import * as Keychain from 'react-native-keychain';
@@ -27,10 +19,9 @@ import {
   setRefreshFn,
 } from '@/api';
 import type { AuthResult, PhoneStartOut, UserMe } from '@/types';
-import { storage } from '@/utils/storage';
+import { StorageKeys, storage } from '@/utils/storage';
 
-const KEYCHAIN_SERVICE_PREFIX = 'ediscussion-auth-tokens';
-const CACHED_ME_PREFIX = 'cached_me';
+const KEYCHAIN_SERVICE = 'ediscussion-auth-tokens';
 
 interface StoredTokens {
   access: string;
@@ -44,28 +35,18 @@ function deviceHeaders(): Record<string, string> {
   };
 }
 
-// compte sur lequel ce module opère actuellement — fixé par setActiveAccountId()
-let activeAccountId: string | null = null;
 let cachedMe: UserMe | null = null;
 
-function keychainService(accountId: string): string {
-  return `${KEYCHAIN_SERVICE_PREFIX}-${accountId}`;
-}
-
-function cachedMeKey(accountId: string): string {
-  return `${CACHED_ME_PREFIX}_${accountId}`;
-}
-
-async function persistTokens(accountId: string, access: string, refresh: string): Promise<void> {
+async function persistTokens(access: string, refresh: string): Promise<void> {
   await Keychain.setGenericPassword('tokens', JSON.stringify({ access, refresh }), {
-    service: keychainService(accountId),
+    service: KEYCHAIN_SERVICE,
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
-  if (accountId === activeAccountId) setAccessToken(access);
+  setAccessToken(access);
 }
 
-async function readTokens(accountId: string): Promise<StoredTokens | null> {
-  const creds = await Keychain.getGenericPassword({ service: keychainService(accountId) });
+async function readTokens(): Promise<StoredTokens | null> {
+  const creds = await Keychain.getGenericPassword({ service: KEYCHAIN_SERVICE });
   if (!creds || !creds.password) return null;
   try {
     return JSON.parse(creds.password) as StoredTokens;
@@ -74,60 +55,36 @@ async function readTokens(accountId: string): Promise<StoredTokens | null> {
   }
 }
 
-async function clearTokens(accountId: string): Promise<void> {
-  await Keychain.resetGenericPassword({ service: keychainService(accountId) });
-  storage.delete(cachedMeKey(accountId));
-  if (accountId === activeAccountId) {
-    setAccessToken(null);
-    cachedMe = null;
-  }
+async function clearTokens(): Promise<void> {
+  await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
+  setAccessToken(null);
+  cachedMe = null;
+  storage.delete(StorageKeys.CACHED_ME);
 }
 
-function remember(accountId: string, res: AuthResult): void {
-  storage.setJSON(cachedMeKey(accountId), res.user);
-  if (accountId === activeAccountId) cachedMe = res.user;
+function remember(res: AuthResult): void {
+  cachedMe = res.user;
+  storage.setJSON(StorageKeys.CACHED_ME, res.user);
 }
 
 export const authService = {
-  /** Fixe le compte sur lequel ce module opère (Keychain/cache profil ciblés
-   * par les fonctions sans accountId explicite). Appelé par accountSwitch.ts
-   * à chaque bascule, et une fois au démarrage avec le compte actif du
-   * registre. Ne fait AUCUN appel réseau — juste un aiguillage local. */
-  setActiveAccountId(accountId: string | null): void {
-    activeAccountId = accountId;
-    cachedMe = accountId ? storage.getJSON<UserMe>(cachedMeKey(accountId)) : null;
-  },
-
-  /** Compte sur lequel ce module opère actuellement — pour tout autre
-   * service (storyService, callService…) qui a besoin de partitionner SON
-   * PROPRE cache MMKV par compte, exactement comme cached_me/Keychain le
-   * sont déjà ici. */
-  getActiveAccountId(): string | null {
-    return activeAccountId;
-  },
-
-  /** Au demarrage (ou à chaque bascule) : recharge les tokens du compte
-   * ACTUELLEMENT actif (voir setActiveAccountId) et branche le refresh
-   * automatique sur ce même compte. */
+  /** Au demarrage : recharge les tokens et branche le refresh automatique. */
   async bootstrap(onUnauthorized: () => void): Promise<boolean> {
     setRefreshFn(async () => {
-      const id = activeAccountId;
-      if (!id) throw new Error('no active account');
-      const stored = await readTokens(id);
+      const stored = await readTokens();
       if (!stored) throw new Error('no refresh token');
       const res = await apiClient.post<AuthResult>(Endpoints.auth.refresh, {
         refresh_token: stored.refresh,
       });
-      await persistTokens(id, res.access_token, res.refresh_token);
+      await persistTokens(res.access_token, res.refresh_token);
       return res.access_token;
     });
     setOnUnauthorized(async () => {
-      if (activeAccountId) await clearTokens(activeAccountId);
+      await clearTokens();
       onUnauthorized();
     });
 
-    if (!activeAccountId) return false;
-    const stored = await readTokens(activeAccountId);
+    const stored = await readTokens();
     if (!stored) return false;
     setAccessToken(stored.access);
     return true;
@@ -143,28 +100,22 @@ export const authService = {
   },
 
   // ── Etape 2 : verification du code -> session ────────────────────────
-  /** Vérifie le code et persiste les tokens SOUS `res.user.id` — n'active
-   * PAS automatiquement ce compte (voir setActiveAccountId), pour permettre
-   * de vérifier un 2e/3e/4e compte sans perturber le compte actif courant
-   * pendant le flux d'ajout. */
   async phoneVerify(e164: string, code: string): Promise<AuthResult> {
     const res = await apiClient.post<AuthResult>(
       Endpoints.auth.phoneVerify,
       { phone: e164, code },
       { headers: deviceHeaders() },
     );
-    await persistTokens(res.user.id, res.access_token, res.refresh_token);
-    remember(res.user.id, res);
+    await persistTokens(res.access_token, res.refresh_token);
+    remember(res);
     return res;
   },
 
   // ── Etape 3 : completer le profil (nom + username) ───────────────────
   async updateProfile(input: { display_name: string; username: string }): Promise<UserMe> {
     const me = await apiClient.patch<UserMe>(Endpoints.users.updateMe, input);
-    if (activeAccountId) {
-      cachedMe = me;
-      storage.setJSON(cachedMeKey(activeAccountId), me);
-    }
+    cachedMe = me;
+    storage.setJSON(StorageKeys.CACHED_ME, me);
     return me;
   },
 
@@ -173,15 +124,11 @@ export const authService = {
     if (!forceRefresh && cachedMe) return cachedMe;
     try {
       const me = await apiClient.get<UserMe>(Endpoints.auth.me);
-      if (activeAccountId) {
-        cachedMe = me;
-        storage.setJSON(cachedMeKey(activeAccountId), me);
-      }
+      cachedMe = me;
+      storage.setJSON(StorageKeys.CACHED_ME, me);
       return me;
     } catch (err) {
-      const offline = activeAccountId
-        ? storage.getJSON<UserMe>(cachedMeKey(activeAccountId))
-        : null;
+      const offline = storage.getJSON<UserMe>(StorageKeys.CACHED_ME);
       if (offline) {
         cachedMe = offline;
         return offline;
@@ -202,36 +149,27 @@ export const authService = {
   /** Confirme le code et lie l'e-mail au compte -> renvoie le profil a jour. */
   async linkEmail(email: string, code: string): Promise<UserMe> {
     const me = await apiClient.post<UserMe>(Endpoints.auth.linkEmail, { email, code });
-    if (activeAccountId) {
-      cachedMe = me;
-      storage.setJSON(cachedMeKey(activeAccountId), me);
-    }
+    cachedMe = me;
+    storage.setJSON(StorageKeys.CACHED_ME, me);
     return me;
   },
 
   /** Confirme le code et lie le numero au compte -> renvoie le profil a jour. */
   async linkPhone(phone: string, code: string): Promise<UserMe> {
     const me = await apiClient.post<UserMe>(Endpoints.auth.linkPhone, { phone, code });
-    if (activeAccountId) {
-      cachedMe = me;
-      storage.setJSON(cachedMeKey(activeAccountId), me);
-    }
+    cachedMe = me;
+    storage.setJSON(StorageKeys.CACHED_ME, me);
     return me;
   },
 
-  /** Déconnecte le compte ACTUELLEMENT actif (voir setActiveAccountId) :
-   * révoque le refresh token côté serveur puis nettoie son Keychain/cache
-   * local. N'affecte aucun autre compte du registre. */
   async logout(): Promise<void> {
-    const id = activeAccountId;
-    if (!id) return;
-    const stored = await readTokens(id);
+    const stored = await readTokens();
     try {
       await apiClient.post(Endpoints.auth.logout, { refresh_token: stored?.refresh });
     } catch {
       // on nettoie localement quoi qu'il arrive
     }
-    await clearTokens(id);
+    await clearTokens();
   },
 
   /** Archive JSON de toutes mes données (portabilité / RGPD). */
@@ -250,34 +188,32 @@ export const authService = {
     });
   },
 
-  /** Supprime DÉFINITIVEMENT le compte ACTIF côté serveur (avec le code OTP
-   * reçu via `requestAccountDeleteOtp`), puis nettoie le local. */
+  /** Supprime DÉFINITIVEMENT le compte côté serveur (avec le code OTP reçu
+   * via `requestAccountDeleteOtp`), puis nettoie le local. */
   async deleteAccount(code: string): Promise<void> {
     await apiClient.delete(Endpoints.auth.deleteMe, { code });
-    if (activeAccountId) await clearTokens(activeAccountId);
+    await clearTokens();
   },
 
   getCachedMe(): UserMe | null {
-    return cachedMe ?? (activeAccountId ? storage.getJSON<UserMe>(cachedMeKey(activeAccountId)) : null);
+    return cachedMe ?? storage.getJSON<UserMe>(StorageKeys.CACHED_ME);
   },
 
   /** Fusionne `patch` dans le profil en cache (mise à jour optimiste locale,
    * hors-ligne OK). Le serveur est mis à jour à part (outbox `update_me`). */
   patchCachedMe(patch: Partial<UserMe>): UserMe | null {
-    if (!activeAccountId) return null;
-    const cur = cachedMe ?? storage.getJSON<UserMe>(cachedMeKey(activeAccountId));
+    const cur = cachedMe ?? storage.getJSON<UserMe>(StorageKeys.CACHED_ME);
     if (!cur) return null;
     const next = { ...cur, ...patch } as UserMe;
     cachedMe = next;
-    storage.setJSON(cachedMeKey(activeAccountId), next);
+    storage.setJSON(StorageKeys.CACHED_ME, next);
     return next;
   },
 
   /** Remplace le profil en cache par la version serveur. */
   setCachedMe(me: UserMe): void {
-    if (!activeAccountId) return;
     cachedMe = me;
-    storage.setJSON(cachedMeKey(activeAccountId), me);
+    storage.setJSON(StorageKeys.CACHED_ME, me);
   },
 
   profileComplete(me: UserMe | null): boolean {

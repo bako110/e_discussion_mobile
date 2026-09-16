@@ -95,11 +95,19 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Connectivité + déclenchement de sync au retour du réseau
+  // Connectivité + déclenchement de sync au retour du réseau. Redéclenché
+  // aussi à chaque changement d'utilisateur connecté (via `me?.id`) : ce
+  // provider est monté UNE FOIS au-dessus de RootNavigator (App.tsx) et
+  // n'est donc jamais démonté/remonté par le `key={me?.id}` du
+  // WebSocketProvider — sans cette dépendance, `syncNow()` ne repartait
+  // qu'au tout premier login du process et plus jamais après une
+  // déconnexion/reconnexion, laissant `hasSyncedOnce`/`syncing` de
+  // ConversationsScreen bloqués et son spinner de chargement tourner
+  // indéfiniment.
   useEffect(() => {
     if (!ready || !authed) return;
 
-    void syncNow();
+    void syncNow({ force: true });
     void refreshPending();
 
     const unsubNet = NetInfo.addEventListener((state) => {
@@ -126,7 +134,7 @@ export const SyncProvider: React.FC<{ children: React.ReactNode }> = ({ children
       appSub.remove();
       clearInterval(timer);
     };
-  }, [ready, authed]);
+  }, [ready, authed, me?.id]);
 
   const value = useMemo<SyncContextValue>(
     () => ({

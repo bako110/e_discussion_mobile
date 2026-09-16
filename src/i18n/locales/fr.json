@@ -515,21 +515,6 @@
     "skip": "Pas maintenant",
     "thanks": "Merci pour votre avis !"
   },
-  "accounts": {
-    "title": "Comptes",
-    "settingsDesc": "{{count}} compte sur cet appareil",
-    "settingsDesc_other": "{{count}} comptes sur cet appareil",
-    "active": "Actif",
-    "add": "Ajouter un compte",
-    "limitReached": "Maximum {{count}} comptes sur cet appareil",
-    "switchFailed": "Impossible de basculer vers ce compte",
-    "removeTitle": "Retirer ce compte",
-    "removeConfirm": "{{name}} sera déconnecté de cet appareil. Les données déjà téléchargées seront supprimées.",
-    "switchedTitle": "Compte changé",
-    "switchedBody": "Vous êtes maintenant connecté en tant que {{name}}.",
-    "switchTitle": "Changer de compte",
-    "switchConfirm": "Basculer vers le compte {{name}} ?"
-  },
   "settings": {
     "title": "Réglages",
     "tapForAccount": "Appuyez pour gérer votre compte",

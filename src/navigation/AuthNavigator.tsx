@@ -10,7 +10,10 @@ import type { AuthStackParamList } from './types';
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
 export const AuthNavigator: React.FC = () => (
-  <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+  <Stack.Navigator
+    screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
+    initialRouteName="Welcome"
+  >
     <Stack.Screen name="Welcome" component={WelcomeScreen} />
     <Stack.Screen name="Phone" component={PhoneScreen} />
     <Stack.Screen name="Otp" component={OtpScreen} />

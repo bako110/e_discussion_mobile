@@ -123,6 +123,12 @@ export type MainStackParamList = {
   GroupSettings: { groupId: string };
   /** File des demandes d'adhésion à approuver (admins). */
   GroupJoinRequests: { groupId: string };
+  /** Canal de discussion lié à une chaîne — créer/choisir/délier (admins). */
+  ChannelDiscussion: { groupId: string };
+  /** Abonnement payant d'une chaîne — activer/prix/devise (admins). */
+  ChannelSubscription: { groupId: string };
+  /** Annuaire des chaînes publiques, joignables sans invitation. */
+  DiscoverChannels: undefined;
   /** QR code d'invitation d'un groupe / chaîne (à faire scanner). */
   GroupQr: { groupId: string };
   /** Écran plein écran de la diffusion en direct d'une chaîne (spectateur

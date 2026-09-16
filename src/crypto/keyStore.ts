@@ -284,7 +284,8 @@ export async function clearSessionConfirmed(peerUserId: string, peerDeviceId: st
  * sessions, blobs X3DH, flags de confirmation. Le prochain
  * `ensureDeviceRegistered()` regenere une identite neuve et la publie
  * (ce qui revoque l'ancien appareil cote serveur). A n'utiliser que si des
- * conversations sont definitivement bloquees sur « message chiffre ». */
+ * conversations sont definitivement bloquees sur « message chiffre ».
+ */
 export async function wipeAllE2EE(): Promise<void> {
   const mmkv = await getMmkv();
   mmkv.clearAll();

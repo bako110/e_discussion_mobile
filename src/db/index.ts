@@ -1,6 +1,6 @@
 /**
  * Connexion SQLite locale + exécution des migrations. `getDb()` est
- * synchrone une fois `initDb()` résolu (appelé une fois au démarrage).
+ * synchrone une fois `initDb()` résolu.
  */
 import { type DB, open } from '@op-engineering/op-sqlite';
 
@@ -8,9 +8,11 @@ import { MIGRATIONS, SCHEMA_VERSION } from './schema';
 
 let db: DB | null = null;
 
+const DB_NAME = 'ediscussion.db';
+
 export async function initDb(): Promise<DB> {
   if (db) return db;
-  db = open({ name: 'ediscussion.db' });
+  db = open({ name: DB_NAME });
 
   await db.execute('PRAGMA journal_mode = WAL;');
   // Pas de FK cross-tables en local : offline-first, on peut ecrire un

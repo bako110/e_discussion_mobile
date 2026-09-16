@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   Easing,
   FlatList,
   Image,
@@ -13,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
@@ -21,6 +23,7 @@ import { useStories } from '@/context/StoriesContext';
 import { useSync } from '@/context/SyncContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
+import { BAR_HEIGHT } from '@/navigation/TabNavigator';
 import type { MainNav } from '@/navigation/types';
 import { onLocalMessageEvent } from '@/context/MessageSync';
 import { notificationRepo } from '@/db/repositories/notificationRepo';
@@ -101,6 +104,7 @@ export const ConversationsScreen: React.FC = () => {
   const { addListener } = useWs();
   const { ready, syncNow, online, syncing, pending } = useSync();
   const { feed: storyFeed } = useStories();
+  const insets = useSafeAreaInsets();
   const c = theme.colors;
 
   // partenaires ayant au moins une story active -> { has_unseen } pour l'anneau
@@ -157,6 +161,29 @@ export const ConversationsScreen: React.FC = () => {
     useCallback(() => {
       void load();
     }, [load]),
+  );
+
+  // Bouton retour Android depuis l'écran d'accueil (onglet Discussions, à la
+  // racine de la pile) : façon Facebook, un premier appui affiche un toast
+  // ("Appuyez encore pour quitter") ; un second appui dans les 2s qui
+  // suivent ferme réellement l'app. Ce handler n'est actif que tant que cet
+  // écran est au premier plan (useFocusEffect), donc ne se déclenche jamais
+  // depuis une conversation ouverte ou un autre onglet/écran empilé dessus.
+  const lastBackPressRef = useRef(0);
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        const now = Date.now();
+        if (now - lastBackPressRef.current < 2000) {
+          BackHandler.exitApp();
+          return true;
+        }
+        lastBackPressRef.current = now;
+        showToast(t('exitApp.pressAgain'), { type: 'info', duration: 2000 });
+        return true;
+      });
+      return () => sub.remove();
+    }, [t]),
   );
 
   // `conversationService.list()` ne lit QUE le cache SQLite local — au tout
@@ -488,14 +515,6 @@ export const ConversationsScreen: React.FC = () => {
                 </View>
               ) : null}
             </Pressable>
-            <Pressable
-              onPress={() => navigation.navigate('NewConversation')}
-              style={[styles.newBtn, { borderColor: c.onHeaderMuted }]}
-              android_ripple={{ color: c.overlay, borderless: false }}
-            >
-              <Icon name="square-edit-outline" size={15} color={c.onHeader} />
-              <Text style={[styles.newBtnText, { color: c.onHeader }]}>{t('conversations.newShort')}</Text>
-            </Pressable>
           </View>
         }
         bottom={
@@ -627,6 +646,17 @@ export const ConversationsScreen: React.FC = () => {
         }
         renderItem={renderRow}
       />
+
+      <Pressable
+        onPress={() => navigation.navigate('NewConversation')}
+        style={[
+          styles.fab,
+          { backgroundColor: c.primary, bottom: BAR_HEIGHT + insets.bottom + -30 },
+        ]}
+        android_ripple={{ color: '#ffffff30' }}
+      >
+        <Icon name="square-edit-outline" size={22} color="#fff" />
+      </Pressable>
     </Screen>
   );
 };
@@ -635,17 +665,20 @@ const styles = StyleSheet.create({
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   brandLogo: { width: 32, height: 32, borderRadius: 16 },
   brandText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: -0.4 },
-  newBtn: {
-    flexDirection: 'row',
+  fab: {
+    position: 'absolute',
+    right: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.55)',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
   },
-  newBtnText: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   bellBtn: { padding: 4 },
   bellDot: {

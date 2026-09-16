@@ -14,8 +14,16 @@ import { WebSocketProvider } from '@/context/WebSocketContext';
 import { navigateToChat, navigationRef } from '@/navigation/navigationRef';
 import { registerPushToken } from '@/services/pushTokenService';
 import { subscribeFcmForeground } from '@/services/fcm';
+import {
+  isIgnoringBatteryOptimizations,
+  requestIgnoreBatteryOptimizations,
+} from '@/services/batteryOptimization';
+import { startBackgroundKeepAlive, stopBackgroundKeepAlive } from '@/services/backgroundKeepAlive';
+import { storage } from '@/utils/storage';
 import { CallOverlay } from '@/screens/Main/CallOverlay';
 import { GlobalVoiceBar } from '@/components/chat/GlobalVoiceBar';
+import { InCallRingtone } from '@/components/call/InCallRingtone';
+import { CallRatingGate } from '@/components/call/CallRatingGate';
 
 import { AuthNavigator } from './AuthNavigator';
 import { linking } from './linking';
@@ -23,7 +31,7 @@ import { MainNavigator } from './MainNavigator';
 import { OnboardingNavigator } from './OnboardingNavigator';
 
 export const RootNavigator: React.FC = () => {
-  const { status } = useAuth();
+  const { status, me } = useAuth();
   const { theme, isDark } = useTheme();
 
   // enregistre le jeton de push natif dès qu'on est authentifié
@@ -35,6 +43,50 @@ export const RootNavigator: React.FC = () => {
     return off;
   }, [status]);
 
+  // Demande l'exemption d'optimisation batterie UNE SEULE FOIS après le
+  // premier login — sans elle, certains OEM (Transsion/Infinix/Tecno) coupent
+  // silencieusement les push en arrière-plan, façon WhatsApp/Telegram/Signal
+  // qui font la même demande. Refusable, et re-proposable depuis les réglages
+  // de notification si l'utilisateur change d'avis plus tard.
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    const K_ASKED = 'battery_opt_asked';
+    if (storage.getBoolean(K_ASKED)) return;
+    const t = setTimeout(() => {
+      void isIgnoringBatteryOptimizations().then((ok) => {
+        if (!ok) void requestIgnoreBatteryOptimizations();
+        storage.set(K_ASKED, true);
+      });
+    }, 2500); // laisse l'app se stabiliser avant une boîte de dialogue système
+    return () => clearTimeout(t);
+  }, [status]);
+
+  // Foreground service de maintien en arrière-plan (façon WhatsApp) : démarré
+  // UNE SEULE FOIS dès l'authentification (app forcément au premier plan à
+  // ce moment), puis reste actif en continu jusqu'à la déconnexion.
+  //
+  // IMPORTANT — pourquoi pas de start/stop sur les transitions AppState :
+  // Android restreint fortement `startForegroundService()` quand il est
+  // appelé alors que l'app est DÉJÀ en arrière-plan (le cas classique d'un
+  // listener sur le passage en background) — le service peut alors ne
+  // jamais atteindre `onStartCommand`, ce qui fait planter TOUT LE PROCESS
+  // avec `ForegroundServiceDidNotStartInTimeException` au bout du délai
+  // imparti (observé en prod, reproductible à chaque appel entrant en
+  // arrière-plan). Démarrer une seule fois pendant que l'app est au premier
+  // plan (juste après le login) évite cette restriction : le service est
+  // déjà vivant quand l'app passe ensuite en arrière-plan, plus besoin de
+  // le (re)créer à ce moment précis.
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      void stopBackgroundKeepAlive();
+      return;
+    }
+    void startBackgroundKeepAlive();
+    return () => {
+      void stopBackgroundKeepAlive();
+    };
+  }, [status]);
+
   // ouverture d'une conversation / de l'historique quand on tape une notif
   useEffect(() => {
     const openFromData = (data: Record<string, unknown> | undefined) => {
@@ -43,6 +95,9 @@ export const RootNavigator: React.FC = () => {
         navigateToChat(data.conversationId);
       } else if (data.kind === 'missed-call') {
         if (navigationRef.isReady()) navigationRef.navigate('NotificationHistory');
+      } else if (data.kind === 'story' && typeof data.authorId === 'string') {
+        const authorId = data.authorId;
+        if (navigationRef.isReady()) navigationRef.navigate('StoryViewer', { authorId });
       }
     };
     void notifee.getInitialNotification().then((initial) => {
@@ -82,7 +137,7 @@ export const RootNavigator: React.FC = () => {
       fallback={<SplashView />}
     >
       {status === 'authenticated' ? (
-        <WebSocketProvider enabled>
+        <WebSocketProvider key={me?.id} enabled>
           <CallProvider>
             <StoriesProvider>
               <GroupsProvider>
@@ -93,6 +148,8 @@ export const RootNavigator: React.FC = () => {
             <MessageNotifications />
             <CallOverlay />
             <GlobalVoiceBar />
+            <InCallRingtone />
+            <CallRatingGate />
           </CallProvider>
         </WebSocketProvider>
       ) : status === 'onboarding' ? (

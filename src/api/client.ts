@@ -34,11 +34,6 @@ let refreshPromise: Promise<string> | null = null;
 export const setAccessToken = (t: string | null) => {
   accessToken = t;
 };
-/** Token du compte ACTUELLEMENT actif (multi-compte, façon Gmail) — tenu à
- * jour par authService à chaque bascule/refresh. Utilisé par WebSocketContext
- * pour authentifier la socket sur le bon compte plutôt que de relire le
- * Keychain sous un service fixe (qui ne correspond qu'au tout premier
- * compte historique). */
 export const getAccessToken = () => accessToken;
 export const setRefreshFn = (fn: () => Promise<string>) => {
   refreshFn = fn;
