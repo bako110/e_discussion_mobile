@@ -52,17 +52,18 @@ export interface AppColors {
 }
 
 const BRAND = {
-  primary: '#2F80ED',
-  primaryHi: '#4DA3FF',
-  primaryLo: '#1B6FE0',
+  primary: '#4A93EF',
+  primaryHi: '#6FADF5',
+  primaryLo: '#3A82E0',
   accent: '#27AE79',
 };
 
 export const LightColors: AppColors = {
   ...BRAND,
+
   onPrimary: '#FFFFFF',
 
-  headerBg: '#1E6FE0',
+  headerBg: '#3F86E8',
   onHeader: '#FFFFFF',
   onHeaderMuted: 'rgba(255,255,255,0.82)',
 

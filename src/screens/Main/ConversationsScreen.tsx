@@ -323,7 +323,7 @@ export const ConversationsScreen: React.FC = () => {
       title: name,
       actions: [
         {
-          label: item.muted ? t('chat.unmute') : t('chat.mute'),
+          label: item.muted ? t('chat.menuUnmute') : t('chat.menuMute'),
           icon: item.muted ? 'bell-outline' : 'bell-off-outline',
           onPress: () => void conversationService.setMuted(item.id, !item.muted).then(load),
         },

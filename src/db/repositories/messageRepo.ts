@@ -38,6 +38,8 @@ interface Row {
   decrypt_failed: number;
   voice_played: number;
   forwarded_from_id: string | null;
+  view_once: number;
+  view_once_opened: number;
 }
 
 export interface LocalMessage extends ChatMessage {
@@ -70,6 +72,8 @@ function toMsg(r: Row): LocalMessage {
     reaction: r.reaction,
     delivered: !!r.delivered,
     read: !!r.read,
+    view_once: !!r.view_once,
+    view_once_opened: !!r.view_once_opened,
     edited_at: r.edited_at,
     deleted_at: r.deleted_at,
     created_at: r.created_at,
@@ -122,13 +126,14 @@ export const messageRepo = {
     replyTo?: ReplyPreview | null;
     forwardedFromId?: string | null;
     createdAt: string;
+    viewOnce?: boolean;
   }): Promise<void> {
     try {
       await run(
         `INSERT INTO messages
           (id, client_id, conversation_id, sender_id, type, body, body_cipher, encrypted,
-           attachment_url, attachment_meta, reply_to_json, forwarded_from_id, created_at, sync_state, voice_played)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', 1)`,
+           attachment_url, attachment_meta, reply_to_json, forwarded_from_id, created_at, sync_state, voice_played, view_once)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', 1, ?)`,
         [
           m.clientId,
           m.clientId,
@@ -143,6 +148,7 @@ export const messageRepo = {
           m.replyTo ? JSON.stringify(m.replyTo) : null,
           m.forwardedFromId ?? null,
           m.createdAt,
+          m.viewOnce ? 1 : 0,
         ],
       );
     } catch (e) {
@@ -166,6 +172,7 @@ export const messageRepo = {
              delivered=MAX(delivered, ?), read=MAX(read, ?),
              attachment_url=COALESCE(?, attachment_url),
              attachment_meta=COALESCE(?, attachment_meta),
+             view_once_opened=MAX(view_once_opened, ?),
              decrypt_failed=0, sync_state='synced'
        WHERE client_id=?`,
       [
@@ -177,6 +184,7 @@ export const messageRepo = {
         server.read ? 1 : 0,
         server.attachment_url ?? null,
         server.attachment_meta ? JSON.stringify(server.attachment_meta) : null,
+        server.view_once_opened ? 1 : 0,
         clientId,
       ],
     );
@@ -275,8 +283,8 @@ export const messageRepo = {
     await run(
       `INSERT INTO messages
         (id, conversation_id, sender_id, type, body, body_cipher, encrypted, attachment_url, attachment_meta,
-         reply_to_json, forwarded_from_id, reaction, delivered, read, edited_at, deleted_at, created_at, sync_state, decrypt_failed, voice_played)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced', ?, ?)
+         reply_to_json, forwarded_from_id, reaction, delivered, read, edited_at, deleted_at, created_at, sync_state, decrypt_failed, voice_played, view_once, view_once_opened)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced', ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          body=CASE WHEN excluded.body <> '' THEN excluded.body ELSE messages.body END,
          body_cipher=CASE
@@ -286,17 +294,22 @@ export const messageRepo = {
          encrypted=excluded.encrypted, reaction=excluded.reaction,
          -- pièce jointe : ne JAMAIS écraser une URL/meta locale par un NULL
          -- serveur (l'aperçu local file://… reste tant que l'upload différé
-         -- n'a pas renvoyé l'URL). On adopte la valeur serveur seulement si
-         -- elle est renseignée.
-         attachment_url=COALESCE(excluded.attachment_url, messages.attachment_url),
-         attachment_meta=COALESCE(excluded.attachment_meta, messages.attachment_meta),
+         -- n'a pas renvoyé l'URL) — SAUF si le serveur annonce la piece
+         -- jointe vue-unique CONSOMMEE (view_once_opened) : le fichier a ete
+         -- reellement supprime cote serveur, on efface donc bien la copie
+         -- locale malgre le COALESCE habituel.
+         attachment_url=CASE WHEN excluded.view_once_opened=1 THEN NULL
+           ELSE COALESCE(excluded.attachment_url, messages.attachment_url) END,
+         attachment_meta=CASE WHEN excluded.view_once_opened=1 THEN NULL
+           ELSE COALESCE(excluded.attachment_meta, messages.attachment_meta) END,
          forwarded_from_id=COALESCE(excluded.forwarded_from_id, messages.forwarded_from_id),
          delivered=MAX(messages.delivered, excluded.delivered),
          read=MAX(messages.read, excluded.read),
          edited_at=excluded.edited_at, deleted_at=excluded.deleted_at,
          decrypt_failed=CASE WHEN messages.body <> '' THEN 0 ELSE excluded.decrypt_failed END,
-         -- ne jamais "dé-marquer" un vocal déjà écouté
+         -- ne jamais "dé-marquer" un vocal déjà écouté / une vue-unique déjà ouverte
          voice_played=MAX(messages.voice_played, excluded.voice_played),
+         view_once_opened=MAX(messages.view_once_opened, excluded.view_once_opened),
          sync_state='synced'`,
       [
         m.id,
@@ -318,6 +331,8 @@ export const messageRepo = {
         m.created_at,
         dfail,
         vplayed,
+        m.view_once ? 1 : 0,
+        m.view_once_opened ? 1 : 0,
       ],
     );
   },
@@ -328,6 +343,16 @@ export const messageRepo = {
       messageId,
       messageId,
     ]);
+  },
+
+  /** La pièce jointe vue-unique vient d'être ouverte (par moi comme
+   * destinataire, ou confirmée par le serveur côté expéditeur) — efface la
+   * référence locale au fichier : il n'existe plus côté serveur. */
+  async markViewOnceOpened(messageId: string): Promise<void> {
+    await run(
+      "UPDATE messages SET view_once_opened=1, attachment_url=NULL, attachment_meta=NULL WHERE id=? OR client_id=?",
+      [messageId, messageId],
+    );
   },
 
   async setReaction(messageId: string, emoji: string | null): Promise<void> {

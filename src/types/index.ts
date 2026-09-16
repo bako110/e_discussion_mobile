@@ -87,6 +87,13 @@ export interface ChatMessage {
   reaction: string | null;
   delivered: boolean;
   read: boolean;
+  /** Vue unique (photo/vidéo/vocal/fichier, façon WhatsApp) : la pièce
+   * jointe ne peut être ouverte qu'une fois. */
+  view_once: boolean;
+  /** true dès que la pièce jointe vue-unique a été ouverte (par le
+   * destinataire OU annoncée par le serveur à l'expéditeur) — le fichier
+   * n'existe alors plus, `attachment_url` devient `null`. */
+  view_once_opened: boolean;
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;

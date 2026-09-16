@@ -54,6 +54,7 @@ export const Endpoints = {
     react: (id: string) => `${V1}/messages/${id}/react`,
     delivered: (id: string) => `${V1}/messages/${id}/delivered`,
     played: (id: string) => `${V1}/messages/${id}/played`,
+    openViewOnce: (id: string) => `${V1}/messages/${id}/view-once/open`,
     info: (id: string) => `${V1}/messages/${id}/info`,
   },
   stories: {

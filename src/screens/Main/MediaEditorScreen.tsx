@@ -420,12 +420,6 @@ export const MediaEditorScreen: React.FC<MainScreenProps<'MediaEditor'>> = ({
         <DraggableSticker key={s.id} item={s} onMove={moveSticker} />
       ))}
 
-      {/* légende gravée en bas de l'image */}
-      {caption.trim() && isImage ? (
-        <View style={styles.captionOverlay} pointerEvents="none">
-          <Text style={styles.captionOverlayText}>{caption.trim()}</Text>
-        </View>
-      ) : null}
     </>
   );
 
@@ -611,25 +605,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   audioTrackFill: { height: 3, backgroundColor: '#fff' },
-  captionOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 40,
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  captionOverlayText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '700',
-    textAlign: 'center',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
   sticker: { position: 'absolute', transform: [{ translateX: -22 }, { translateY: -22 }] },
   stickerText: { fontSize: 44 },
   header: {

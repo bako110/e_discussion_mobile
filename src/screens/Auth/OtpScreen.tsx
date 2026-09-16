@@ -37,7 +37,7 @@ export const OtpScreen: React.FC<AuthScreenProps<'Otp'>> = ({ route, navigation 
     setLoading(true);
     try {
       const res = await authService.phoneVerify(e164, value);
-      setSession(res.user); // AuthContext route vers onboarding ou l'app
+      await setSession(res.user); // AuthContext route vers onboarding ou l'app
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t('auth.invalidCode'));
       setCode('');

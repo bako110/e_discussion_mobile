@@ -159,4 +159,16 @@ export const conversationRepo = {
   async markSynced(id: string): Promise<void> {
     await run("UPDATE conversations SET sync_state='synced' WHERE id=?", [id]);
   },
+
+  /**
+   * Retire la conversation de la liste LOCALE (façon « supprimer la
+   * discussion » WhatsApp). Ne touche pas aux messages ni au serveur — c'est
+   * `conversationService.hide()` qui appelle le endpoint puis cette méthode.
+   * Sans danger de réapparition intempestive : le serveur exclut déjà cette
+   * conversation de `list_summaries` tant qu'aucun message plus récent que le
+   * masquage n'est arrivé, donc le prochain `bulkReplace` ne la réinsère pas.
+   */
+  async deleteLocal(id: string): Promise<void> {
+    await run('DELETE FROM conversations WHERE id=?', [id]);
+  },
 };

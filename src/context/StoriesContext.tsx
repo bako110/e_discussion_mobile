@@ -17,8 +17,10 @@ import React, {
   useState,
 } from 'react';
 
-import { useWs } from '@/context/WebSocketContext';
-import { storyService } from '@/services';
+import { useAuth } from '@/context/AuthContext';
+import { useWs, type WsEvent } from '@/context/WebSocketContext';
+import { storyService, userService } from '@/services';
+import { displayStoryNotification } from '@/services/notificationService';
 import type { Story, StoryFeedItem } from '@/types';
 
 interface StoriesContextValue {
@@ -35,6 +37,7 @@ interface StoriesContextValue {
 const StoriesContext = createContext<StoriesContextValue | null>(null);
 
 export const StoriesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { me } = useAuth();
   const { addListener } = useWs();
   const [feed, setFeed] = useState<StoryFeedItem[]>([]);
   const [mine, setMine] = useState<Story[]>([]);
@@ -73,10 +76,27 @@ export const StoriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [readLocal, reload]);
 
   useEffect(
-    () => addListener((e) => {
-      if (String(e.type).startsWith('story.')) void reload();
-    }),
-    [addListener, reload],
+    () =>
+      addListener((e: WsEvent) => {
+        if (!String(e.type).startsWith('story.')) return;
+        void reload();
+
+        if (e.type !== 'story.new') return;
+        const authorId = typeof e.author_id === 'string' ? e.author_id : '';
+        // pas de notif pour mes propres statuts (echo multi-device)
+        if (!authorId || authorId === me?.id) return;
+        void userService
+          .getById(authorId)
+          .then((author) =>
+            displayStoryNotification({
+              authorId,
+              authorName: author.display_name || author.username || 'Statut',
+              authorAvatar: author.avatar_url,
+            }),
+          )
+          .catch(() => undefined);
+      }),
+    [addListener, reload, me?.id],
   );
 
   const value = useMemo<StoriesContextValue>(() => {

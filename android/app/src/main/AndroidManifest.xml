@@ -23,10 +23,25 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Service de fond persistant : garde le processus JS (donc la
+         connexion WebSocket / le traitement des push FCM) vivant plus
+         longtemps sur les OEM agressifs (Transsion/Infinix/Tecno) qui tuent
+         sinon l'app quelques secondes après son passage en arrière-plan.
+         Type `dataSync` : le plus proche de notre usage réel (synchro
+         messages), seul type autorisé sans dépendance à un matériel
+         particulier (micro/caméra/localisation). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Sonnerie d'appel entrant en plein écran (Android 14+) -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Exemption Doze/optimisation batterie : sans elle, certains OEM (Transsion/
+         Infinix/Tecno notamment) coupent silencieusement la connexion FCM en
+         arrière-plan -> aucun push ne parvient jamais à l'appareil, même si le
+         serveur l'envoie avec succès. Permet à l'app de proposer explicitement
+         à l'utilisateur d'ajouter Gofolyx à la liste blanche des optimisations
+         batterie (voir pushTokenService.ts / requestIgnoreBatteryOptimizations). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
       android:name=".MainApplication"
@@ -58,5 +73,13 @@
             <data android:scheme="gofolyx" android:host="join" />
         </intent-filter>
       </activity>
+
+      <!-- Service de fond persistant (voir BackgroundKeepAliveService) — pas
+           exporté, usage interne uniquement. -->
+      <service
+        android:name=".BackgroundKeepAliveService"
+        android:enabled="true"
+        android:exported="false"
+        android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

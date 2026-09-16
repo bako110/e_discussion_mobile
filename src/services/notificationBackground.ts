@@ -26,6 +26,7 @@ import * as Keychain from 'react-native-keychain';
 import { API_BASE_URL } from '@/utils/constants';
 import { Endpoints } from '@/api';
 import { INCOMING_CALL_NOTIF_ID } from './notificationService';
+import { stopRingtone } from './ringtone';
 
 const store = new MMKV({ id: 'call-intents' });
 const PENDING_KEY = 'pending.accept.callId';
@@ -148,12 +149,14 @@ export function registerBackgroundNotificationHandler(): void {
     const callId = data.callId ? String(data.callId) : '';
 
     if (type === EventType.ACTION_PRESS && pressId === 'call-reject' && callId) {
+      void stopRingtone();
       await rejectRemote(callId);
       await notifee.cancelNotification(INCOMING_CALL_NOTIF_ID);
       return;
     }
 
     if (type === EventType.ACTION_PRESS && pressId === 'call-accept') {
+      void stopRingtone();
       // annule tout de suite la sonnerie visible (ongoing/autoCancel:false) —
       // sur un démarrage lent la notif resterait sinon visible plusieurs
       // secondes après le tap, donnant l'impression que rien ne s'est passé.
@@ -177,6 +180,7 @@ export function registerBackgroundNotificationHandler(): void {
     }
 
     if (type === EventType.DISMISSED) {
+      void stopRingtone();
       await notifee.cancelNotification(INCOMING_CALL_NOTIF_ID);
     }
   });

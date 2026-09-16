@@ -25,6 +25,10 @@ interface Props {
   onOpenLocation?: (lat: number, lng: number) => void;
   /** 1er play d'un vocal reçu -> persiste « écouté » (retire le point bleu). */
   onVoicePlayed?: (messageId: string) => void;
+  /** Vue unique reçue : le destinataire vient de taper pour l'ouvrir — doit
+   * appeler `messageService.openViewOnce` (réseau) puis ouvrir le média
+   * (viewer/téléchargement) UNE seule fois. */
+  onOpenViewOnce?: (m: LocalMessage) => void;
   /** contexte pour le mini-lecteur vocal global (barre hors du chat). */
   voiceTitle?: string;
   /** Photo/nom de l'expéditeur — affichée à côté d'un vocal REÇU (façon
@@ -94,6 +98,7 @@ export const MessageBubble: React.FC<Props> = ({
   onOpenFile,
   onOpenLocation,
   onVoicePlayed,
+  onOpenViewOnce,
   voiceTitle,
   senderAvatar,
   senderName,
@@ -112,6 +117,34 @@ export const MessageBubble: React.FC<Props> = ({
         <View style={[styles.bubble, styles.deleted, { borderColor: c.border }]}>
           <Icon name="cancel" size={13} color={c.textFaint} />
           <Text style={{ color: c.textFaint, fontStyle: 'italic', marginLeft: 4 }}>—</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Vue unique déjà OUVERTE (par le destinataire, ou confirmée par le
+  // serveur côté expéditeur) : le fichier n'existe plus — bulle grisée
+  // "Photo/Vidéo/Vocal/Fichier consulté(e)" façon WhatsApp, des deux côtés.
+  if (message.view_once && message.view_once_opened) {
+    const ICON_BY_TYPE: Record<string, string> = {
+      image: 'image-off-outline',
+      video: 'video-off-outline',
+      voice: 'microphone-off',
+      file: 'file-remove-outline',
+    };
+    const LABEL_BY_TYPE: Record<string, string> = {
+      image: t('chat.viewOncePhotoOpened'),
+      video: t('chat.viewOnceVideoOpened'),
+      voice: t('chat.viewOnceVoiceOpened'),
+      file: t('chat.viewOnceFileOpened'),
+    };
+    return (
+      <View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs]}>
+        <View style={[styles.bubble, styles.deleted, { borderColor: c.border }]}>
+          <Icon name={ICON_BY_TYPE[message.type] ?? 'eye-off-outline'} size={14} color={c.textFaint} />
+          <Text style={{ color: c.textFaint, fontStyle: 'italic', marginLeft: 5, fontSize: 13 }}>
+            {LABEL_BY_TYPE[message.type] ?? t('chat.viewOnceOpened')}
+          </Text>
         </View>
       </View>
     );
@@ -145,8 +178,37 @@ export const MessageBubble: React.FC<Props> = ({
       : 1;
 
   const attSize = metaNum(meta, 'size');
+  const isViewOnceUnopened = message.view_once && !message.view_once_opened;
 
   const renderAttachment = () => {
+    // ── Vue unique NON ouverte, REÇUE : masquée derrière un cadenas "1"
+    // (façon WhatsApp) — un seul tap déclenche `onOpenViewOnce`, qui prévient
+    // le serveur (suppression définitive) puis ouvre le média. Côté
+    // EXPÉDITEUR (mine), la pièce jointe reste visible normalement (juste un
+    // badge "1" discret, ajouté plus bas) tant que le destinataire ne l'a
+    // pas consommée — comportement WhatsApp : l'auteur peut la revoir.
+    if (isViewOnceUnopened && !mine && (isMediaType || isVoice || isFile)) {
+      const ICON_BY_TYPE: Record<string, string> = {
+        image: 'image-outline',
+        video: 'video-outline',
+        voice: 'microphone-outline',
+        file: 'file-outline',
+      };
+      return (
+        <Pressable
+          onPress={() => onOpenViewOnce?.(message)}
+          onLongPress={onLongPress}
+          disabled={message.pending}
+          style={styles.viewOnceLocked}
+        >
+          <View style={styles.viewOnceBadge}>
+            <Text style={styles.viewOnceBadgeText}>1</Text>
+          </View>
+          <Icon name={ICON_BY_TYPE[message.type] ?? 'eye-outline'} size={26} color="#fff" />
+          <Text style={styles.viewOnceHint}>{t('chat.viewOnceTapToOpen')}</Text>
+        </Pressable>
+      );
+    }
     // ── IMAGE : auto-download selon réglage (CachedImage gère tout) ──────
     if (message.type === 'image' && hasAttachment) {
       return (
@@ -340,7 +402,16 @@ export const MessageBubble: React.FC<Props> = ({
           </View>
         ) : null}
 
-        {hasAttachment ? renderAttachment() : null}
+        {hasAttachment ? (
+          <View>
+            {renderAttachment()}
+            {mine && isViewOnceUnopened ? (
+              <View style={styles.viewOnceMineBadge} pointerEvents="none">
+                <Text style={styles.viewOnceMineBadgeText}>1</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {/* Le vocal affiche déjà sa propre heure + coche DANS sa bulle
             (VoiceNoteBubble) — ne jamais ajouter la meta ci-dessous par-dessus,
@@ -514,4 +585,39 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   failedHint: { fontSize: 11, marginTop: 3, marginRight: 4 },
+  viewOnceLocked: {
+    width: 150,
+    height: 150,
+    borderRadius: 15,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  viewOnceBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewOnceBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  viewOnceHint: { color: '#fff', fontSize: 11, opacity: 0.85 },
+  viewOnceMineBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  viewOnceMineBadgeText: { color: '#fff', fontSize: 12, fontWeight: '800' },
 });

@@ -93,7 +93,7 @@ export const CallPill: React.FC = () => {
             style={[styles.act, muted && styles.actOn]}
             hitSlop={8}
           >
-            <Icon name={muted ? 'microphone-off' : 'microphone'} size={16} color={muted ? c.primary : '#fff'} />
+            <Icon name={muted ? 'microphone-off' : 'microphone'} size={16} color="#fff" />
           </Pressable>
           <Pressable onPress={() => void hangUp()} style={[styles.act, styles.hang]} hitSlop={8}>
             <Icon name="phone-hangup" size={16} color="#fff" />
@@ -134,6 +134,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actOn: { backgroundColor: '#fff' },
+  actOn: { backgroundColor: '#25D366' },
   hang: { backgroundColor: '#E5484D' },
 });

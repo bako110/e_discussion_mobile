@@ -15,7 +15,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner, confirmAlert, showAlert, showToast } from '@/components/common';
+import { AppHeader, Avatar, Button, Icon, Screen, SyncBanner, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
 import { AttachMenu, type AttachKind } from '@/components/chat/AttachMenu';
 import { ChatMenuSheet, type ChatMenuAction } from '@/components/chat/ChatMenuSheet';
 import { EmojiSheet } from '@/components/chat/EmojiSheet';
@@ -45,8 +45,9 @@ import {
   userService,
 } from '@/services';
 import { mediaCache } from '@/services/mediaCache';
+import { toggleVoice } from '@/services/voicePlayer';
 import { retryFailedDecryptions, syncNow } from '@/sync/syncEngine';
-import type { ChatMessage, MessageType, PinnedMessage, RequestStatus } from '@/types';
+import type { ChatMessage, MessageType, PinDuration, PinnedMessage, RequestStatus } from '@/types';
 import { callStartErrorMessage } from '@/utils/callError';
 import { E2EE_ENABLED } from '@/utils/constants';
 import { dayLabel, lastSeenLabel } from '@/utils/time';
@@ -117,13 +118,17 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  // Plus de barre "Accepter / Refuser" qui bloque la saisie (comme WhatsApp :
-  // écrire à quelqu'un qui vous a contacté accepte la demande implicitement,
-  // voir `ensureAccepted`). On garde le statut en ref (pas de re-render) —
-  // il ne sert plus qu'à savoir s'il faut encore appeler `accept()`.
+  // Demande entrante : la zone de saisie est remplacée par une bannière
+  // Accepter/Refuser/Bloquer (voir plus bas) — `ensureAccepted` reste un
+  // filet de sécurité pour les canaux d'envoi qui ne passent pas par cette
+  // bannière (répondre à une citation, renvoyer un message échoué, etc.).
+  // Le ref est la source utilisée par ce chemin (pas de dépendance de
+  // re-render), le state ne sert qu'à piloter l'affichage de la bannière.
   const requestStatusRef = useRef<RequestStatus>('accepted');
+  const [requestStatusUi, setRequestStatusUi] = useState<RequestStatus>('accepted');
   const setRequestStatus = useCallback((v: RequestStatus) => {
     requestStatusRef.current = v;
+    setRequestStatusUi(v);
   }, []);
   const [partnerOnline, setPartnerOnline] = useState(false);
   const [partnerLastSeen, setPartnerLastSeen] = useState<string | null>(null);
@@ -131,6 +136,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [partnerActivity, setPartnerActivity] = useState<'text' | 'audio'>('text');
   const [attachOpen, setAttachOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  // Vue unique (façon WhatsApp) : armée juste avant l'envoi réel d'un vocal
+  // (bouton "1" dans la barre verrouillée, à côté d'Envoyer) — jamais avant
+  // l'enregistrement, l'utilisateur ne sait pas encore ce qu'il envoie.
+  const [voiceViewOnce, setVoiceViewOnce] = useState(false);
+  // Fichier en attente de confirmation ("Envoyer ce fichier ?") — permet d'y
+  // proposer le même bouton "1" juste avant l'envoi, comme pour le vocal.
+  const [pendingFile, setPendingFile] = useState<LocalMediaFile | null>(null);
+  const [fileViewOnce, setFileViewOnce] = useState(false);
   const picker = useMediaPicker();
   // message en cours d'édition (null = mode envoi normal)
   const [editing, setEditing] = useState<LocalMessage | null>(null);
@@ -229,6 +242,10 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     const off = addListener((e: WsEvent) => {
       if (e.type === 'message.deleted' && e.conversation_id === conversationId) {
         void messageRepo.markDeleted(e.message_id as string).then(reload);
+      } else if (e.type === 'message.view_once_opened' && e.conversation_id === conversationId) {
+        // le destinataire vient d'ouvrir ma pièce jointe vue-unique — le
+        // fichier n'existe plus côté serveur, bulle grisée chez moi aussi.
+        void messageRepo.markViewOnceOpened(e.message_id as string).then(reload);
       } else if (e.type === 'message.edited') {
         const em = e.message as ChatMessage | undefined;
         if (em?.conversation_id === conversationId && em.id) {
@@ -391,7 +408,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
 
   /** Envoi offline-first d'un fichier local (upload différé par l'outbox). */
   const sendLocalMedia = useCallback(
-    async (local: LocalMediaFile) => {
+    async (local: LocalMediaFile, viewOnce = false) => {
       setSendError(null);
       ensureAccepted();
       try {
@@ -400,6 +417,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
           partnerId,
           senderId: myId,
           local,
+          viewOnce,
         });
         await reload();
         void syncNow({ force: true }); // best-effort : part maintenant si en ligne
@@ -450,9 +468,13 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         return;
       }
       if (kind === 'file') {
-        // un document n'a pas besoin d'édition -> envoi direct
+        // pas d'édition possible, mais une confirmation courte (avec le
+        // bouton "1" vue-unique) avant l'envoi réel — comme pour le vocal.
         const local = await picker.pickDocumentLocal();
-        if (local) await sendLocalMedia(local);
+        if (local) {
+          setFileViewOnce(false);
+          setPendingFile(local);
+        }
         return;
       }
       if (kind === 'location') {
@@ -509,6 +531,32 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     [t],
   );
 
+  /** Le destinataire vient de taper sur une pièce jointe vue-unique
+   * (photo/vidéo/vocal/fichier) encore verrouillée : prévient le serveur
+   * (qui supprime le fichier définitivement) PUIS ouvre le média — dans cet
+   * ordre, pour ne jamais afficher un contenu déjà "consommé" ailleurs sans
+   * l'avoir réellement marqué comme tel. */
+  const onOpenViewOnce = useCallback(
+    async (m: LocalMessage) => {
+      try {
+        await messageService.openViewOnce(m.id);
+      } catch {
+        showAlert(t('errors.generic'));
+        return;
+      }
+      void reload();
+      if (m.type === 'image' || m.type === 'video') {
+        onOpenMedia(m);
+      } else if (m.type === 'voice') {
+        const raw = mediaUrl(m.attachment_url);
+        if (raw) void toggleVoice(raw, { conversationId: m.conversation_id, title: partnerName });
+      } else if (m.type === 'file') {
+        void onOpenFile(m);
+      }
+    },
+    [onOpenMedia, onOpenFile, reload, t, partnerName],
+  );
+
   const onOpenLocation = useCallback((lat: number, lng: number) => {
     const url =
       Platform.OS === 'ios'
@@ -552,11 +600,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     stopTyping();
     if (cancelledRef.current || picker.recordSeconds < 1) {
       await picker.cancelRecording();
+      setVoiceViewOnce(false);
       return;
     }
     const local = await picker.stopRecordingLocal();
-    if (local) await sendLocalMedia(local);
-  }, [picker, sendLocalMedia, stopTyping]);
+    const viewOnce = voiceViewOnce;
+    setVoiceViewOnce(false);
+    if (local) await sendLocalMedia(local, viewOnce);
+  }, [picker, sendLocalMedia, stopTyping, voiceViewOnce]);
 
   /** Bouton corbeille de la barre verrouillée : annule sans envoyer. */
   const cancelVoice = useCallback(async () => {
@@ -579,6 +630,19 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const doReply = () => {
     if (actionMsg) setReplyTo(actionMsg);
   };
+  const pinWithDuration = (m: LocalMessage, duration: PinDuration) => {
+    void conversationService
+      .pinMessage(conversationId, m.id, duration)
+      .then(reloadPinned)
+      .catch((e: unknown) => {
+        const msg =
+          e instanceof ApiError && e.code === 'pin_limit_reached'
+            ? t('chat.pinLimitReached')
+            : t('chat.pinFailed');
+        showToast(msg, { type: 'error' });
+      });
+  };
+
   const doPin = () => {
     const m = actionMsg;
     if (!m) return;
@@ -588,18 +652,16 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         .unpinMessage(conversationId, m.id)
         .then(reloadPinned)
         .catch(() => showToast(t('chat.unpinFailed'), { type: 'error' }));
-    } else {
-      void conversationService
-        .pinMessage(conversationId, m.id)
-        .then(reloadPinned)
-        .catch((e: unknown) => {
-          const msg =
-            e instanceof ApiError && e.code === 'pin_limit_reached'
-              ? t('chat.pinLimitReached')
-              : t('chat.pinFailed');
-          showToast(msg, { type: 'error' });
-        });
+      return;
     }
+    showSheet({
+      title: t('chat.pinDurationTitle'),
+      actions: (['24h', '7d', '30d', 'forever'] as PinDuration[]).map((d) => ({
+        label: t(`chat.pinDuration_${d}`),
+        icon: d === 'forever' ? 'pin' : 'timer-outline',
+        onPress: () => pinWithDuration(m, d),
+      })),
+    });
   };
   const doForward = () => {
     const m = actionMsg;
@@ -810,6 +872,50 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     }
   };
 
+  /** Bannière de demande entrante — acceptation explicite (en plus de
+   * l'acceptation implicite au premier envoi, voir `ensureAccepted`). */
+  const doAcceptRequest = () => {
+    requestStatusRef.current = 'accepted';
+    setRequestStatusUi('accepted');
+    void conversationService.accept(conversationId).catch(() => undefined);
+  };
+
+  /** Refuser une demande entrante est réversible et silencieux : la
+   * conversation disparaît de MA liste (comme `hide`) sans notifier
+   * l'expéditeur ; s'il réécrit plus tard, la demande revient normalement. */
+  const doDeclineRequest = () =>
+    confirmAlert(
+      t('chat.declineRequestTitle'),
+      t('chat.declineRequestBody', { name: partnerName }),
+      async () => {
+        try {
+          await conversationService.decline(conversationId);
+          await conversationService.hide(conversationId).catch(() => undefined);
+          navigation.goBack();
+        } catch {
+          showToast(t('errors.generic'), { type: 'error' });
+        }
+      },
+      { destructive: true, confirmText: t('chat.decline') },
+    );
+
+  const doBlockRequest = () =>
+    confirmAlert(
+      t('chat.blockTitle', { name: partnerName }),
+      t('chat.blockBody'),
+      async () => {
+        try {
+          await conversationService.decline(conversationId);
+          await userService.block(partnerId);
+          navigation.goBack();
+          showToast(t('chat.userBlocked'));
+        } catch {
+          showToast(t('errors.generic'), { type: 'error' });
+        }
+      },
+      { destructive: true, confirmText: t('chat.block') },
+    );
+
   const menuActions: ChatMenuAction[] = [
     { key: 'info', icon: 'account-circle-outline', label: t('chat.menuInfo'), onPress: openInfo },
     {
@@ -971,11 +1077,6 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                 </View>
               ) : null
             }
-            ListEmptyComponent={
-              !blocked ? (
-                <QuickReplies partnerName={partnerName} onSend={(txt) => void sendQuick(txt)} />
-              ) : null
-            }
             ListFooterComponent={
               items.length === 0 || !E2EE_ENABLED ? null : (
                 <Pressable style={styles.encBanner} onPress={() => setEncOpen(true)}>
@@ -1024,6 +1125,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                   onOpenFile={onOpenFile}
                   onOpenLocation={onOpenLocation}
                   onVoicePlayed={onVoicePlayed}
+                  onOpenViewOnce={onOpenViewOnce}
                   voiceTitle={partnerName}
                   senderAvatar={mine ? me?.avatar_url : partnerAvatar}
                   senderName={mine ? t('common.you') : partnerName}
@@ -1031,6 +1133,18 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               );
             }}
           />
+
+          {items.length === 0 && !blocked ? (
+            // affiché en dehors de la FlatList (jamais comme ListEmptyComponent) :
+            // React Native retourne aussi ListEmptyComponent sur une liste
+            // `inverted` (bug connu, non résolu même avec un contre-flip
+            // scaleY manuel — https://github.com/facebook/react-native/issues/21196),
+            // ce qui affichait ce bloc à l'envers. En le sortant complètement
+            // de la liste, il n'est jamais soumis à cette rotation.
+            <View style={styles.emptyOverlay} pointerEvents="box-none">
+              <QuickReplies partnerName={partnerName} onSend={(txt) => void sendQuick(txt)} />
+            </View>
+          ) : null}
 
           {blocked ? (
             <View
@@ -1047,6 +1161,40 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                 {t('chat.blockedBanner')}
               </Text>
               <Button label={t('chat.unblock')} variant="secondary" onPress={doUnblock} />
+            </View>
+          ) : requestStatusUi === 'pending_incoming' ? (
+            <View
+              style={[
+                styles.requestBar,
+                {
+                  backgroundColor: c.surface,
+                  borderTopColor: c.divider,
+                  paddingBottom: 16 + insets.bottom,
+                },
+              ]}
+            >
+              <Text style={{ color: c.textMuted, marginBottom: 10, textAlign: 'center' }}>
+                {t('chat.requestIncomingBanner', { name: partnerName })}
+              </Text>
+              <View style={styles.requestActionsRow}>
+                <Button
+                  label={t('chat.decline')}
+                  variant="secondary"
+                  onPress={doDeclineRequest}
+                  style={styles.requestActionBtn}
+                />
+                <Button
+                  label={t('chat.block')}
+                  variant="secondary"
+                  onPress={doBlockRequest}
+                  style={styles.requestActionBtn}
+                />
+                <Button
+                  label={t('chat.accept')}
+                  onPress={doAcceptRequest}
+                  style={styles.requestActionBtn}
+                />
+              </View>
             </View>
           ) : (
             <View
@@ -1098,7 +1246,55 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                   </Pressable>
                 </View>
               ) : null}
-              {picker.recording && recLocked ? (
+              {pendingFile ? (
+                // ── confirmation d'envoi d'un FICHIER (pas d'écran d'aperçu
+                // dédié comme photo/vidéo) — même bouton "1" vue-unique. ────
+                <View style={styles.lockedRow}>
+                  <Pressable
+                    onPress={() => setPendingFile(null)}
+                    hitSlop={10}
+                    style={styles.lockedBtn}
+                  >
+                    <Icon name="close" size={22} color={c.textMuted} />
+                  </Pressable>
+                  <View style={[styles.lockedCenter, { backgroundColor: c.surface }]}>
+                    <Icon name="file-document-outline" size={16} color={c.textMuted} />
+                    <Text style={[styles.recText, { color: c.text }]} numberOfLines={1}>
+                      {pendingFile.file.name}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => setFileViewOnce((v) => !v)}
+                    hitSlop={10}
+                    style={[
+                      styles.viewOnceToggle,
+                      { borderColor: fileViewOnce ? c.primary : c.textFaint },
+                      fileViewOnce && { backgroundColor: c.primary + '18' },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.viewOnceToggleText,
+                        { color: fileViewOnce ? c.primary : c.textFaint },
+                      ]}
+                    >
+                      1
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      const f = pendingFile;
+                      const vo = fileViewOnce;
+                      setPendingFile(null);
+                      setFileViewOnce(false);
+                      if (f) void sendLocalMedia(f, vo);
+                    }}
+                    style={[styles.sendBtn, { backgroundColor: c.primary }]}
+                  >
+                    <Icon name="send" size={19} color="#fff" />
+                  </Pressable>
+                </View>
+              ) : picker.recording && recLocked ? (
                 // ── barre d'enregistrement VERROUILLÉ ──────────────────────
                 <View style={styles.lockedRow}>
                   <Pressable
@@ -1133,6 +1329,24 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                       size={24}
                       color={c.primary}
                     />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setVoiceViewOnce((v) => !v)}
+                    hitSlop={10}
+                    style={[
+                      styles.viewOnceToggle,
+                      { borderColor: voiceViewOnce ? c.primary : c.textFaint },
+                      voiceViewOnce && { backgroundColor: c.primary + '18' },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.viewOnceToggleText,
+                        { color: voiceViewOnce ? c.primary : c.textFaint },
+                      ]}
+                    >
+                      1
+                    </Text>
                   </Pressable>
                   <Pressable
                     onPress={() => void finalizeRecording()}
@@ -1258,6 +1472,18 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  viewOnceToggle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewOnceToggleText: { fontSize: 13, fontWeight: '800' },
+  // affiché par-dessus la FlatList (pas comme ListEmptyComponent) — voir le
+  // commentaire au point d'appel.
+  emptyOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center' },
   wallpaperOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   editBar: {
     flexDirection: 'row',
@@ -1352,6 +1578,8 @@ const styles = StyleSheet.create({
   },
   sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   requestBar: { padding: 16, borderTopWidth: StyleSheet.hairlineWidth },
+  requestActionsRow: { flexDirection: 'row', gap: 8 },
+  requestActionBtn: { flex: 1 },
   encBanner: {
     flexDirection: 'row',
     alignSelf: 'center',

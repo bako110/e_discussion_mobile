@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
@@ -17,11 +18,13 @@ import { AppHeader, Avatar, Icon, Screen, confirmAlert, showAlert } from '@/comp
 import { useAuth } from '@/context/AuthContext';
 import { useCall } from '@/context/CallContext';
 import { useTheme } from '@/context/ThemeContext';
+import { BAR_HEIGHT } from '@/navigation/TabNavigator';
 import type { MainNav } from '@/navigation/types';
 import { callService } from '@/services';
 import type { CallLog } from '@/types';
 import { callStartErrorMessage } from '@/utils/callError';
 import { clockTime, dayLabel } from '@/utils/time';
+import { CallSearchSheet, type CallDateFilter } from './CallSearchSheet';
 
 type Filter = 'all' | 'missed' | 'incoming' | 'outgoing' | 'video';
 
@@ -45,12 +48,15 @@ export const CallsScreen: React.FC = () => {
   const navigation = useNavigation<MainNav>();
   const { me } = useAuth();
   const { available, startCall, phase } = useCall();
+  const insets = useSafeAreaInsets();
   const c = theme.colors;
 
   const [items, setItems] = useState<CallLog[]>(() => callService.readHistoryCache());
   const [loading, setLoading] = useState(() => callService.readHistoryCache().length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [dateFilter, setDateFilter] = useState<CallDateFilter | null>(null);
   const openRow = useRef<Swipeable | null>(null);
 
   const load = useCallback(async () => {
@@ -85,18 +91,31 @@ export const CallsScreen: React.FC = () => {
       const inbound = l.callee_id === me?.id;
       switch (filter) {
         case 'missed':
-          return isMissed(l) && inbound;
+          if (!(isMissed(l) && inbound)) return false;
+          break;
         case 'incoming':
-          return inbound;
+          if (!inbound) return false;
+          break;
         case 'outgoing':
-          return !inbound;
+          if (inbound) return false;
+          break;
         case 'video':
-          return l.call_type === 'video';
-        default:
-          return true;
+          if (l.call_type !== 'video') return false;
+          break;
       }
+      if (dateFilter) {
+        const t = new Date(l.started_at).getTime();
+        if (t < dateFilter.dayStart || t > dateFilter.dayEnd) return false;
+        if (dateFilter.fromMin !== null || dateFilter.toMin !== null) {
+          const d = new Date(l.started_at);
+          const mins = d.getHours() * 60 + d.getMinutes();
+          if (dateFilter.fromMin !== null && mins < dateFilter.fromMin) return false;
+          if (dateFilter.toMin !== null && mins > dateFilter.toMin) return false;
+        }
+      }
+      return true;
     });
-  }, [items, filter, me?.id]);
+  }, [items, filter, me?.id, dateFilter]);
 
   // regroupe par jour
   const rows: Row[] = useMemo(() => {
@@ -254,6 +273,13 @@ export const CallsScreen: React.FC = () => {
         }
         right={
           <View style={styles.hdrRight}>
+            <Pressable onPress={() => setSearchOpen(true)} hitSlop={12} style={styles.hdrBtn}>
+              <Icon
+                name={dateFilter ? 'calendar-search' : 'magnify'}
+                size={21}
+                color={dateFilter ? c.primary : c.onHeader}
+              />
+            </Pressable>
             <Pressable onPress={openSettings} hitSlop={12} style={styles.hdrBtn}>
               <Icon name="cog-outline" size={20} color={c.onHeader} />
             </Pressable>
@@ -262,11 +288,16 @@ export const CallsScreen: React.FC = () => {
                 <Icon name="trash-can-outline" size={20} color={c.onHeader} />
               </Pressable>
             ) : null}
-            <Pressable onPress={newCall} hitSlop={12} style={styles.hdrBtn}>
-              <Icon name="phone-plus" size={22} color={c.onHeader} />
-            </Pressable>
           </View>
         }
+      />
+
+      <CallSearchSheet
+        visible={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onApply={setDateFilter}
+        onReset={() => setDateFilter(null)}
+        hasActiveFilter={!!dateFilter}
       />
 
       {/* filtres */}
@@ -297,6 +328,29 @@ export const CallsScreen: React.FC = () => {
           <Text style={[styles.bannerText, { color: c.textMuted }]}>
             {t('calls.unavailableBody')}
           </Text>
+        </View>
+      ) : null}
+
+      {dateFilter ? (
+        <View style={[styles.banner, { backgroundColor: c.primary + '18' }]}>
+          <Icon name="calendar-search" size={16} color={c.primary} />
+          <Text style={[styles.bannerText, { color: c.primary }]}>
+            {new Date(dateFilter.dayStart).toLocaleDateString()}
+            {dateFilter.fromMin !== null || dateFilter.toMin !== null
+              ? ` · ${
+                  dateFilter.fromMin !== null
+                    ? `${String(Math.floor(dateFilter.fromMin / 60)).padStart(2, '0')}:${String(dateFilter.fromMin % 60).padStart(2, '0')}`
+                    : '00:00'
+                }–${
+                  dateFilter.toMin !== null
+                    ? `${String(Math.floor(dateFilter.toMin / 60)).padStart(2, '0')}:${String(dateFilter.toMin % 60).padStart(2, '0')}`
+                    : '23:59'
+                }`
+              : ''}
+          </Text>
+          <Pressable onPress={() => setDateFilter(null)} hitSlop={8}>
+            <Icon name="close" size={16} color={c.primary} />
+          </Pressable>
         </View>
       ) : null}
 
@@ -348,6 +402,17 @@ export const CallsScreen: React.FC = () => {
           }
         />
       )}
+
+      <Pressable
+        onPress={newCall}
+        style={[
+          styles.fab,
+          { backgroundColor: c.primary, bottom: BAR_HEIGHT + insets.bottom +  -30  },
+        ]}
+        android_ripple={{ color: '#ffffff30' }}
+      >
+        <Icon name="phone-plus" size={24} color="#fff" />
+      </Pressable>
     </Screen>
   );
 };
@@ -378,6 +443,20 @@ function statusLabel(
 const styles = StyleSheet.create({
   hdrBtn: { padding: 4 },
   hdrRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  fab: {
+    position: 'absolute',
+    right: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
 
   filterBar: {
     flexDirection: 'row',

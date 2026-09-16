@@ -13,6 +13,7 @@ import { E2EE_ENABLED } from '@/utils/constants';
 import { messageRepo, type LocalMessage } from '@/db/repositories/messageRepo';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import { activeConversationId } from '@/navigation/navigationRef';
+import { mediaCache } from '@/services/mediaCache';
 import type { ChatMessage, MessageType, ReplyPreview } from '@/types';
 import { newClientId, notifyMutationApplied, outbox } from '@/sync/outbox';
 
@@ -178,6 +179,23 @@ export const messageService = {
     void apiClient
       .post(Endpoints.messages.played(messageId))
       .catch(() => seen.delete(messageId));
+  },
+
+  /** Le destinataire vient d'OUVRIR une pièce jointe vue-unique (photo/vidéo/
+   * vocal/fichier) : prévient le serveur (qui supprime le fichier
+   * définitivement), puis efface la référence locale. Nécessite le réseau —
+   * l'ouverture n'a de sens que pour visionner un média hébergé côté serveur,
+   * donc pas de file d'attente hors-ligne ici (contrairement à `markPlayed`). */
+  async openViewOnce(messageId: string): Promise<void> {
+    const local = await messageRepo.getById(messageId);
+    await apiClient.post(Endpoints.messages.openViewOnce(messageId));
+    await messageRepo.markViewOnceOpened(messageId);
+    if (local?.attachment_url) {
+      const meta = local.attachment_meta;
+      const thumb = meta && typeof meta.thumbnail_url === 'string' ? meta.thumbnail_url : null;
+      void mediaCache.forget(local.attachment_url);
+      if (thumb) void mediaCache.forget(thumb);
+    }
   },
 
   /** « Infos » d'un message envoyé : horodatages distribué / lu / écouté. */

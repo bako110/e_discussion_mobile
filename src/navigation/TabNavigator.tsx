@@ -25,7 +25,7 @@ const Tab = createBottomTabNavigator<TabParamList>();
 // Hauteur de la rangee d'onglets. La barre s'etend en plus SOUS cette hauteur
 // jusqu'au bord de l'ecran (safe-area bottom) — comme le header couvre la
 // status bar en haut.
-const BAR_HEIGHT = 62;
+export const BAR_HEIGHT = 62;
 
 interface TabItemProps {
   icon: string;

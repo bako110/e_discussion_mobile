@@ -11,7 +11,13 @@ import { apiClient, Endpoints } from '@/api';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import { messageRepo } from '@/db/repositories/messageRepo';
 import { newClientId, outbox } from '@/sync/outbox';
-import type { ConversationDetail, ConversationSummary, PinnedMessage, SharedMedia } from '@/types';
+import type {
+  ConversationDetail,
+  ConversationSummary,
+  PinDuration,
+  PinnedMessage,
+  SharedMedia,
+} from '@/types';
 
 export const conversationService = {
   list(): Promise<ConversationSummary[]> {
@@ -98,9 +104,14 @@ export const conversationService = {
     return apiClient.get<PinnedMessage[]>(Endpoints.conversations.pinned(conversationId));
   },
 
-  pinMessage(conversationId: string, messageId: string): Promise<PinnedMessage> {
+  pinMessage(
+    conversationId: string,
+    messageId: string,
+    duration: PinDuration = 'forever',
+  ): Promise<PinnedMessage> {
     return apiClient.post<PinnedMessage>(Endpoints.conversations.pinned(conversationId), {
       message_id: messageId,
+      duration,
     });
   },
 

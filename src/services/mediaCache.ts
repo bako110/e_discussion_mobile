@@ -318,6 +318,24 @@ export const mediaCache = {
     }
   },
 
+  /** Efface la copie locale d'UN média précis (vue unique consommée) — le
+   * fichier n'existe déjà plus côté serveur à ce stade, cette copie ne doit
+   * donc plus être servie même hors-ligne. Best-effort, jamais bloquant. */
+  async forget(rawUrl: string | null | undefined): Promise<void> {
+    if (!rawUrl || isLocal(rawUrl)) return;
+    const remote = mediaUrl(rawUrl) ?? rawUrl;
+    resolved.delete(remote);
+    progress.delete(remote);
+    try {
+      const localPath = pathFor(remote);
+      if (await ReactNativeBlobUtil.fs.exists(localPath)) {
+        await ReactNativeBlobUtil.fs.unlink(localPath);
+      }
+    } catch {
+      /* best-effort */
+    }
+  },
+
   /** Vide le cache disque (Réglages → Stockage). */
   async clear(): Promise<void> {
     resolved.clear();

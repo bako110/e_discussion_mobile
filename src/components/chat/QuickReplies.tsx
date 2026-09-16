@@ -61,11 +61,11 @@ export const QuickReplies: React.FC<Props> = ({ partnerName, onSend }) => {
 };
 
 const styles = StyleSheet.create({
-  // NB : la FlatList parente est `inverted`, mais ce composant n'est monté
-  // QUE comme ListEmptyComponent (aucun message) — un `scaleY: -1` ici
-  // retournerait aussi le RENDU du texte (miroir vertical, illisible), pas
-  // seulement sa position. Rien à compenser : le contenu est centré et n'a
-  // pas de sens directionnel à préserver.
+  // NB : ce composant est affiché par ChatScreen EN DEHORS de sa FlatList
+  // `inverted` (jamais comme ListEmptyComponent) — React Native retourne
+  // aussi ListEmptyComponent sur une liste inversée (bug connu, non résolu
+  // même avec un contre-flip manuel), donc ChatScreen le monte séparément,
+  // par-dessus, quand il n'y a aucun message.
   root: { paddingHorizontal: 20, paddingVertical: 24, alignItems: 'center' },
   card: {
     borderRadius: 16,

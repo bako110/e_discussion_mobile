@@ -77,14 +77,19 @@ export const confirmAlert = (
   title: string,
   message: string,
   onConfirm: () => void,
-  opts?: { confirmText?: string; destructive?: boolean; cancelText?: string },
+  opts?: {
+    confirmText?: string;
+    destructive?: boolean;
+    cancelText?: string;
+    onCancel?: () => void;
+  },
 ) =>
   showAlert({
     title,
     message,
     type: opts?.destructive ? 'danger' : 'warning',
     buttons: [
-      { text: opts?.cancelText ?? 'Annuler', style: 'cancel' },
+      { text: opts?.cancelText ?? 'Annuler', style: 'cancel', onPress: opts?.onCancel },
       {
         text: opts?.confirmText ?? 'Confirmer',
         style: opts?.destructive ? 'destructive' : 'default',

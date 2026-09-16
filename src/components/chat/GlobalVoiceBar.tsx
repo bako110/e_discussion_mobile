@@ -7,8 +7,8 @@
  *
  * Monté une seule fois par le RootNavigator, au-dessus de la navigation.
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
@@ -19,6 +19,7 @@ import {
   getVoiceState,
   pauseVoice,
   resumeVoice,
+  seekVoice,
   stopVoice,
   subscribeVoice,
 } from '@/services/voicePlayer';
@@ -58,6 +59,34 @@ export const GlobalVoiceBar: React.FC = () => {
     }).start();
   }, [visible, slide]);
 
+  // Glisser sur la piste pour avancer/reculer, comme dans la bulle du chat.
+  // Ces hooks doivent rester AVANT le `return null` ci-dessous (règle des
+  // hooks : ordre stable à chaque render, jamais après un retour anticipé).
+  const trackWidth = useRef(0);
+  const seekAtRatio = useCallback((ratio: number) => {
+    const cur = getVoiceState();
+    if (!cur.url || cur.duration <= 0) return;
+    void seekVoice(cur.url, Math.max(0, Math.min(1, ratio)) * cur.duration);
+  }, []);
+  const seekAtRatioRef = useRef(seekAtRatio);
+  seekAtRatioRef.current = seekAtRatio;
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => {
+        if (trackWidth.current > 0) {
+          seekAtRatioRef.current(e.nativeEvent.locationX / trackWidth.current);
+        }
+      },
+      onPanResponderMove: (e) => {
+        if (trackWidth.current > 0) {
+          seekAtRatioRef.current(e.nativeEvent.locationX / trackWidth.current);
+        }
+      },
+    }),
+  ).current;
+
   if (!vp.url && !visible) return null;
 
   const progress =
@@ -91,10 +120,18 @@ export const GlobalVoiceBar: React.FC = () => {
           <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>
             {vp.title || t('chat.voiceNote')}
           </Text>
-          <View style={[styles.track, { backgroundColor: c.border }]}>
-            <View
-              style={[styles.fill, { backgroundColor: c.primary, width: `${progress * 100}%` }]}
-            />
+          <View
+            style={styles.trackHit}
+            onLayout={(e) => {
+              trackWidth.current = e.nativeEvent.layout.width;
+            }}
+            {...panResponder.panHandlers}
+          >
+            <View style={[styles.track, { backgroundColor: c.border }]}>
+              <View
+                style={[styles.fill, { backgroundColor: c.primary, width: `${progress * 100}%` }]}
+              />
+            </View>
           </View>
         </View>
 
@@ -127,6 +164,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   mid: { flex: 1, gap: 5 },
   title: { fontSize: 13, fontWeight: '700', letterSpacing: -0.2 },
+  trackHit: { justifyContent: 'center', paddingVertical: 8, marginVertical: -8 },
   track: { height: 3, borderRadius: 2, overflow: 'hidden' },
   fill: { height: 3, borderRadius: 2 },
   time: { fontSize: 11.5, fontVariant: ['tabular-nums'] },

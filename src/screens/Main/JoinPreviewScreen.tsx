@@ -31,6 +31,10 @@ export const JoinPreviewScreen: React.FC<MainScreenProps<'JoinPreview'>> = ({
   const [loading, setLoading] = useState(!initial);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // description potentiellement longue (texte libre saisi par l'admin de la
+  // chaîne/du groupe) : tronquée à 4 lignes par défaut, "Voir plus" si besoin.
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [descTruncated, setDescTruncated] = useState(false);
 
   useEffect(() => {
     if (initial) return;
@@ -115,7 +119,24 @@ export const JoinPreviewScreen: React.FC<MainScreenProps<'JoinPreview'>> = ({
             </Text>
           </View>
           {preview.description ? (
-            <Text style={[styles.desc, { color: c.textMuted }]}>{preview.description}</Text>
+            <>
+              <Text
+                style={[styles.desc, { color: c.textMuted }]}
+                numberOfLines={descExpanded ? undefined : 4}
+                onTextLayout={(e) => {
+                  if (!descExpanded && e.nativeEvent.lines.length > 4) setDescTruncated(true);
+                }}
+              >
+                {preview.description}
+              </Text>
+              {descTruncated ? (
+                <Pressable onPress={() => setDescExpanded((v) => !v)} hitSlop={6}>
+                  <Text style={[styles.seeMore, { color: c.primary }]}>
+                    {descExpanded ? t('common.seeLess') : t('common.seeMore')}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </>
           ) : null}
 
           {error ? <Text style={[styles.errText, { color: c.danger }]}>{error}</Text> : null}
@@ -167,6 +188,7 @@ const styles = StyleSheet.create({
   tag: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   tagText: { fontSize: 13, fontWeight: '600' },
   desc: { fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+  seeMore: { fontSize: 13, fontWeight: '700', marginTop: 4 },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',

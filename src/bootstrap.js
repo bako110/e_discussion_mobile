@@ -44,3 +44,15 @@ registerBackgroundNotificationHandler();
 import { registerFcmBackgroundHandler } from './services/fcm';
 
 registerFcmBackgroundHandler();
+
+// 7. Base SQLite locale — DOIT être ouverte ICI (scope module), pas
+//    seulement via le useEffect de SyncContext (qui ne tourne jamais dans
+//    le process headless relancé par un push FCM app tuée). Sans ça,
+//    `getDb()` throw pour tout accès depuis `fcm.ts` (ex: vérifier si une
+//    conversation est en sourdine avant d'afficher une notif de message) —
+//    l'erreur est bien catchée, mais la notif pouvait quand même ne jamais
+//    s'afficher selon le point exact où le throw survient dans la chaîne.
+//    Best-effort : ne doit jamais bloquer/planter le démarrage de l'app.
+import { initDb } from './db';
+
+void initDb().catch(() => undefined);

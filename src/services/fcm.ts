@@ -10,13 +10,20 @@
  * `@react-native-firebase/*` est chargé dynamiquement : si le module n'est
  * pas linké (build sans Firebase), tout ici est un no-op silencieux.
  */
+import { AppState } from 'react-native';
 import type { FirebaseMessagingTypes } from '@react-native-firebase/messaging';
+
+import { readCallPrefs } from '@/context/CallPrefsContext';
+import { conversationRepo } from '@/db/repositories/conversationRepo';
+import { groupRepo } from '@/db/repositories/groupRepo';
 
 import {
   displayIncomingCall,
   displayMessageNotification,
   displayMissedCall,
+  displayStoryNotification,
 } from './notificationService';
+import { startRingtone, stopRingtone } from './ringtone';
 
 type MessagingFn = () => FirebaseMessagingTypes.Module;
 
@@ -53,10 +60,26 @@ export async function handleFcmDataMessage(
       callerName: pick(data, 'caller_name') || pick(data, 'title') || 'Appel entrant',
       callerAvatar: pick(data, 'caller_avatar') || null,
     });
+    // Appareil verrouillé/app tuée : au moment où ce handler headless
+    // tourne, CallContext n'est pas forcément monté (ou pas encore rendu à
+    // l'écran) -> InCallRingtone ne sonnera pas forcément. Le son du CANAL
+    // de notification n'est lui-même pas fiable une fois `fullScreenAction`
+    // déclenché (cf. commentaire de InCallRingtone.tsx) : on sonne donc ICI,
+    // directement via le module natif, dès la réception du push. Sans garde
+    // AppState, l'app déjà ouverte au premier plan sonnerait EN DOUBLE avec
+    // InCallRingtone (course WS/FCM) -> on ne sonne ici QUE si l'app n'est
+    // pas déjà active (CallContext prend alors le relais tout seul).
+    if (AppState.currentState !== 'active') {
+      const { ringtone, vibrate } = readCallPrefs();
+      void startRingtone(ringtone, vibrate);
+    }
     return;
   }
 
   if (type === 'call.ended' || type === 'call.cancelled' || type === 'call.missed') {
+    // l'appelant a raccroché avant qu'on décroche -> coupe la sonnerie
+    // démarrée ci-dessus (sinon elle continue de sonner dans le vide).
+    void stopRingtone();
     await displayMissedCall({
       callId: pick(data, 'call_id'),
       callType: pick(data, 'call_type') === 'video' ? 'video' : 'voice',
@@ -69,13 +92,36 @@ export async function handleFcmDataMessage(
 
   if (type === 'message') {
     const encrypted = pick(data, 'encrypted') === '1';
+    const groupId = pick(data, 'group_id');
+    const conversationId = pick(data, 'conversation_id');
+
+    // conversation/groupe en sourdine -> pas de notif, même chemin de contrôle
+    // que le WebSocket foreground (`MessageNotifications.tsx`) : sans cette
+    // vérification, un push FCM reçu app tuée réaffiche du bruit pour une
+    // conversation que l'utilisateur a explicitement mise en sourdine.
+    const muted = groupId
+      ? (await groupRepo.get(groupId).catch(() => null))?.muted
+      : (await conversationRepo.get(conversationId).catch(() => null))?.muted;
+    if (muted) return;
+
     await displayMessageNotification({
-      conversationId: pick(data, 'conversation_id'),
+      conversationId,
       senderId: pick(data, 'sender_id'),
       senderName: pick(data, 'sender_name') || pick(data, 'title') || 'Message',
       senderAvatar: pick(data, 'sender_avatar') || null,
       preview: encrypted ? '' : pick(data, 'body'),
       messageId: pick(data, 'message_id'),
+      groupId: groupId || null,
+      groupName: groupId ? pick(data, 'group_name') || undefined : undefined,
+    });
+    return;
+  }
+
+  if (type === 'story.new') {
+    await displayStoryNotification({
+      authorId: pick(data, 'author_id'),
+      authorName: pick(data, 'author_name') || pick(data, 'title') || 'Statut',
+      authorAvatar: pick(data, 'author_avatar') || null,
     });
     return;
   }

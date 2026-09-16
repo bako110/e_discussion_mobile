@@ -35,6 +35,10 @@ interface SendMediaParams {
   local: LocalMediaFile;
   /** Légende éventuelle. */
   body?: string;
+  /** Vue unique (façon WhatsApp) : le destinataire ne peut ouvrir cette
+   * pièce jointe qu'une fois — voir syncEngine (payload `upload_message`)
+   * et le backend (`consume_view_once`) pour la suppression définitive. */
+  viewOnce?: boolean;
 }
 
 export const pendingMediaService = {
@@ -60,6 +64,8 @@ export const pendingMediaService = {
       thumbnail_url: type === 'image' || type === 'video' ? p.local.file.uri : undefined,
     };
 
+    const viewOnce = !!p.viewOnce;
+
     // 1) message optimiste — visible immédiatement avec l'horloge
     await messageRepo.insertOutgoing({
       clientId,
@@ -71,6 +77,7 @@ export const pendingMediaService = {
       attachmentUrl: p.local.file.uri, // URI LOCALE (file://…)
       attachmentMeta: meta,
       createdAt,
+      viewOnce,
     });
 
     // 2) aperçu de la conversation
@@ -94,6 +101,7 @@ export const pendingMediaService = {
       body,
       localFile: p.local.file, // { uri, name, type }
       attachmentMeta: meta,
+      viewOnce,
       // attachmentUrl absent tant que l'upload n'a pas réussi
     });
   },

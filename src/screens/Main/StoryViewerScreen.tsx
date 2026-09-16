@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import Video, { type VideoRef } from 'react-native-video';
 
 import { Avatar, CachedImage, confirmAlert, Icon } from '@/components/common';
+import { LikersTicker } from '@/components/story/LikersTicker';
 import { fontStyle, QUICK_REACTIONS } from '@/components/story/storyConfig';
 import { useCachedMedia } from '@/hooks/useCachedMedia';
 import { useWs } from '@/context/WebSocketContext';
@@ -177,6 +178,7 @@ export const StoryViewerScreen: React.FC = () => {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { addListener } = useWs();
+  const { width: screenWidth } = useWindowDimensions();
 
   const [group, setGroup] = useState<StoryFeedItem | null>(null);
   const [ownStories, setOwnStories] = useState<Story[] | null>(null);
@@ -193,12 +195,26 @@ export const StoryViewerScreen: React.FC = () => {
   // disparaître pendant qu'on lit le texte complet.
   const [captionExpanded, setCaptionExpanded] = useState(false);
   const [myReaction, setMyReaction] = useState<string | null>(null);
+  // noms de ceux qui ont réagi à MA story courante — pour le ticker défilant
+  // du pied (façon générique de live), chargés seulement pour mes propres
+  // stories (l'auteur d'une story d'autrui ne voit pas cette liste).
+  const [likerNames, setLikerNames] = useState<string[]>([]);
 
   const progress = useRef(new Animated.Value(0)).current;
   const anim = useRef<Animated.CompositeAnimation | null>(null);
   // dernière valeur connue de `progress` (API publique addListener) — sert à
   // reprendre l'animation après une pause sans toucher à l'API privée _value.
   const progressVal = useRef(0);
+
+  // ── balayage horizontal : suit le doigt en temps réel, façon WhatsApp ──
+  // `dragX` translate le média pendant le geste ; `dragOpacity` l'estompe
+  // légèrement à mesure qu'il s'éloigne du centre (retour élastique sinon).
+  const dragX = useRef(new Animated.Value(0)).current;
+  const dragOpacity = dragX.interpolate({
+    inputRange: [-screenWidth, 0, screenWidth],
+    outputRange: [0.4, 1, 0.4],
+    extrapolate: 'clamp',
+  });
 
   const stories: Story[] = useMemo(
     () => ownStories ?? group?.stories ?? [],
@@ -323,31 +339,79 @@ export const StoryViewerScreen: React.FC = () => {
     }
   }, [idx, jumpToAuthor]);
 
-  // `goNext` change d'identité à chaque changement d'`idx` (voir plus haut) —
-  // cette ref permet à l'effet de la barre de progression de toujours
-  // appeler la version courante SANS l'avoir en dépendance (ce qui relancerait
-  // l'effet, et donc l'animation/la vidéo, à chaque avancée de story).
+  // `goNext`/`goPrev` changent d'identité à chaque changement d'`idx` — ces
+  // refs permettent aux callbacks du geste (créés une seule fois via
+  // `useMemo`) d'appeler toujours la version courante sans les avoir en
+  // dépendance (ce qui recréerait le PanResponder en plein geste).
   const goNextRef = useRef(goNext);
   goNextRef.current = goNext;
+  const goPrevRef = useRef(goPrev);
+  goPrevRef.current = goPrev;
 
-  // ── balayage horizontal : ← auteur suivant · → auteur précédent ·
-  //    ↓ (swipe vers le bas) ferme le viewer — façon WhatsApp/Insta.
+  // ── balayage horizontal : story suivante/précédente DU MÊME AUTEUR (même
+  //    cible que le tap gauche/droite), avec une transition qui suit le
+  //    doigt en temps réel puis complète l'animation façon WhatsApp — au
+  //    lieu du saut sec d'avant. Swipe vers le bas -> ferme le viewer.
   const swipe = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_e, g) =>
           Math.abs(g.dx) > 18 || g.dy > 24,
+        onPanResponderGrant: () => {
+          setPaused(true);
+        },
+        onPanResponderMove: (_e, g) => {
+          // priorité au geste dominant : horizontal pur pendant qu'on glisse
+          // le média, le swipe vers le bas (fermeture) garde son propre seuil
+          // au relâchement sans transformation visuelle continue.
+          if (Math.abs(g.dx) >= g.dy) {
+            dragX.setValue(g.dx);
+          }
+        },
         onPanResponderRelease: (_e, g) => {
-          if (g.dy > 90 && Math.abs(g.dx) < 60) {
+          const isVerticalClose = g.dy > 90 && Math.abs(g.dx) < 60;
+          if (isVerticalClose) {
+            dragX.setValue(0);
+            setPaused(false);
             navigation.goBack();
-          } else if (g.dx < -60) {
-            jumpToAuthor(1);
-          } else if (g.dx > 60) {
-            jumpToAuthor(-1);
+            return;
+          }
+          const SWIPE_THRESHOLD = 70;
+          if (g.dx <= -SWIPE_THRESHOLD) {
+            // vers la story suivante : termine la translation hors écran à
+            // gauche puis avance l'index — la nouvelle story apparaît déjà
+            // repositionnée (dragX remis à 0 avant le prochain rendu).
+            Animated.timing(dragX, {
+              toValue: -screenWidth,
+              duration: 220,
+              useNativeDriver: true,
+            }).start(() => {
+              dragX.setValue(0);
+              goNextRef.current();
+              setPaused(false);
+            });
+          } else if (g.dx >= SWIPE_THRESHOLD) {
+            Animated.timing(dragX, {
+              toValue: screenWidth,
+              duration: 220,
+              useNativeDriver: true,
+            }).start(() => {
+              dragX.setValue(0);
+              goPrevRef.current();
+              setPaused(false);
+            });
+          } else {
+            // geste trop court : retour élastique au centre, story inchangée.
+            Animated.spring(dragX, {
+              toValue: 0,
+              useNativeDriver: true,
+              speed: 20,
+              bounciness: 6,
+            }).start(() => setPaused(false));
           }
         },
       }),
-    [jumpToAuthor, navigation],
+    [navigation, screenWidth, dragX],
   );
 
   // suit la valeur courante de la barre (API publique)
@@ -488,6 +552,37 @@ export const StoryViewerScreen: React.FC = () => {
     [addListener, isMine, current],
   );
 
+  // ── ticker des noms qui ont liké MA story (footer du viewer) ───────────
+  const currentId = current?.id;
+  useEffect(() => {
+    if (!isMine || !currentId) {
+      setLikerNames([]);
+      return;
+    }
+    let alive = true;
+    const load = () => {
+      storyService
+        .viewers(currentId)
+        .then((list) => {
+          if (!alive) return;
+          setLikerNames(
+            list
+              .filter((v) => v.reaction)
+              .map((v) => v.user.display_name || v.user.username || '—'),
+          );
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const unsub = addListener((e) => {
+      if (e.type === 'story.reaction' && e.story_id === currentId) load();
+    });
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [isMine, currentId, addListener]);
+
   // ── actions ────────────────────────────────────────────────────────────
   const sendReply = async () => {
     const body = reply.trim();
@@ -584,46 +679,57 @@ export const StoryViewerScreen: React.FC = () => {
 
   return (
     <View style={[styles.root, { backgroundColor: bg }]} {...swipe.panHandlers}>
-      {/* image : format ORIGINAL entièrement visible (façon WhatsApp) — jamais
-          rognée ni déformée. Un fond flouté de la même image (agrandie en
-          `cover`) comble les bandes quand le ratio ne remplit pas l'écran,
-          au lieu de laisser du noir/couleur uni brut. */}
-      {current.media_type === 'image' && current.media_url ? (
-        <>
-          <CachedImage
-            uri={current.media_url}
-            style={styles.mediaBackdrop}
-            resizeMode="cover"
-            blurRadius={35}
-          />
-          <View style={styles.mediaBackdropDim} pointerEvents="none" />
-          <CachedImage uri={current.media_url} style={styles.mediaFull} resizeMode="contain" />
-        </>
-      ) : null}
+      {/* Contenu visuel (média + fond coloré + légende) — SEUL ce bloc suit
+          le doigt pendant le balayage horizontal (translateX + fondu léger),
+          façon WhatsApp. Tap zones, barres de progression, en-tête et pied
+          restent fixes, en dehors de ce wrapper. */}
+      <Animated.View
+        style={[
+          styles.mediaFull,
+          { transform: [{ translateX: dragX }], opacity: dragOpacity },
+        ]}
+      >
+        {/* image : format ORIGINAL entièrement visible (façon WhatsApp) — jamais
+            rognée ni déformée. Un fond flouté de la même image (agrandie en
+            `cover`) comble les bandes quand le ratio ne remplit pas l'écran,
+            au lieu de laisser du noir/couleur uni brut. */}
+        {current.media_type === 'image' && current.media_url ? (
+          <>
+            <CachedImage
+              uri={current.media_url}
+              style={styles.mediaBackdrop}
+              resizeMode="cover"
+              blurRadius={35}
+            />
+            <View style={styles.mediaBackdropDim} pointerEvents="none" />
+            <CachedImage uri={current.media_url} style={styles.mediaFull} resizeMode="contain" />
+          </>
+        ) : null}
 
-      {/* vidéo : lecture réelle plein écran, synchronisée sur `paused` —
-          plus juste une icône ▶ statique. */}
-      {current.media_type === 'video' && current.media_url ? (
-        <>
-          <StoryVideo
-            key={current.id}
-            uri={current.media_url}
-            paused={paused}
-            videoRef={videoRef}
-            onReady={() => setVideoReady(true)}
-          />
-          {!videoReady ? (
-            <View style={styles.mediaFull} pointerEvents="none">
-              {current.thumbnail_url ? (
-                <CachedImage uri={current.thumbnail_url} style={styles.mediaFull} resizeMode="cover" />
-              ) : null}
-              <View style={[styles.center, StyleSheet.absoluteFillObject]}>
-                <ActivityIndicator color="#fff" />
+        {/* vidéo : lecture réelle plein écran, synchronisée sur `paused` —
+            plus juste une icône ▶ statique. */}
+        {current.media_type === 'video' && current.media_url ? (
+          <>
+            <StoryVideo
+              key={current.id}
+              uri={current.media_url}
+              paused={paused}
+              videoRef={videoRef}
+              onReady={() => setVideoReady(true)}
+            />
+            {!videoReady ? (
+              <View style={styles.mediaFull} pointerEvents="none">
+                {current.thumbnail_url ? (
+                  <CachedImage uri={current.thumbnail_url} style={styles.mediaFull} resizeMode="cover" />
+                ) : null}
+                <View style={[styles.center, StyleSheet.absoluteFillObject]}>
+                  <ActivityIndicator color="#fff" />
+                </View>
               </View>
-            </View>
-          ) : null}
-        </>
-      ) : null}
+            ) : null}
+          </>
+        ) : null}
+      </Animated.View>
 
       {/* zones de tap + pause au maintien */}
       <Pressable
@@ -762,7 +868,13 @@ export const StoryViewerScreen: React.FC = () => {
         )}
       </View>
 
-      {current.caption ? (
+      {isMine && likerNames.length > 0 ? (
+        <View style={styles.likerTickerWrap}>
+          <LikersTicker names={likerNames} textColor="#fff" />
+        </View>
+      ) : null}
+
+      {current.caption && current.media_type !== 'text' ? (
         <StoryCaption
           caption={current.caption}
           onExpandChange={(expanded) => setCaptionExpanded(expanded)}
@@ -771,30 +883,32 @@ export const StoryViewerScreen: React.FC = () => {
 
       {/* pied : MA story -> stats cliquables ; story d'autrui -> réponse */}
       {isMine ? (
-        <Pressable
-          style={[styles.footer, styles.footerMine, { paddingBottom: 12 + insets.bottom }]}
-          onPress={() => navigation.navigate('StoryViewers', { storyId: current.id })}
-        >
-          <Icon name="eye-outline" size={20} color="#fff" />
-          <Text style={styles.statText}>
-            {t('stories.viewsCount', { count: current.view_count })}
-          </Text>
-          {current.reaction_count > 0 ? (
-            <View style={styles.reactStat}>
-              <Icon name="heart" size={18} color="#fff" />
-              <Text style={styles.statText}>{current.reaction_count}</Text>
-            </View>
-          ) : null}
-          {current.reshare_count > 0 ? (
-            <View style={styles.reactStat}>
-              <Icon name="repeat-variant" size={18} color="#fff" />
-              <Text style={styles.statText}>{current.reshare_count}</Text>
-            </View>
-          ) : null}
-          <View style={{ flex: 1 }} />
-          <Text style={styles.viewersLink}>{t('stories.seeViewers')}</Text>
-          <Icon name="chevron-right" size={20} color="#fff" />
-        </Pressable>
+        <>
+          <Pressable
+            style={[styles.footer, styles.footerMine, { paddingBottom: 12 + insets.bottom }]}
+            onPress={() => navigation.navigate('StoryViewers', { storyId: current.id })}
+          >
+            <Icon name="eye-outline" size={20} color="#fff" />
+            <Text style={styles.statText}>
+              {t('stories.viewsCount', { count: current.view_count })}
+            </Text>
+            {current.reaction_count > 0 ? (
+              <View style={styles.reactStat}>
+                <Icon name="heart" size={18} color="#fff" />
+                <Text style={styles.statText}>{current.reaction_count}</Text>
+              </View>
+            ) : null}
+            {current.reshare_count > 0 ? (
+              <View style={styles.reactStat}>
+                <Icon name="repeat-variant" size={18} color="#fff" />
+                <Text style={styles.statText}>{current.reshare_count}</Text>
+              </View>
+            ) : null}
+            <View style={{ flex: 1 }} />
+            <Text style={styles.viewersLink}>{t('stories.seeViewers')}</Text>
+            <Icon name="chevron-right" size={20} color="#fff" />
+          </Pressable>
+        </>
       ) : replied ? (
         <View style={[styles.footer, { paddingBottom: 12 + insets.bottom }]}>
           <Text style={styles.sentHint}>{t('stories.replySent')}</Text>
@@ -881,6 +995,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 4,
     gap: 4,
+    zIndex: 10,
   },
   mediaCaption: {
     color: '#fff',
@@ -917,6 +1032,7 @@ const styles = StyleSheet.create({
   },
   audioTrackFill: { height: 3, backgroundColor: '#fff' },
   footer: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, alignItems: 'center', zIndex: 10 },
+  likerTickerWrap: { paddingHorizontal: 22, paddingBottom: 10, zIndex: 10 },
   footerMine: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#ffffff33',

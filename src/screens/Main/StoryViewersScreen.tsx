@@ -12,6 +12,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Avatar, Icon, Screen } from '@/components/common';
+import { reactionEmoji } from '@/components/story/storyConfig';
 import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainNav, MainStackParamList } from '@/navigation/types';
@@ -151,7 +152,9 @@ export const StoryViewersScreen: React.FC = () => {
                       {clockTime(v.viewed_at)} · {relativeTime(v.viewed_at)}
                     </Text>
                   </View>
-                  {v.reaction ? <Text style={styles.reaction}>{v.reaction}</Text> : null}
+                  {v.reaction ? (
+                    <Text style={styles.reaction}>{reactionEmoji(v.reaction)}</Text>
+                  ) : null}
                 </View>
               );
             })

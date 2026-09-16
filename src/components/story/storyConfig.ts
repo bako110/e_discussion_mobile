@@ -62,6 +62,25 @@ export const QUICK_REACTIONS = [
   'hand-clap',
 ];
 
+/** Emoji réel correspondant à chaque clé de `QUICK_REACTIONS` — c'est cette
+ * clé (nom d'icône, pas un emoji) qui est stockée/envoyée au serveur comme
+ * réaction ; partout où on RÉAFFICHE une réaction en texte (ex: liste des
+ * personnes ayant réagi), il faut la traduire via ce mapping plutôt que
+ * d'afficher la clé brute. */
+const REACTION_EMOJI: Record<string, string> = {
+  heart: '❤️',
+  'emoticon-lol': '😂',
+  'emoticon-cry': '😢',
+  fire: '🔥',
+  'thumb-up': '👍',
+  'hand-clap': '👏',
+};
+
+export function reactionEmoji(key: string | null | undefined): string {
+  if (!key) return '';
+  return REACTION_EMOJI[key] ?? key;
+}
+
 /** Couleurs de pinceau pour l'éditeur média (dessin par-dessus). */
 export const DRAW_COLORS = [
   '#FFFFFF',

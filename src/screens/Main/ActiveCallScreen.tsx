@@ -25,7 +25,7 @@ import { InCallChat } from './InCallChat';
 
 const BG = '#0A1020';
 const PANEL = 'rgba(255,255,255,0.10)';
-const PANEL_ON = '#FFFFFF';
+const PANEL_ON = '#25D366';
 const DANGER = '#F5484D';
 
 /** Bouton de contrôle rond, style « verre ». `on` = état actif (accent clair). */
@@ -50,7 +50,7 @@ const CtrlBtn: React.FC<{
       <Icon
         name={icon}
         size={big ? 28 : 24}
-        color={danger ? '#fff' : on ? BG : '#fff'}
+        color="#fff"
       />
     </Pressable>
     {label ? (
@@ -353,6 +353,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
+    zIndex: 10,
   },
   topBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   topCenter: { flex: 1, alignItems: 'center', gap: 1 },

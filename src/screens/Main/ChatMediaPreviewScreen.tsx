@@ -15,11 +15,13 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import Video from 'react-native-video';
 
 import { Icon, showAlert } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
@@ -45,6 +47,10 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
   const [sending, setSending] = useState(false);
   const [cropping, setCropping] = useState(false);
   const [trimming, setTrimming] = useState(false);
+  const [viewOnce, setViewOnce] = useState(false);
+  // lecture réelle de l'aperçu vidéo (au lieu d'une icône ▶ statique) — pour
+  // que le résultat du découpage soit visible avant d'appuyer sur Envoyer.
+  const [videoPaused, setVideoPaused] = useState(true);
 
   // `local.file.uri` peut être `content://…` (galerie Android), `file://…`,
   // un chemin absolu nu, ou `http…`. `asDisplayUri` ne préfixe `file://` QUE
@@ -107,6 +113,7 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
         senderId,
         local,
         body: caption.trim() || undefined,
+        viewOnce,
       });
       void syncNow({ force: true });
       navigation.goBack();
@@ -141,7 +148,22 @@ export const ChatMediaPreviewScreen: React.FC<MainScreenProps<'ChatMediaPreview'
             )}
           </Pressable>
         ) : null}
+        <Pressable
+          onPress={() => setViewOnce((v) => !v)}
+          hitSlop={12}
+          style={[styles.iconBtn, viewOnce && { backgroundColor: c.primary, borderRadius: 20 }]}
+        >
+          <View style={styles.viewOnceIconWrap}>
+            <Text style={styles.viewOnceIconDigit}>1</Text>
+          </View>
+        </Pressable>
       </View>
+      {viewOnce ? (
+        <View style={styles.viewOnceBanner}>
+          <Icon name="information-outline" size={14} color="#fff" />
+          <Text style={styles.viewOnceBannerText}>{t('chat.viewOnceHint')}</Text>
+        </View>
+      ) : null}
 
       <View style={styles.stage}>
         {isVideo ? (
@@ -200,6 +222,28 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   iconBtn: { padding: 10 },
+  viewOnceIconWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewOnceIconDigit: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  viewOnceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 4,
+  },
+  viewOnceBannerText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   stage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   media: { width: '100%', height: '100%' },
   videoStage: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' },

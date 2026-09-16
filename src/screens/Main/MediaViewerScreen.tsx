@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import Video, { type VideoRef } from 'react-native-video';
 
@@ -41,6 +42,15 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
       if (local) setVideoUri(local);
     });
   }, [type, url, messageId]);
+
+  // coupe la vidéo dès que l'écran perd le focus (retour arrière, navigation
+  // ailleurs, mise en arrière-plan) — sans ça elle pouvait continuer à jouer
+  // en arrière-plan après avoir quitté le lecteur.
+  useFocusEffect(
+    useCallback(() => {
+      return () => videoRef.current?.pause();
+    }, []),
+  );
 
   return (
     <View style={styles.root}>

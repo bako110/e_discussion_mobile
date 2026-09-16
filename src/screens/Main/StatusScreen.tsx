@@ -15,6 +15,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 
 import { AppHeader, Avatar, CachedImage, Icon, Screen, showSheet } from '@/components/common';
+import { SegmentedStoryRing } from '@/components/story/SegmentedStoryRing';
 import { openStoryPrivacySheet } from '@/services/storyPrivacySheet';
 import { useAuth } from '@/context/AuthContext';
 import { useStories } from '@/context/StoriesContext';
@@ -128,7 +129,13 @@ export const StatusScreen: React.FC = () => {
   const openLiveChannel = (groupId: string) =>
     navigation.navigate('ChannelLiveViewer', { groupId });
 
+  // `mine` est trié le plus récent d'abord par le backend (created_at desc) —
+  // mine[0] est donc bien la DERNIÈRE story publiée, utilisée comme vignette.
   const myLatest = mine[0];
+  // Anneau segmenté : un segment par story active, blanc si déjà vue, bleu
+  // (primary) sinon — façon barres de progression du viewer, mais en cercle.
+  const myStoriesTotal = mine.length;
+  const mySeenCount = mine.filter((s) => s.seen_by_me).length;
 
   const filteredFeed = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -356,9 +363,23 @@ export const StatusScreen: React.FC = () => {
                   </View>
                 )}
                 <View style={styles.cardShade} />
-                <View style={[styles.cardRing, { borderColor: 'rgba(255,255,255,0.85)' }]}>
-                  <Avatar uri={me?.avatar_url} name={myName} size={34} />
-                </View>
+                {myStoriesTotal > 0 ? (
+                  <SegmentedStoryRing
+                    total={myStoriesTotal}
+                    seenCount={mySeenCount}
+                    size={38}
+                    color={c.primary}
+                    style={styles.cardRingSegmented}
+                  >
+                    <View style={styles.cardRingAvatarWrap}>
+                      <Avatar uri={me?.avatar_url} name={myName} size={34} />
+                    </View>
+                  </SegmentedStoryRing>
+                ) : (
+                  <View style={[styles.cardRing, { borderColor: 'rgba(255,255,255,0.85)' }]}>
+                    <Avatar uri={me?.avatar_url} name={myName} size={34} />
+                  </View>
+                )}
                 <View style={[styles.cardAddDot, { backgroundColor: c.primary, borderColor: c.card }]}>
                   <Icon name="plus" size={12} color="#fff" />
                 </View>
@@ -642,6 +663,16 @@ const styles = StyleSheet.create({
     borderWidth: 2.5,
     borderRadius: 22,
     padding: 2,
+  },
+  cardRingSegmented: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+  },
+  cardRingAvatarWrap: {
+    position: 'absolute',
+    top: 2,
+    left: 2,
   },
   cardAddDot: {
     position: 'absolute',

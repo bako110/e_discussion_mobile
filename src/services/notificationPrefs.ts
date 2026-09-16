@@ -19,6 +19,8 @@ export interface NotifPrefs {
   sound: boolean;
   /** Faire vibrer à la notification. */
   vibrate: boolean;
+  /** Afficher une notif OS quand un contact publie un nouveau statut. */
+  stories: boolean;
 }
 
 const DEFAULTS: NotifPrefs = {
@@ -27,6 +29,7 @@ const DEFAULTS: NotifPrefs = {
   preview: true,
   sound: true,
   vibrate: true,
+  stories: false,
 };
 
 function read(key: string, fallback: boolean): boolean {
@@ -45,5 +48,6 @@ export function getNotifPrefs(): NotifPrefs {
     preview: read('notif.preview', DEFAULTS.preview),
     sound: read('notif.sound', DEFAULTS.sound),
     vibrate: read('notif.vibrate', DEFAULTS.vibrate),
+    stories: read('notif.stories', DEFAULTS.stories),
   };
 }

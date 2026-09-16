@@ -162,6 +162,7 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
           attachment_meta: meta,
           reply_to_id: p.replyToId ?? undefined,
           client_id: entry.client_id,
+          view_once: !!p.viewOnce,
         },
       );
       await messageRepo.confirmSent(entry.client_id, { ...saved, body: saved.body });

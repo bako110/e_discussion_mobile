@@ -14,6 +14,7 @@ export const storage = {
   getNumber: (key: string): number | undefined => mmkv.getNumber(key),
   delete: (key: string): void => mmkv.delete(key),
   clearAll: (): void => mmkv.clearAll(),
+  getAllKeys: (): string[] => mmkv.getAllKeys(),
 
   getJSON: <T>(key: string): T | null => {
     const raw = mmkv.getString(key);

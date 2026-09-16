@@ -23,6 +23,7 @@ import notifee, {
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import { groupRepo } from '@/db/repositories/groupRepo';
 import { notificationRepo } from '@/db/repositories/notificationRepo';
+import { mediaUrl } from '@/utils/media';
 
 import { getNotifPrefs } from './notificationPrefs';
 
@@ -33,14 +34,20 @@ import { getNotifPrefs } from './notificationPrefs';
 // invalide -> Android a pu les enregistrer sans son. On renomme les IDs
 // pour forcer la création de canaux propres ; ne JAMAIS réutiliser ces IDs.
 //
-// v3 (CH_CALLS uniquement) : le canal 'calls_v2' pointait vers
-// `res/raw/ringtone.mp3`, supprimé depuis (la sonnerie utilise maintenant
-// le son système par défaut) — sur les appareils où ce canal avait déjà
-// été créé, il restait figé sur ce fichier qui n'existe plus, Android
-// échouant alors SILENCIEUSEMENT à jouer un son (juste vibreur/notification
-// muette, plus de vraie sonnerie). Nouveau nom pour forcer un canal propre
-// avec `sound: 'default'`.
-const CH_CALLS = 'calls_v3';
+// v3 (CH_CALLS) : le canal 'calls_v2' pointait vers `res/raw/ringtone.mp3`,
+// supprimé depuis (la sonnerie utilise maintenant le son système par
+// défaut) — sur les appareils où ce canal avait déjà été créé, il restait
+// figé sur ce fichier qui n'existe plus, Android échouant SILENCIEUSEMENT à
+// jouer un son (juste vibreur/notification muette, plus de vraie sonnerie).
+//
+// v4 (CH_CALLS) : le SON du canal est désormais désactivé (`sound: undefined`,
+// `vibration: false`). La vraie sonnerie/vibration vient exclusivement de
+// `RingtoneModule` (natif, déclenché dès la réception du push — voir
+// `fcm.ts`), qui tourne EN PARALLÈLE de cette notification. Garder aussi le
+// son sur le canal faisait sonner les DEUX en même temps, créant un effet de
+// notifications/sonneries qui se chevauchent/« bouclent » l'une sur l'autre.
+// Cette notif ne sert donc plus qu'au visuel (réveil d'écran, fullScreenAction).
+const CH_CALLS = 'calls_v4';
 const CH_MESSAGES = 'messages_v2';
 const CH_STORIES = 'stories_v2';
 
@@ -80,11 +87,10 @@ export async function ensureNotificationSetup(): Promise<void> {
       id: CH_CALLS,
       name: 'Appels',
       importance: AndroidImportance.HIGH,
-      // sonnerie du téléphone (réglages système) — pas de fichier custom
-      sound: 'default',
-      vibration: true,
-      // valeurs STRICTEMENT POSITIVES, nombre PAIR (attente/vibration).
-      vibrationPattern: [400, 800, 400, 800, 400, 1000],
+      // PAS de son/vibreur ICI : RingtoneModule (natif) sonne et vibre déjà
+      // en parallèle dès la réception du push — voir le commentaire v4
+      // ci-dessus. Ce canal ne sert plus qu'à réveiller l'écran
+      // (fullScreenAction) et afficher la notification visuelle.
       visibility: AndroidVisibility.PUBLIC,
       bypassDnd: true,
     },
@@ -138,9 +144,14 @@ export async function ensureNotificationSetup(): Promise<void> {
 }
 
 /** notifee refuse une chaîne vide / non-URL pour largeIcon & person.icon.
- *  On ne garde que les URL http(s) ; sinon `undefined`. */
+ * Le backend renvoie souvent un chemin RELATIF (`/media/...`) — sans le
+ * résoudre via `mediaUrl()` d'abord, `iconUri` le rejetait systématiquement
+ * (jamais `http(s)://`), donc la photo n'apparaissait JAMAIS dans les
+ * notifications malgré la valeur transmise. On ne garde que les URL http(s)
+ * absolues une fois résolues ; sinon `undefined`. */
 function iconUri(v: string | null | undefined): string | undefined {
-  return v && /^https?:\/\//i.test(v) ? v : undefined;
+  const resolved = mediaUrl(v);
+  return resolved && /^https?:\/\//i.test(resolved) ? resolved : undefined;
 }
 
 // ── Appel entrant ────────────────────────────────────────────────────────
@@ -151,13 +162,28 @@ export interface IncomingCallNotifData {
   callerAvatar?: string | null;
 }
 
-/** Affiche la sonnerie native plein écran. À appeler sur l'event WS `call.incoming`. */
+// Un même appel entrant peut arriver par DEUX chemins quasi simultanés :
+// notre WebSocket ET un push FCM data-only (course réseau) — le backend
+// envoie systématiquement les deux (`call_service.py` appelle `send_to_user`
+// PUIS `push_to_user` sans savoir si le destinataire a déjà un WS ouvert).
+// Sans garde, `loopSound: true` relancerait la sonnerie du canal depuis le
+// début pour le second appel, créant l'effet de sonnerie qui « boucle »/se
+// mélange avec elle-même en plus de la sonnerie native de l'écran d'appel.
+let lastIncomingCallId: string | null = null;
+
+/** Affiche l'écran d'appel plein écran (SANS son — canal silencieux depuis
+ * v4, voir CH_CALLS). À appeler sur l'event WS `call.incoming`. */
 export async function displayIncomingCall(data: IncomingCallNotifData): Promise<void> {
-  // Notifs d'appel désactivées : au premier plan, l'écran d'appel in-app
-  // (IncomingCallScreen + sonnerie CallPrefs) suffit — on n'ajoute pas la
-  // notif OS. En arrière-plan/app tuée on la garde SINON l'appel est manqué
-  // en silence.
-  if (!getNotifPrefs().calls && AppState.currentState === 'active') return;
+  // Au premier plan, l'écran d'appel in-app (IncomingCallScreen + sonnerie
+  // native via RingtoneModule, pilotée par InCallRingtone/CallPrefs) suffit
+  // TOUJOURS — on n'ajoute JAMAIS la notif OS ici, quel que soit le réglage
+  // "notif appels" : la notif OS ne sert qu'à réveiller l'appareil en
+  // arrière-plan/app tuée, là où aucun écran React n'est encore monté.
+  if (AppState.currentState === 'active') return;
+
+  // même appel déjà affiché (course WS/FCM) -> ne pas relancer la sonnerie
+  if (lastIncomingCallId === data.callId) return;
+  lastIncomingCallId = data.callId;
 
   await ensureNotificationSetup();
   const isVideo = data.callType === 'video';
@@ -170,8 +196,8 @@ export async function displayIncomingCall(data: IncomingCallNotifData): Promise<
       channelId: CH_CALLS,
       category: AndroidCategory.CALL,
       importance: AndroidImportance.HIGH,
-      // sonnerie en boucle jusqu'à réponse / rejet / timeout
-      loopSound: true,
+      // PAS de son ici (canal silencieux, cf. CH_CALLS v4) : la sonnerie
+      // réelle vient de RingtoneModule, déclenché en parallèle par fcm.ts.
       ongoing: true,
       autoCancel: false,
       // réveille l'écran et lance MainActivity -> RootNavigator affiche
@@ -216,6 +242,7 @@ export async function displayIncomingCall(data: IncomingCallNotifData): Promise<
 
 /** Retire la sonnerie (réponse, rejet, annulation, timeout). */
 export async function clearIncomingCall(): Promise<void> {
+  lastIncomingCallId = null;
   try {
     await notifee.cancelNotification(INCOMING_CALL_NOTIF_ID);
   } catch {
@@ -283,7 +310,7 @@ export async function displayMissedCall(d: MissedCallNotifData): Promise<void> {
         channelId: messageChannelId(prefs.sound, prefs.vibrate),
         category: AndroidCategory.CALL,
         importance: AndroidImportance.DEFAULT,
-        largeIcon: iconUri(d.peerAvatar),
+        ...(iconUri(d.peerAvatar) ? { largeIcon: iconUri(d.peerAvatar) } : {}),
         pressAction: { id: 'open-missed-call', launchActivity: 'default' },
         actions: [{ title: 'Rappeler', pressAction: { id: 'call-back', launchActivity: 'default' } }],
         timestamp: Date.now(),
@@ -319,7 +346,7 @@ export async function displayStoryNotification(d: StoryNotifData): Promise<void>
         channelId: CH_STORIES,
         category: AndroidCategory.SOCIAL,
         importance: AndroidImportance.DEFAULT,
-        largeIcon: iconUri(d.authorAvatar),
+        ...(iconUri(d.authorAvatar) ? { largeIcon: iconUri(d.authorAvatar) } : {}),
         pressAction: { id: 'open-story', launchActivity: 'default' },
         timestamp: Date.now(),
         showTimestamp: true,
@@ -352,7 +379,10 @@ const GROUP_KEY = 'ediscussion.messages';
  */
 const threads = new Map<
   string,
-  { title: string; messages: { text: string; time: number; sender: string }[] }
+  {
+    title: string;
+    messages: { text: string; time: number; sender: string; senderIcon?: string }[];
+  }
 >();
 
 // Un même message peut arriver par DEUX chemins presque simultanés : notre
@@ -386,16 +416,24 @@ export async function displayMessageNotification(d: MessageNotifData): Promise<v
     : 'Nouveau message';
   const convKey = isGroup ? `g:${d.groupId}` : `c:${d.conversationId}`;
   const title = isGroup ? d.groupName || d.senderName : d.senderName;
+  // Icône de CETTE ligne (l'émetteur du message qui vient d'arriver) — sert
+  // à la fois de `largeIcon` général de la notif et de photo affichée à côté
+  // de la ligne dans le fil `MESSAGING`, façon WhatsApp.
+  const largeIcon = iconUri(d.senderAvatar);
 
   // fil de la conversation (garde les 6 derniers)
   const th = threads.get(convKey) ?? { title, messages: [] };
   th.title = title;
-  th.messages.push({ text: line, time: Date.now(), sender: d.senderName });
+  th.messages.push({
+    text: line,
+    time: Date.now(),
+    sender: d.senderName,
+    senderIcon: largeIcon,
+  });
   if (th.messages.length > 6) th.messages.splice(0, th.messages.length - 6);
   threads.set(convKey, th);
 
   const count = th.messages.length;
-  const largeIcon = iconUri(d.senderAvatar);
 
   // Notification complète (bulle « MESSAGING » façon appli de messagerie),
   // avec repli sur une version SIMPLE si l'affichage avancé échoue — vécu
@@ -438,7 +476,12 @@ export async function displayMessageNotification(d: MessageNotifData): Promise<v
           messages: th.messages.map((m) => ({
             text: m.text,
             timestamp: m.time,
-            person: { name: isGroup ? m.sender : title },
+            // clé `icon` OMISE (pas juste `undefined`) si pas d'avatar valide
+            // pour ce message précis — même piège que `largeIcon`.
+            person: {
+              name: isGroup ? m.sender : title,
+              ...(m.senderIcon ? { icon: m.senderIcon } : {}),
+            },
           })),
           group: isGroup,
         },
@@ -478,7 +521,9 @@ export async function displayMessageNotification(d: MessageNotifData): Promise<v
           sound: prefs.sound ? 'default' : undefined,
         },
       })
-      .catch(() => undefined);
+      .catch((e2) =>
+        console.warn('[notif] displayNotification repli simple a AUSSI échoué:', String(e2)),
+      );
   }
 
   // notif de résumé (regroupe les conversations sous une seule tête sur Android)

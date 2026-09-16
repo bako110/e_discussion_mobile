@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -292,5 +292,15 @@ export const MIGRATIONS: string[] = [
     updated_at    TEXT NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(display_name, username);
+  `,
+
+  // ── v14 : messages "vue unique" (photo/vidéo/vocal/fichier, façon
+  // WhatsApp) — `view_once` posé à l'envoi, `view_once_opened` dès que la
+  // pièce jointe a été ouverte une fois (côté serveur le fichier est alors
+  // définitivement supprimé ; en local on efface aussi la copie en cache,
+  // voir mediaCache.forget). Les lignes existantes sont neutres (0/0).
+  `
+  ALTER TABLE messages ADD COLUMN view_once INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE messages ADD COLUMN view_once_opened INTEGER NOT NULL DEFAULT 0;
   `,
 ];

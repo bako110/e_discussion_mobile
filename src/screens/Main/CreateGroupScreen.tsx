@@ -40,6 +40,7 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
 
   const [kind, setKind] = useState<GroupKind>(route.params?.kind ?? 'group');
   const [category, setCategory] = useState<GroupCategory | null>(null);
+  const [isPublic, setIsPublic] = useState(true);
   const [name, setName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [description, setDescription] = useState('');
@@ -113,6 +114,7 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
           name: n,
           description: description.trim() || undefined,
           avatar_url: avatarUrl ?? undefined,
+          is_public: kind === 'channel' ? isPublic : undefined,
           category: kind === 'channel' ? category : undefined,
           member_ids: Object.keys(selected),
         }),
@@ -257,23 +259,53 @@ export const CreateGroupScreen: React.FC<MainScreenProps<'CreateGroup'>> = ({
               />
             </View>
 
-            {/* catégorie — chaîne uniquement */}
+            {/* catégorie + visibilité — chaîne uniquement */}
             {kind === 'channel' ? (
-              <Pressable
-                onPress={pickCategory}
-                style={[styles.field, { backgroundColor: c.surface, borderColor: c.border }]}
-              >
-                <Icon name="shape-outline" size={18} color={c.textFaint} />
-                <Text
-                  style={[
-                    styles.input,
-                    { color: category ? c.text : c.textFaint, paddingVertical: 12 },
-                  ]}
+              <>
+                <Pressable
+                  onPress={pickCategory}
+                  style={[styles.field, { backgroundColor: c.surface, borderColor: c.border }]}
                 >
-                  {category ? t(`groups.category_${category}`) : t('groups.categoryPick')}
-                </Text>
-                <Icon name="chevron-right" size={18} color={c.textFaint} />
-              </Pressable>
+                  <Icon name="shape-outline" size={18} color={c.textFaint} />
+                  <Text
+                    style={[
+                      styles.input,
+                      { color: category ? c.text : c.textFaint, paddingVertical: 12 },
+                    ]}
+                  >
+                    {category ? t(`groups.category_${category}`) : t('groups.categoryPick')}
+                  </Text>
+                  <Icon name="chevron-right" size={18} color={c.textFaint} />
+                </Pressable>
+
+                <View style={styles.visibilityRow}>
+                  {([true, false] as const).map((v) => (
+                    <Pressable
+                      key={String(v)}
+                      onPress={() => setIsPublic(v)}
+                      style={[
+                        styles.kindBtn,
+                        { borderColor: isPublic === v ? c.primary : c.border },
+                        isPublic === v && { backgroundColor: c.surfaceAlt },
+                      ]}
+                    >
+                      <Icon
+                        name={v ? 'earth' : 'lock-outline'}
+                        size={18}
+                        color={isPublic === v ? c.primary : c.textMuted}
+                      />
+                      <Text
+                        style={[
+                          styles.kindText,
+                          { color: isPublic === v ? c.primary : c.textMuted },
+                        ]}
+                      >
+                        {v ? t('groups.visibilityPublic') : t('groups.visibilityPrivate')}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
             ) : null}
 
             {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
@@ -358,6 +390,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   kindText: { fontSize: 14, fontWeight: '700' },
+  visibilityRow: { flexDirection: 'row', gap: 10, marginHorizontal: 16, marginTop: 12 },
   field: {
     flexDirection: 'row',
     alignItems: 'center',
