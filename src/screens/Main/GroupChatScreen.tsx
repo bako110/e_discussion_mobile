@@ -19,6 +19,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { ApiError } from '@/api';
 import { AppHeader, Avatar, Icon, Screen, confirmAlert, showAlert, showSheet, showToast } from '@/components/common';
 import { GroupAttachment } from '@/components/chat/GroupAttachment';
+import { LinkedChannelsSheet } from '@/components/chat/LinkedChannelsSheet';
 import { MessageActionSheet, type MsgActionContext } from '@/components/chat/MessageActionSheet';
 import { PinnedBanner } from '@/components/chat/PinnedBanner';
 import { useAuth } from '@/context/AuthContext';
@@ -28,7 +29,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useWs } from '@/context/WebSocketContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { channelLiveService, conversationService, groupService, messageService } from '@/services';
-import type { ChannelLive, PinnedMessage } from '@/types';
+import type { ChannelLive, DiscussionChannel, PinDuration, PinnedMessage } from '@/types';
 import type { LocalGroup, LocalGroupMessage } from '@/db/repositories/groupRepo';
 import { onLocalMessageEvent } from '@/context/MessageSync';
 import { groupRepo } from '@/db/repositories/groupRepo';
@@ -71,6 +72,8 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [channelLive, setChannelLive] = useState<ChannelLive | null>(null);
+  const [linkedChannels, setLinkedChannels] = useState<DiscussionChannel[]>([]);
+  const [linkedSheetOpen, setLinkedSheetOpen] = useState(false);
   const [actionMsg, setActionMsg] = useState<LocalGroupMessage | null>(null);
   const [editingMsg, setEditingMsg] = useState<LocalGroupMessage | null>(null);
   const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>([]);
@@ -108,6 +111,20 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     void reloadLive();
     const id = setInterval(reloadLive, 8000);
     return () => clearInterval(id);
+  }, [groupId, group?.kind]);
+
+  // sélecteur « N canaux » du header — visible que je sois dans la chaîne
+  // elle-même ou dans l'un de ses canaux liés, uniquement si je suis membre
+  // d'au moins 2 éléments de la famille (sinon rien à choisir).
+  useEffect(() => {
+    if (group?.kind !== 'channel') {
+      setLinkedChannels([]);
+      return;
+    }
+    groupService
+      .listMyLinkedChannels(groupId)
+      .then(setLinkedChannels)
+      .catch(() => setLinkedChannels([]));
   }, [groupId, group?.kind]);
 
   // marque lu à l'entrée / sortie (local + outbox)
@@ -306,6 +323,19 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     setText(actionMsg.body);
   };
 
+  const pinWithDuration = (messageId: string, duration: PinDuration) => {
+    void groupService
+      .pinMessage(groupId, messageId, duration)
+      .then(reloadPinned)
+      .catch((e: unknown) => {
+        const msg =
+          e instanceof ApiError && e.code === 'pin_limit_reached'
+            ? t('chat.pinLimitReached')
+            : t('chat.pinFailed');
+        showToast(msg, { type: 'error' });
+      });
+  };
+
   const doPin = () => {
     const m = actionMsg;
     if (!m) return;
@@ -315,18 +345,16 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
         .unpinMessage(groupId, m.id)
         .then(reloadPinned)
         .catch(() => showToast(t('chat.unpinFailed'), { type: 'error' }));
-    } else {
-      void groupService
-        .pinMessage(groupId, m.id)
-        .then(reloadPinned)
-        .catch((e: unknown) => {
-          const msg =
-            e instanceof ApiError && e.code === 'pin_limit_reached'
-              ? t('chat.pinLimitReached')
-              : t('chat.pinFailed');
-          showToast(msg, { type: 'error' });
-        });
+      return;
     }
+    showSheet({
+      title: t('chat.pinDurationTitle'),
+      actions: (['24h', '7d', '30d', 'forever'] as PinDuration[]).map((d) => ({
+        label: t(`chat.pinDuration_${d}`),
+        icon: d === 'forever' ? 'pin' : 'timer-outline',
+        onPress: () => pinWithDuration(m.id, d),
+      })),
+    });
   };
 
   const doForward = () => {
@@ -713,11 +741,34 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
                 </Text>
               </View>
             </Pressable>
+            {linkedChannels.length > 0 ? (
+              <Pressable
+                onPress={() => setLinkedSheetOpen(true)}
+                hitSlop={8}
+                style={[styles.channelsBadge, { backgroundColor: c.surfaceAlt }]}
+              >
+                <Icon name="message-reply-text-outline" size={14} color={c.primary} />
+                <Text style={[styles.channelsBadgeTxt, { color: c.primary }]}>
+                  {t('groupSettings.linkedChannelsBadge', { count: linkedChannels.length })}
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable onPress={openGroupMenu} hitSlop={10}>
               <Icon name="dots-vertical" size={22} color={c.text} />
             </Pressable>
           </View>
         }
+      />
+
+      <LinkedChannelsSheet
+        visible={linkedSheetOpen}
+        channels={linkedChannels}
+        currentGroupId={groupId}
+        onClose={() => setLinkedSheetOpen(false)}
+        onSelect={(id, name) => {
+          setLinkedSheetOpen(false);
+          if (id !== groupId) navigation.replace('GroupChat', { groupId: id, name });
+        }}
       />
 
       {!online ? (
@@ -744,15 +795,21 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
             keyExtractor={(m) => m.id}
             renderItem={renderItem}
             contentContainerStyle={styles.list}
-            ListEmptyComponent={
-              <View style={styles.empty}>
-                <Icon name="message-outline" size={30} color={c.textFaint} />
-                <Text style={[styles.emptyText, { color: c.textMuted }]}>
-                  {t('groups.noMessages')}
-                </Text>
-              </View>
-            }
           />
+
+          {data.length === 0 ? (
+            // affiché en dehors de la FlatList (jamais comme ListEmptyComponent) :
+            // React Native retourne aussi ListEmptyComponent sur une liste
+            // `inverted` (bug connu, non résolu même avec un contre-flip
+            // scaleY manuel — https://github.com/facebook/react-native/issues/21196),
+            // ce qui affichait ce bloc à l'envers malgré la compensation.
+            <View style={styles.emptyOverlay} pointerEvents="box-none">
+              <Icon name="message-outline" size={30} color={c.textFaint} />
+              <Text style={[styles.emptyText, { color: c.textMuted }]}>
+                {t('groups.noMessages')}
+              </Text>
+            </View>
+          ) : null}
 
           {canPost ? (
             <View
@@ -870,6 +927,15 @@ const styles = StyleSheet.create({
   hdrCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   hdrTitle: { fontSize: 16, fontWeight: '800' },
   hdrSub: { fontSize: 12, marginTop: 1 },
+  channelsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  channelsBadgeTxt: { fontSize: 12, fontWeight: '700' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   offlineStrip: {
     flexDirection: 'row',
@@ -929,10 +995,18 @@ const styles = StyleSheet.create({
   dayText: { fontSize: 11, fontWeight: '700', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10, overflow: 'hidden' },
   sysWrap: { alignItems: 'center', marginVertical: 6 },
   sysText: { fontSize: 12, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, overflow: 'hidden' },
-  // NB : pas de scaleY ici — ce bloc n'apparaît que comme ListEmptyComponent
-  // (FlatList inverted SANS message) ; un flip retournerait le RENDU du
-  // texte (miroir vertical, illisible), pas seulement sa position.
-  empty: { alignItems: 'center', gap: 8, paddingVertical: 60 },
+  // affiché par-dessus la FlatList (pas comme ListEmptyComponent) — voir le
+  // commentaire au point d'appel.
+  emptyOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   emptyText: { fontSize: 13 },
   composer: {
     paddingHorizontal: 12,

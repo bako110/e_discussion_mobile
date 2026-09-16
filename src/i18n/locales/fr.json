@@ -1,4 +1,8 @@
 {
+  "exitApp": {
+    "title": "Quitter l'application ?",
+    "message": "Vous êtes sur le point de quitter E-discussion."
+  },
   "common": {
     "ok": "OK",
     "cancel": "Annuler",
@@ -423,6 +427,8 @@
     "discussionNoCandidates": "Aucun autre canal disponible",
     "discussionLinked": "Canal de discussion lié",
     "discussionLinkedCount": "{{count}}/{{max}} canaux liés",
+    "linkedChannelsBadge": "{{count}} canaux",
+    "linkedChannelsSheetTitle": "Choisir un canal",
     "discussionMaxReached": "Limite de {{max}} canaux de discussion atteinte.",
     "discussionUnlink": "Délier le canal de discussion",
     "discussionUnlinked": "Canal de discussion délié",
@@ -518,7 +524,11 @@
     "limitReached": "Maximum {{count}} comptes sur cet appareil",
     "switchFailed": "Impossible de basculer vers ce compte",
     "removeTitle": "Retirer ce compte",
-    "removeConfirm": "{{name}} sera déconnecté de cet appareil. Les données déjà téléchargées seront supprimées."
+    "removeConfirm": "{{name}} sera déconnecté de cet appareil. Les données déjà téléchargées seront supprimées.",
+    "switchedTitle": "Compte changé",
+    "switchedBody": "Vous êtes maintenant connecté en tant que {{name}}.",
+    "switchTitle": "Changer de compte",
+    "switchConfirm": "Basculer vers le compte {{name}} ?"
   },
   "settings": {
     "title": "Réglages",

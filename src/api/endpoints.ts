@@ -107,6 +107,7 @@ export const Endpoints = {
     discussion: (id: string) => `${V1}/groups/${id}/discussion`,
     unlinkDiscussion: (id: string, discussionGroupId: string) =>
       `${V1}/groups/${id}/discussion/${discussionGroupId}`,
+    myLinkedChannels: (id: string) => `${V1}/groups/${id}/discussion/mine`,
     discover: (params: { category?: string; query?: string }) => {
       const q = new URLSearchParams();
       if (params.category) q.set('category', params.category);

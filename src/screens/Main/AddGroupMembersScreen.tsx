@@ -46,8 +46,17 @@ export const AddGroupMembersScreen: React.FC<MainScreenProps<'AddGroupMembers'>>
     let alive = true;
     (async () => {
       try {
+        // un canal de discussion lié n'accepte que les abonnés de sa chaîne
+        // parente — on limite la liste proposée à ces abonnés-là plutôt
+        // qu'à tous les contacts (le backend rejette silencieusement les
+        // autres de toute façon, voir group_service.add_members).
+        const remote = await groupService.getRemote(groupId).catch(() => null);
+        const parentId = remote?.parent_channel_id ?? null;
+
         const [list, mems] = await Promise.all([
-          userService.contacts(),
+          parentId
+            ? groupService.members(parentId).then((rows) => rows.map((m) => m.user))
+            : userService.contacts(),
           groupService.members(groupId).catch(() => [] as GroupMember[]),
         ]);
         if (!alive) return;

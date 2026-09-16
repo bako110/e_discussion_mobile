@@ -88,6 +88,7 @@ function toGroup(r: GroupRow): LocalGroup {
     disappearing_seconds: 0,
     sign_messages: false,
     discussion_group_ids: [],
+    parent_channel_id: null,
     is_paid: false,
     subscription_price_cents: null,
     subscription_currency: null,

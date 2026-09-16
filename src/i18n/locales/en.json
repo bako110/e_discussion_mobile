@@ -1,4 +1,8 @@
 {
+  "exitApp": {
+    "title": "Exit app?",
+    "message": "You're about to leave E-discussion."
+  },
   "common": {
     "ok": "OK",
     "cancel": "Cancel",
@@ -423,6 +427,8 @@
     "discussionNoCandidates": "No other channel available",
     "discussionLinked": "Discussion channel linked",
     "discussionLinkedCount": "{{count}}/{{max}} channels linked",
+    "linkedChannelsBadge": "{{count}} channels",
+    "linkedChannelsSheetTitle": "Choose a channel",
     "discussionMaxReached": "Limit of {{max}} discussion channels reached.",
     "discussionUnlink": "Unlink discussion channel",
     "discussionUnlinked": "Discussion channel unlinked",
@@ -518,7 +524,11 @@
     "limitReached": "Maximum {{count}} accounts on this device",
     "switchFailed": "Couldn't switch to this account",
     "removeTitle": "Remove this account",
-    "removeConfirm": "{{name}} will be signed out of this device. Already-downloaded data will be deleted."
+    "removeConfirm": "{{name}} will be signed out of this device. Already-downloaded data will be deleted.",
+    "switchedTitle": "Account switched",
+    "switchedBody": "You're now signed in as {{name}}.",
+    "switchTitle": "Switch account",
+    "switchConfirm": "Switch to {{name}}'s account?"
   },
   "settings": {
     "title": "Settings",

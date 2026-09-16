@@ -273,6 +273,9 @@ export interface Group {
   /** chaîne uniquement : canaux de discussion liés (façon Telegram),
    * jusqu'à 5 en même temps — vide si aucun. */
   discussion_group_ids: string[];
+  /** canal de discussion uniquement : id de la chaîne parente (sens inverse
+   * de discussion_group_ids) — null si ce groupe n'est pas un canal lié. */
+  parent_channel_id: string | null;
   created_at: string;
   last_message_at: string | null;
   member_count: number;
@@ -307,6 +310,9 @@ export interface DiscussionChannel {
   name: string;
   avatar_url: string | null;
   member_count: number;
+  /** présent seulement dans listMyLinkedChannels (chaîne + canaux frères
+   * dont je suis membre) — absent dans listDiscussions. */
+  kind?: GroupKind;
 }
 
 export interface GroupSettings {

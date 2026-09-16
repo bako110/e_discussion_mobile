@@ -26,6 +26,7 @@ import type {
   GroupMessage,
   GroupPreview,
   GroupSettings,
+  PinDuration,
   PinnedMessage,
 } from '@/types';
 import { newClientId, outbox } from '@/sync/outbox';
@@ -230,9 +231,14 @@ export const groupService = {
     return apiClient.get<PinnedMessage[]>(Endpoints.groups.pinned(groupId));
   },
 
-  pinMessage(groupId: string, messageId: string): Promise<PinnedMessage> {
+  pinMessage(
+    groupId: string,
+    messageId: string,
+    duration: PinDuration = 'forever',
+  ): Promise<PinnedMessage> {
     return apiClient.post<PinnedMessage>(Endpoints.groups.pinned(groupId), {
       message_id: messageId,
+      duration,
     });
   },
 
@@ -354,6 +360,13 @@ export const groupService = {
   /** Canaux de discussion liés à cette chaîne (jusqu'à 5). */
   listDiscussions(id: string): Promise<DiscussionChannel[]> {
     return apiClient.get<DiscussionChannel[]>(Endpoints.groups.discussion(id));
+  },
+
+  /** Depuis la chaîne OU l'un de ses canaux liés : la chaîne + les canaux
+   * DONT JE SUIS MEMBRE — pour le sélecteur « N canaux » du header de
+   * discussion. Vide si je ne suis membre que d'un seul élément. */
+  listMyLinkedChannels(id: string): Promise<DiscussionChannel[]> {
+    return apiClient.get<DiscussionChannel[]>(Endpoints.groups.myLinkedChannels(id));
   },
 
   /** Lie un NOUVEAU canal de discussion existant OU en crée un nouveau — un
