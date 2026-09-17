@@ -61,6 +61,10 @@ export const CallsScreen: React.FC = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [dateFilter, setDateFilter] = useState<CallDateFilter | null>(null);
   const openRow = useRef<Swipeable | null>(null);
+  // sélection multiple (appui long démarre, tap ultérieur bascule) — façon
+  // WhatsApp : bandeau de suppression groupée dans le header tant qu'active.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectionMode = selectedIds.size > 0;
   // pagination réseau (scroll infini) : page suivante à charger + garde
   // anti-doublon d'appel concurrent + fin d'historique atteinte.
   const nextPageRef = useRef(2); // la page 1 est chargée par `load()`
@@ -221,6 +225,37 @@ export const CallsScreen: React.FC = () => {
     );
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const startSelection = (log: CallLog) => {
+    openRow.current?.close();
+    setSelectedIds(new Set([log.id]));
+  };
+
+  const cancelSelection = () => setSelectedIds(new Set());
+
+  const deleteSelected = () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    confirmAlert(
+      t('calls.deleteSelectedTitle', { count: ids.length }),
+      t('calls.deleteSelectedBody', { count: ids.length }),
+      () => {
+        setItems((cur) => cur.filter((x) => !selectedIds.has(x.id)));
+        setSelectedIds(new Set());
+        for (const id of ids) void callService.remove(id).catch(() => void load());
+      },
+      { destructive: true, confirmText: t('common.delete'), cancelText: t('common.cancel') },
+    );
+  };
+
   const renderCall = (log: CallLog) => {
     const name = log.peer?.display_name || log.peer?.username || t('calls.unknown');
     const inbound = log.callee_id === me?.id;
@@ -233,6 +268,7 @@ export const CallsScreen: React.FC = () => {
       : log.status === 'missed' || log.status === 'cancelled'
         ? 'phone-cancel'
         : 'phone-outgoing';
+    const selected = selectedIds.has(log.id);
 
     const renderRight = (
       _progress: Animated.AnimatedInterpolation<number>,
@@ -254,6 +290,64 @@ export const CallsScreen: React.FC = () => {
     };
 
     let selfRef: Swipeable | null = null;
+    const row = (
+      <Pressable
+        style={[
+          styles.row,
+          { backgroundColor: selected ? c.primary + '14' : c.card },
+        ]}
+        android_ripple={{ color: c.surfaceAlt }}
+        onPress={() => (selectionMode ? toggleSelect(log.id) : redial(log))}
+        onLongPress={() => (selectionMode ? toggleSelect(log.id) : startSelection(log))}
+      >
+        {selectionMode ? (
+          <View
+            style={[
+              styles.checkbox,
+              {
+                borderColor: selected ? c.primary : c.textFaint,
+                backgroundColor: selected ? c.primary : 'transparent',
+              },
+            ]}
+          >
+            {selected ? <Icon name="check" size={16} color="#fff" /> : null}
+          </View>
+        ) : (
+          <Avatar uri={log.peer?.avatar_url} name={name} size={48} />
+        )}
+        <View style={styles.rowBody}>
+          <Text
+            style={[styles.rowName, { color: missed ? c.danger : c.text }]}
+            numberOfLines={1}
+          >
+            {name}
+          </Text>
+          <View style={styles.rowMeta}>
+            <Icon name={arrow} size={14} color={dirColor} />
+            <Text style={[styles.rowSub, { color: c.textMuted }]} numberOfLines={1}>
+              {statusLabel(log, t)}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.rowRight}>
+          <Text style={[styles.rowTime, { color: c.textFaint }]}>{clockTime(log.started_at)}</Text>
+          {!selectionMode ? (
+            <Pressable hitSlop={10} onPress={() => redial(log)} style={styles.rowCall}>
+              <Icon
+                name={log.call_type === 'video' ? 'video-outline' : 'phone-outline'}
+                size={22}
+                color={c.primary}
+              />
+            </Pressable>
+          ) : null}
+        </View>
+      </Pressable>
+    );
+
+    // le swipe-to-delete n'a pas de sens en mode sélection multiple (les
+    // deux mécanismes de suppression se marcheraient dessus).
+    if (selectionMode) return row;
+
     return (
       <Swipeable
         ref={(r) => {
@@ -267,45 +361,7 @@ export const CallsScreen: React.FC = () => {
         overshootRight={false}
         rightThreshold={40}
       >
-        <Pressable
-          style={[styles.row, { backgroundColor: c.card }]}
-          android_ripple={{ color: c.surfaceAlt }}
-          onPress={() => redial(log)}
-          onLongPress={() =>
-            confirmAlert(
-              name,
-              t('calls.deleteOneBody'),
-              () => removeOne(log),
-              { destructive: true, confirmText: t('common.delete'), cancelText: t('common.cancel') },
-            )
-          }
-        >
-          <Avatar uri={log.peer?.avatar_url} name={name} size={48} />
-          <View style={styles.rowBody}>
-            <Text
-              style={[styles.rowName, { color: missed ? c.danger : c.text }]}
-              numberOfLines={1}
-            >
-              {name}
-            </Text>
-            <View style={styles.rowMeta}>
-              <Icon name={arrow} size={14} color={dirColor} />
-              <Text style={[styles.rowSub, { color: c.textMuted }]} numberOfLines={1}>
-                {statusLabel(log, t)}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.rowRight}>
-            <Text style={[styles.rowTime, { color: c.textFaint }]}>{clockTime(log.started_at)}</Text>
-            <Pressable hitSlop={10} onPress={() => redial(log)} style={styles.rowCall}>
-              <Icon
-                name={log.call_type === 'video' ? 'video-outline' : 'phone-outline'}
-                size={22}
-                color={c.primary}
-              />
-            </Pressable>
-          </View>
-        </Pressable>
+        {row}
       </Swipeable>
     );
   };
@@ -320,30 +376,40 @@ export const CallsScreen: React.FC = () => {
   return (
     <Screen edges={[]}>
       <AppHeader
-        title={t('calls.title')}
+        title={selectionMode ? t('calls.selectedCount', { count: selectedIds.size }) : t('calls.title')}
         left={
-          <Pressable onPress={goBack} hitSlop={12} style={styles.hdrBtn}>
-            <Icon name="arrow-left" size={24} color={c.onHeader} />
+          <Pressable
+            onPress={selectionMode ? cancelSelection : goBack}
+            hitSlop={12}
+            style={styles.hdrBtn}
+          >
+            <Icon name={selectionMode ? 'close' : 'arrow-left'} size={24} color={c.onHeader} />
           </Pressable>
         }
         right={
-          <View style={styles.hdrRight}>
-            <Pressable onPress={() => setSearchOpen(true)} hitSlop={12} style={styles.hdrBtn}>
-              <Icon
-                name={dateFilter ? 'calendar-search' : 'magnify'}
-                size={21}
-                color={dateFilter ? c.primary : c.onHeader}
-              />
+          selectionMode ? (
+            <Pressable onPress={deleteSelected} hitSlop={12} style={styles.hdrBtn}>
+              <Icon name="trash-can-outline" size={22} color={c.onHeader} />
             </Pressable>
-            <Pressable onPress={openSettings} hitSlop={12} style={styles.hdrBtn}>
-              <Icon name="cog-outline" size={20} color={c.onHeader} />
-            </Pressable>
-            {items.length > 0 ? (
-              <Pressable onPress={clearAll} hitSlop={12} style={styles.hdrBtn}>
-                <Icon name="trash-can-outline" size={20} color={c.onHeader} />
+          ) : (
+            <View style={styles.hdrRight}>
+              <Pressable onPress={() => setSearchOpen(true)} hitSlop={12} style={styles.hdrBtn}>
+                <Icon
+                  name={dateFilter ? 'calendar-search' : 'magnify'}
+                  size={21}
+                  color={dateFilter ? c.primary : c.onHeader}
+                />
               </Pressable>
-            ) : null}
-          </View>
+              <Pressable onPress={openSettings} hitSlop={12} style={styles.hdrBtn}>
+                <Icon name="cog-outline" size={20} color={c.onHeader} />
+              </Pressable>
+              {items.length > 0 ? (
+                <Pressable onPress={clearAll} hitSlop={12} style={styles.hdrBtn}>
+                  <Icon name="trash-can-outline" size={20} color={c.onHeader} />
+                </Pressable>
+              ) : null}
+            </View>
+          )
         }
       />
 
@@ -564,6 +630,14 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 11 },
+  checkbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   rowBody: { flex: 1, gap: 2 },
   rowName: { fontSize: 16, fontWeight: '600' },
   rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
