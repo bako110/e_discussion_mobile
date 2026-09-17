@@ -31,8 +31,8 @@ import type { UploadedMedia } from '@/services';
 import type { StoryMediaType } from '@/types';
 import { mediaUrl } from '@/utils/media';
 
-/** Sélection multi-image de statuts (façon WhatsApp) : jusqu'à 6 photos. */
-const MAX_MULTI_STORY_IMAGES = 6;
+/** Sélection multi-image de statuts (façon WhatsApp) : jusqu'à 12 photos. */
+const MAX_MULTI_STORY_IMAGES = 12;
 
 type Mode = 'text' | 'photo' | 'video' | 'audio';
 
@@ -65,7 +65,7 @@ export const StoryComposerScreen: React.FC = () => {
     return unsub;
   }, [navigation]);
   const [media, setMedia] = useState<UploadedMedia | null>(null);
-  // sélection multi-image (galerie, jusqu'à 6 photos) en cours de résolution
+  // sélection multi-image (galerie, jusqu'à 12 photos) en cours de résolution
   const [multiPickBusy, setMultiPickBusy] = useState(false);
   // aperçu vidéo : pause/lecture au tap (démarre en lecture, comme un aperçu).
   const [videoPaused, setVideoPaused] = useState(false);
@@ -100,7 +100,7 @@ export const StoryComposerScreen: React.FC = () => {
   };
 
   // Sélection galerie (icône Photo, ou bouton "Galerie" du fallback) : le
-  // picker natif permet directement de cocher plusieurs photos (jusqu'à 6),
+  // picker natif permet directement de cocher plusieurs photos (jusqu'à 12),
   // façon WhatsApp « partager plusieurs photos ». Implémenté directement ici
   // (pas via useMediaPicker, actuellement modifié par une session parallèle
   // sur un flux multi-image DIFFÉRENT) : appelle `launchImageLibrary` avec
