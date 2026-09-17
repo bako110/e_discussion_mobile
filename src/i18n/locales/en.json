@@ -185,7 +185,14 @@
     "fromCamera": "Camera",
     "send": "Send",
     "cropTitle": "Crop",
-    "trimVideo": "Trim video"
+    "trimVideo": "Trim video",
+    "pickMultiple": "Choose multiple photos (up to 6)",
+    "multiSend": "Send ({{count}})",
+    "multiSending": "Sending {{sent}}/{{total}}",
+    "multiSendDone": "{{count}} statuses posted",
+    "multiSendPartialTitle": "Partial upload",
+    "multiSendPartial": "{{ok}} status(es) posted, {{failed}} failed.",
+    "multiNoneLeft": "All images were removed."
   },
   "profilePrivacy": {
     "field_online": "Online",
@@ -808,7 +815,8 @@
     "inviteBody": "{{name}} invited you to \"{{title}}\"",
     "acceptedNotif": "{{name}} accepted the appointment \"{{title}}\"",
     "declinedNotif": "{{name}} declined the appointment \"{{title}}\"",
-    "cancelledNotif": "The appointment \"{{title}}\" was cancelled"
+    "cancelledNotif": "The appointment \"{{title}}\" was cancelled",
+    "chatCardKicker": "Appointment"
   },
   "media": {
     "openExternal": "Open in player"

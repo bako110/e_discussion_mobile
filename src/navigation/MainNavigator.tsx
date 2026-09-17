@@ -4,6 +4,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AboutSettingsScreen } from '@/screens/Main/AboutSettingsScreen';
 import { AccountSettingsScreen } from '@/screens/Main/AccountSettingsScreen';
 import { AppearanceSettingsScreen } from '@/screens/Main/AppearanceSettingsScreen';
+import { AppointmentsScreen } from '@/screens/Main/AppointmentsScreen';
+import { CreateAppointmentScreen } from '@/screens/Main/CreateAppointmentScreen';
+import { AppointmentDetailScreen } from '@/screens/Main/AppointmentDetailScreen';
 import { BlockedUsersScreen } from '@/screens/Main/BlockedUsersScreen';
 import { ContactSyncScreen } from '@/screens/Main/ContactSyncScreen';
 import { ChatScreen } from '@/screens/Main/ChatScreen';
@@ -44,6 +47,7 @@ import { MyStatusScreen } from '@/screens/Main/MyStatusScreen';
 import { ScannerScreen } from '@/screens/Main/ScannerScreen';
 import { StorageSettingsScreen } from '@/screens/Main/StorageSettingsScreen';
 import { MediaEditorScreen } from '@/screens/Main/MediaEditorScreen';
+import { MultiStoryComposerScreen } from '@/screens/Main/MultiStoryComposerScreen';
 import { StoryComposerScreen } from '@/screens/Main/StoryComposerScreen';
 import { SelectContactsScreen } from '@/screens/Main/SelectContactsScreen';
 import { StoryViewerScreen } from '@/screens/Main/StoryViewerScreen';
@@ -92,6 +96,11 @@ export const MainNavigator: React.FC = () => (
     <Stack.Screen
       name="MediaEditor"
       component={MediaEditorScreen}
+      options={{ animation: 'fade' }}
+    />
+    <Stack.Screen
+      name="MultiStoryComposer"
+      component={MultiStoryComposerScreen}
       options={{ animation: 'fade' }}
     />
     <Stack.Screen
@@ -158,6 +167,15 @@ export const MainNavigator: React.FC = () => (
       options={{ animation: 'fade', presentation: 'transparentModal' }}
     />
     <Stack.Screen name="MessageInfo" component={MessageInfoScreen} />
+
+    {/* Rendez-vous (RDV) */}
+    <Stack.Screen name="Appointments" component={AppointmentsScreen} />
+    <Stack.Screen
+      name="CreateAppointment"
+      component={CreateAppointmentScreen}
+      options={{ animation: 'slide_from_bottom' }}
+    />
+    <Stack.Screen name="AppointmentDetail" component={AppointmentDetailScreen} />
     <Stack.Screen
       name="ImageCrop"
       component={ImageCropScreen}

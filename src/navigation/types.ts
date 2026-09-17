@@ -92,6 +92,11 @@ export type MainStackParamList = {
   /** Éditeur média (recadrage / dessin / légende / stickers) avant publication. */
   /** Fichier local (non uploadé) — l'upload se fait à la publication. */
   MediaEditor: { local: LocalMediaFile };
+  /** Composeur multi-image de statuts (jusqu'à 6 photos, façon WhatsApp) :
+   * carrousel + légende par image, publie chaque image comme une story
+   * SÉPARÉE. Pas de recadrage/dessin/stickers ici (voir MediaEditor pour le
+   * flux single-image complet). */
+  MultiStoryComposer: { locals: LocalMediaFile[] };
   /** Aperçu d'un média avant envoi dans une conversation (crop + légende). */
   ChatMediaPreview: {
     conversationId: string;
@@ -145,11 +150,25 @@ export type MainStackParamList = {
     thumbnailUrl?: string;
     /** si fourni + média reçu -> on marque « ouvert » (écran Infos). */
     messageId?: string;
+    /** vue unique (façon WhatsApp) : le fichier est téléchargé dans un
+     * dossier TEMPORAIRE (pas le cache persistant), affiché, puis effacé
+     * localement + confirmé "ouvert" au serveur (suppression définitive)
+     * SEULEMENT à la fermeture de ce viewer — jamais avant, sinon le média
+     * peut disparaître côté serveur avant même d'avoir fini de charger. */
+    viewOnceMessageId?: string;
   };
   /** « Infos » d'un message envoyé : horodatages distribué / lu / écouté. */
   MessageInfo: { messageId: string; type: string };
   /** Recadrage d'image (cadre ajustable). `token` relie l'appel à sa réponse. */
   ImageCrop: { token: string; uri: string; circle?: boolean; aspect?: number; title?: string };
+
+  // ── Rendez-vous (RDV) ────────────────────────────────────────────────────
+  /** Liste des RDV (organisés ou reçus) avec filtres à venir/en cours/passés. */
+  Appointments: undefined;
+  /** Création d'un RDV — participants pré-remplis si ouvert depuis une conversation. */
+  CreateAppointment: { preselectedUserIds?: string[] } | undefined;
+  /** Détail d'un RDV : participants + statuts, actions accepter/refuser/annuler. */
+  AppointmentDetail: { appointmentId: string };
 };
 
 /** Nav du stack principal, accessible depuis un ecran d'onglet. */

@@ -185,7 +185,14 @@
     "fromCamera": "Caméra",
     "send": "Envoyer",
     "cropTitle": "Recadrer",
-    "trimVideo": "Découper la vidéo"
+    "trimVideo": "Découper la vidéo",
+    "pickMultiple": "Choisir plusieurs photos (jusqu'à 6)",
+    "multiSend": "Envoyer ({{count}})",
+    "multiSending": "Envoi {{sent}}/{{total}}",
+    "multiSendDone": "{{count}} statuts publiés",
+    "multiSendPartialTitle": "Envoi partiel",
+    "multiSendPartial": "{{ok}} statut(s) publié(s), {{failed}} échec(s).",
+    "multiNoneLeft": "Toutes les images ont été retirées."
   },
   "profilePrivacy": {
     "field_online": "En ligne",
@@ -808,7 +815,8 @@
     "inviteBody": "{{name}} vous invite à \"{{title}}\"",
     "acceptedNotif": "{{name}} a accepté le rendez-vous \"{{title}}\"",
     "declinedNotif": "{{name}} a refusé le rendez-vous \"{{title}}\"",
-    "cancelledNotif": "Le rendez-vous \"{{title}}\" a été annulé"
+    "cancelledNotif": "Le rendez-vous \"{{title}}\" a été annulé",
+    "chatCardKicker": "Rendez-vous"
   },
   "media": {
     "openExternal": "Ouvrir dans le lecteur"

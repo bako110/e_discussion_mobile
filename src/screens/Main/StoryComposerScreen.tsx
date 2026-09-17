@@ -12,15 +12,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import Video from 'react-native-video';
+import { launchImageLibrary, type PhotoQuality } from 'react-native-image-picker';
 
-import { Icon } from '@/components/common';
+import { Icon, alertError } from '@/components/common';
 import {
   STORY_BG_COLORS,
   STORY_FONTS,
   fontStyle,
 } from '@/components/story/storyConfig';
 import { useStories } from '@/context/StoriesContext';
-import { useMediaPicker } from '@/hooks/useMediaPicker';
+import { useMediaPicker, type LocalMediaFile } from '@/hooks/useMediaPicker';
 import type { MainNav } from '@/navigation/types';
 import { storyService } from '@/services';
 import type { StoryAudienceMode } from '@/services/storyService';
@@ -29,6 +30,9 @@ import { getVoiceState, stopVoice, subscribeVoice, toggleVoice } from '@/service
 import type { UploadedMedia } from '@/services';
 import type { StoryMediaType } from '@/types';
 import { mediaUrl } from '@/utils/media';
+
+/** Sélection multi-image de statuts (façon WhatsApp) : jusqu'à 6 photos. */
+const MAX_MULTI_STORY_IMAGES = 6;
 
 type Mode = 'text' | 'photo' | 'video' | 'audio';
 
@@ -61,6 +65,8 @@ export const StoryComposerScreen: React.FC = () => {
     return unsub;
   }, [navigation]);
   const [media, setMedia] = useState<UploadedMedia | null>(null);
+  // sélection multi-image (galerie, jusqu'à 6 photos) en cours de résolution
+  const [multiPickBusy, setMultiPickBusy] = useState(false);
   // aperçu vidéo : pause/lecture au tap (démarre en lecture, comme un aperçu).
   const [videoPaused, setVideoPaused] = useState(false);
   // aperçu audio : suit le lecteur singleton partagé (celui des vocaux de chat).
@@ -76,7 +82,7 @@ export const StoryComposerScreen: React.FC = () => {
   const fStyle = useMemo(() => fontStyle(font), [font]);
   // la publication est LOCAL-FIRST (instantanée, jamais bloquante) — seul
   // l'enregistrement audio en cours occupe l'écran.
-  const busy = picker.busy;
+  const busy = picker.busy || multiPickBusy;
 
   // Après sélection d'un média : on passe direct à l'éditeur plein écran
   // SANS uploader (recadrage / dessin / légende / stickers). L'upload se fait
@@ -88,6 +94,56 @@ export const StoryComposerScreen: React.FC = () => {
   const chooseVideo = async (camera: boolean) => {
     const local = await picker.pickVideoLocal({ camera });
     if (local) navigation.replace('MediaEditor', { local });
+  };
+
+  // Sélection multi-image (appui long sur l'icône Photo) : jusqu'à 6 photos
+  // en une fois, façon WhatsApp « partager plusieurs photos ». Implémenté
+  // directement ici (pas via useMediaPicker, actuellement modifié par une
+  // session parallèle sur un flux multi-image DIFFÉRENT — cf. flux single
+  // image intact) : appelle `launchImageLibrary` avec `selectionLimit` et
+  // construit les `LocalMediaFile` du même format que `pickImageLocal`.
+  const chooseImagesMultiple = async () => {
+    setMultiPickBusy(true);
+    try {
+      const res = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.85 as PhotoQuality,
+        selectionLimit: MAX_MULTI_STORY_IMAGES,
+        includeExtra: true,
+      });
+      if (res.didCancel) return;
+      if (res.errorCode) {
+        alertError('Erreur', res.errorMessage || res.errorCode);
+        return;
+      }
+      const assets = (res.assets ?? []).slice(0, MAX_MULTI_STORY_IMAGES);
+      const locals: LocalMediaFile[] = [];
+      for (const asset of assets) {
+        if (!asset.uri) continue;
+        const name = asset.fileName || asset.uri.split('/').pop() || `upload_${Date.now()}`;
+        locals.push({
+          file: { uri: asset.uri, name, type: asset.type || 'image/jpeg' },
+          kind: 'image',
+          size: asset.fileSize ?? null,
+          width: asset.width ?? null,
+          height: asset.height ?? null,
+          durationSec: null,
+        });
+      }
+      if (locals.length === 0) return;
+      // une seule image sélectionnée : autant réutiliser l'éditeur complet
+      // (recadrage / dessin / stickers), pas besoin du carrousel multi-image.
+      if (locals.length === 1) {
+        navigation.replace('MediaEditor', { local: locals[0]! });
+      } else {
+        navigation.replace('MultiStoryComposer', { locals });
+      }
+    } catch (e) {
+      console.warn('[stories] multi image pick failed:', e);
+      alertError('Erreur', 'Impossible de sélectionner ces photos.');
+    } finally {
+      setMultiPickBusy(false);
+    }
   };
 
   const toggleRecord = async () => {
@@ -109,6 +165,12 @@ export const StoryComposerScreen: React.FC = () => {
     if (m === 'photo') void chooseImage(false);
     else if (m === 'video') void chooseVideo(false);
     else void toggleRecord();
+  };
+
+  // Appui long sur l'icône Photo -> sélection MULTIPLE (jusqu'à 6), distincte
+  // de l'appui simple (une seule photo, comportement existant inchangé).
+  const onModeLongPress = (m: Mode) => {
+    if (m === 'photo') void chooseImagesMultiple();
   };
 
   const canPublish =
@@ -150,21 +212,29 @@ export const StoryComposerScreen: React.FC = () => {
             <Pressable
               key={m}
               onPress={() => onModePress(m)}
+              onLongPress={() => onModeLongPress(m)}
+              delayLongPress={350}
               style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
             >
-              <Icon
-                name={
-                  m === 'text'
-                    ? 'format-text'
-                    : m === 'photo'
-                      ? 'image-outline'
-                      : m === 'video'
-                        ? 'video-outline'
-                        : 'microphone'
-                }
-                size={18}
-                color="#fff"
-              />
+              {multiPickBusy && m === 'photo' ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Icon
+                  name={
+                    m === 'text'
+                      ? 'format-text'
+                      : m === 'photo'
+                        ? 'image-outline'
+                        : m === 'video'
+                          ? 'video-outline'
+                          : 'microphone'
+                  }
+                  size={18}
+                  color="#fff"
+                />
+              )}
+              {/* petit repère : appui long = sélection multiple (jusqu'à 6) */}
+              {m === 'photo' && !multiPickBusy ? <View style={styles.multiHintDot} /> : null}
             </Pressable>
           ))}
         </View>
@@ -306,6 +376,12 @@ export const StoryComposerScreen: React.FC = () => {
                     <Text style={styles.pickBtnText}>{t('stories.fromCamera')}</Text>
                   </Pressable>
                 </View>
+                {mode === 'photo' ? (
+                  <Pressable onPress={chooseImagesMultiple} style={styles.multiPickLink}>
+                    <Icon name="image-multiple" size={15} color="#ffffffcc" />
+                    <Text style={styles.multiPickLinkText}>{t('stories.pickMultiple')}</Text>
+                  </Pressable>
+                ) : null}
               </>
             )}
           </View>
@@ -400,6 +476,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modeBtnActive: { backgroundColor: 'rgba(255,255,255,0.22)' },
+  multiHintDot: {
+    position: 'absolute',
+    bottom: 3,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ffffffaa',
+  },
   canvas: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
   input: { color: '#fff', fontSize: 26, textAlign: 'center', width: '100%', maxHeight: '80%' },
   preview: { width: '100%', height: '100%' },
@@ -448,6 +532,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   pickBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  multiPickLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  multiPickLinkText: { color: '#ffffffcc', fontWeight: '600', fontSize: 12.5 },
   captionWrap: { paddingHorizontal: 20, paddingBottom: 6 },
   captionInput: {
     color: '#fff',
