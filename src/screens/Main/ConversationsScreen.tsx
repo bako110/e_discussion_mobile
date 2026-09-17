@@ -522,6 +522,7 @@ export const ConversationsScreen: React.FC = () => {
   return (
     <Screen edges={[]}>
       <AppHeader
+        compact
         left={
           <View style={styles.brandRow}>
             <Image source={BADGE} style={styles.brandLogo} />
