@@ -370,6 +370,14 @@ export const messageRepo = {
     );
   },
 
+  /** Retire DÉFINITIVEMENT une ligne du cache local (pas un soft-delete) —
+   * pour une bulle déjà `deleted_at` (message que le serveur ne connaît
+   * plus, ex: purgé côté admin) qu'on veut faire disparaître de l'écran au
+   * lieu de la laisser affichée indéfiniment comme "supprimé". */
+  async purgeLocal(messageId: string): Promise<void> {
+    await run('DELETE FROM messages WHERE id=? OR client_id=?', [messageId, messageId]);
+  },
+
   async markConversationRead(conversationId: string, myId: string): Promise<void> {
     await run('UPDATE messages SET read=1 WHERE conversation_id=? AND sender_id != ?', [
       conversationId,
