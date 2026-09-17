@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -67,6 +67,12 @@ export const StoryComposerScreen: React.FC = () => {
   const [media, setMedia] = useState<UploadedMedia | null>(null);
   // sélection multi-image (galerie, jusqu'à 12 photos) en cours de résolution
   const [multiPickBusy, setMultiPickBusy] = useState(false);
+  // garde SYNCHRONE contre le double-tap sur l'icône Photo : `setMultiPickBusy`
+  // est async, un 2e tap juste après le 1er (avant le re-render qui grise le
+  // bouton) ouvrait le picker natif DEUX FOIS -> deux résolutions du même
+  // lot -> navigation en double vers MultiStoryComposer -> chaque image
+  // publiée deux fois (9 images sélectionnées -> 18 statuts publiés).
+  const pickingRef = useRef(false);
   // aperçu vidéo : pause/lecture au tap (démarre en lecture, comme un aperçu).
   const [videoPaused, setVideoPaused] = useState(false);
   // aperçu audio : suit le lecteur singleton partagé (celui des vocaux de chat).
@@ -108,6 +114,8 @@ export const StoryComposerScreen: React.FC = () => {
   // `pickImageLocal`. Une seule photo cochée -> éditeur complet comme avant ;
   // plusieurs -> carrousel multi-image.
   const chooseImagesFromGallery = async () => {
+    if (pickingRef.current) return;
+    pickingRef.current = true;
     setMultiPickBusy(true);
     try {
       const res = await launchImageLibrary({
@@ -148,6 +156,7 @@ export const StoryComposerScreen: React.FC = () => {
       alertError('Erreur', 'Impossible de sélectionner ces photos.');
     } finally {
       setMultiPickBusy(false);
+      pickingRef.current = false;
     }
   };
 
