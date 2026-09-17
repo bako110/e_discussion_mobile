@@ -40,7 +40,17 @@ function pruneFeed(items: StoryFeedItem[]): StoryFeedItem[] {
 
 function pruneMine(items: Story[]): Story[] {
   const now = Date.now();
-  return items.filter((s) => new Date(s.expires_at).getTime() > now);
+  const fresh = items.filter((s) => new Date(s.expires_at).getTime() > now);
+  // filet de sécurité : dédup par client_id (garde la 1ère occurrence, la
+  // plus à jour — voir le commentaire dans `mine()` sur la race qui pouvait
+  // laisser un doublon pending+confirmé dans un cache déjà écrit avant ce fix).
+  const seen = new Set<string>();
+  return fresh.filter((s) => {
+    if (!s.client_id) return true;
+    if (seen.has(s.client_id)) return false;
+    seen.add(s.client_id);
+    return true;
+  });
 }
 
 /** Met les médias d'une liste de stories sur le cache disque (fire-and-forget). */
@@ -77,8 +87,17 @@ export const storyService = {
    */
   async mine(): Promise<Story[]> {
     const m = await apiClient.get<Story[]>(Endpoints.stories.mine);
+    // client_id des stories déjà confirmées par le serveur -> exclut le
+    // brouillon local correspondant. Sans ça : une publication dont l'upload
+    // (outbox, déclenché en fire-and-forget par `enqueue`) se termine ET se
+    // confirme AVANT que ce `mine()` ne s'exécute apparaît deux fois — une
+    // fois comme brouillon `pending` encore dans le cache (confirmPendingLocal
+    // n'a pas fini de le remplacer), une fois dans la réponse serveur.
+    const confirmedClientIds = new Set(
+      m.map((s) => s.client_id).filter((id): id is string => !!id),
+    );
     const localDrafts = (storage.getJSON<Story[]>(K_MINE) ?? []).filter(
-      (s) => s.pending || s.failed,
+      (s) => (s.pending || s.failed) && !(s.client_id && confirmedClientIds.has(s.client_id)),
     );
     const merged = [...localDrafts, ...m];
     storage.setJSON(K_MINE, merged);
