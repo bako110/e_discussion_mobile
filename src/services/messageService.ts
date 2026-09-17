@@ -17,6 +17,41 @@ import { mediaCache } from '@/services/mediaCache';
 import type { ChatMessage, MessageType, ReplyPreview } from '@/types';
 import { newClientId, notifyMutationApplied, outbox } from '@/sync/outbox';
 
+/**
+ * `message.new` d'une conversation JAMAIS vue localement (une personne nous
+ * écrit pour la première fois) : `ChatMessage` ne porte aucune info sur le
+ * partenaire (pas de `sender` public, contrairement à `GroupMessage`), donc
+ * `conversationRepo.touchLastMessage` (un simple UPDATE) ne trouve aucune
+ * ligne à modifier et échoue silencieusement — le message est bien ingéré
+ * en base, mais la conversation n'apparaît jamais dans la liste tant qu'un
+ * `syncNow()` complet ne tourne pas (d'où le besoin de rafraîchir
+ * manuellement). On va chercher le détail serveur (partenaire inclus) et on
+ * crée la ligne AVANT de la toucher, uniquement si elle n'existe pas déjà.
+ */
+async function ensureConversationExists(conversationId: string): Promise<void> {
+  const existing = await conversationRepo.get(conversationId);
+  if (existing) return;
+  try {
+    const { conversationService } = await import('./conversationService');
+    const detail = await conversationService.detail(conversationId);
+    await conversationRepo.upsertFromServer({
+      id: detail.id,
+      partner: detail.partner,
+      last_message: null,
+      last_message_type: null,
+      last_message_at: null,
+      last_message_encrypted: false,
+      unread_count: 0,
+      muted: detail.muted,
+      request_status: detail.request_status,
+    });
+  } catch (e) {
+    // hors-ligne ou requête échouée : `touchLastMessage` restera un no-op
+    // (comme avant ce fix) — un prochain syncNow() complet rattrapera.
+    console.warn('[messageService] ensureConversationExists a échoué:', e);
+  }
+}
+
 // mémo local : évite de re-notifier « joué » à chaque render
 const _playedSent = new Set<string>();
 import { messageService as netMessageService } from './messageService.net';
@@ -227,6 +262,7 @@ export const messageService = {
         clientId: msg.client_id ?? null,
         plainBody: plain,
       });
+      await ensureConversationExists(msg.conversation_id);
       await conversationRepo.touchLastMessage(
         msg.conversation_id,
         plain,
@@ -244,6 +280,7 @@ export const messageService = {
       // conserve le blob d'origine pour re-tenter si l'echec est transitoire
       cipherBody: decrypted.decryptFailed && msg.encrypted ? msg.body : null,
     });
+    await ensureConversationExists(msg.conversation_id);
     await conversationRepo.touchLastMessage(
       msg.conversation_id,
       decrypted.decryptFailed ? '' : decrypted.body,
