@@ -112,12 +112,18 @@ export const MessageBubble: React.FC<Props> = ({
   const cached = useCachedMedia(message.attachment_url);
 
   if (message.deleted_at) {
+    // Toujours appuyable en appui long : permet de retirer définitivement
+    // cette ligne fantôme de la conversation (nettoyage local) même si le
+    // message n'existe déjà plus côté serveur — le menu d'actions gère lui
+    // -même la suppression pour un message déjà `deleted_at`.
     return (
       <View style={[styles.row, mine ? styles.rowMine : styles.rowTheirs]}>
-        <View style={[styles.bubble, styles.deleted, { borderColor: c.border }]}>
-          <Icon name="cancel" size={13} color={c.textFaint} />
-          <Text style={{ color: c.textFaint, fontStyle: 'italic', marginLeft: 4 }}>—</Text>
-        </View>
+        <Pressable onLongPress={onLongPress} delayLongPress={300}>
+          <View style={[styles.bubble, styles.deleted, { borderColor: c.border }]}>
+            <Icon name="cancel" size={13} color={c.textFaint} />
+            <Text style={{ color: c.textFaint, fontStyle: 'italic', marginLeft: 4 }}>—</Text>
+          </View>
+        </Pressable>
       </View>
     );
   }

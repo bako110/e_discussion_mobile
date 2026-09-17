@@ -822,14 +822,15 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     await picker.cancelRecording();
   }, [picker, stopTyping]);
 
-  /** Appui long sur un message -> feuille d'actions. */
+  /** Appui long sur un message -> feuille d'actions. Un message déjà
+   * `deleted_at` reste appuyable : seule l'action « Supprimer » a un sens
+   * (retire définitivement la ligne fantôme de l'écran), voir `doDeleteForMe`. */
   const onMessageLongPress = (m: LocalMessage) => {
-    if (m.deleted_at) return;
     setActionMsg(m);
   };
 
   const doReact = (emoji: string | null) => {
-    if (!actionMsg) return;
+    if (!actionMsg || actionMsg.deleted_at) return;
     void messageService.react(actionMsg.id, emoji).then(reload).catch(() => undefined);
   };
   const doReply = () => {
@@ -910,6 +911,13 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   };
   const doDeleteForMe = () => {
     if (!actionMsg) return;
+    // déjà marqué supprimé (ex: message dont le serveur n'a plus trace) ->
+    // un simple re-marquage ne changerait rien à l'affichage ; on retire la
+    // ligne fantôme du cache local pour de bon.
+    if (actionMsg.deleted_at) {
+      void messageRepo.purgeLocal(actionMsg.id).then(reload);
+      return;
+    }
     void messageRepo.markDeleted(actionMsg.id).then(reload);
   };
   const doDeleteForEveryone = () => {
@@ -1660,7 +1668,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             : null
         }
         onReact={doReact}
-        onReply={doReply}
+        onReply={actionMsg?.deleted_at ? undefined : doReply}
         onCopy={doCopy}
         onEdit={doEditFromSheet}
         onForward={doForward}
