@@ -188,9 +188,17 @@ export const CallsScreen: React.FC = () => {
     // 'ended' est un état transitoire (~1.6s après un appel précédent) —
     // pas un appel en cours ; `startCall` gère déjà ce cas correctement.
     if (phase !== 'idle' && phase !== 'ended') return;
-    startCall(log.peer, log.call_type).catch((e: unknown) => {
-      showAlert(t('calls.startFailed'), callStartErrorMessage(e, t('calls.startFailedBody')));
-    });
+    const name = log.peer.display_name || log.peer.username || t('calls.unknown');
+    confirmAlert(
+      log.call_type === 'video' ? t('calls.confirmVideoTitle') : t('calls.confirmAudioTitle'),
+      name,
+      () => {
+        startCall(log.peer!, log.call_type).catch((e: unknown) => {
+          showAlert(t('calls.startFailed'), callStartErrorMessage(e, t('calls.startFailedBody')));
+        });
+      },
+      { confirmText: t('calls.callAction'), cancelText: t('common.cancel') },
+    );
   };
 
   const removeOne = (log: CallLog) => {
