@@ -87,22 +87,27 @@ export const StoryComposerScreen: React.FC = () => {
   // Après sélection d'un média : on passe direct à l'éditeur plein écran
   // SANS uploader (recadrage / dessin / légende / stickers). L'upload se fait
   // seulement à la publication — comme WhatsApp.
-  const chooseImage = async (camera: boolean) => {
-    const local = await picker.pickImageLocal({ camera });
-    if (local) navigation.replace('MediaEditor', { local });
-  };
   const chooseVideo = async (camera: boolean) => {
     const local = await picker.pickVideoLocal({ camera });
     if (local) navigation.replace('MediaEditor', { local });
   };
 
-  // Sélection multi-image (appui long sur l'icône Photo) : jusqu'à 6 photos
-  // en une fois, façon WhatsApp « partager plusieurs photos ». Implémenté
-  // directement ici (pas via useMediaPicker, actuellement modifié par une
-  // session parallèle sur un flux multi-image DIFFÉRENT — cf. flux single
-  // image intact) : appelle `launchImageLibrary` avec `selectionLimit` et
-  // construit les `LocalMediaFile` du même format que `pickImageLocal`.
-  const chooseImagesMultiple = async () => {
+  /** Caméra (photo unique) : reste single-image, la galerie multi-sélection
+   * n'a de sens que pour la bibliothèque. */
+  const chooseImageFromCamera = async () => {
+    const local = await picker.pickImageLocal({ camera: true });
+    if (local) navigation.replace('MediaEditor', { local });
+  };
+
+  // Sélection galerie (icône Photo, ou bouton "Galerie" du fallback) : le
+  // picker natif permet directement de cocher plusieurs photos (jusqu'à 6),
+  // façon WhatsApp « partager plusieurs photos ». Implémenté directement ici
+  // (pas via useMediaPicker, actuellement modifié par une session parallèle
+  // sur un flux multi-image DIFFÉRENT) : appelle `launchImageLibrary` avec
+  // `selectionLimit` et construit les `LocalMediaFile` du même format que
+  // `pickImageLocal`. Une seule photo cochée -> éditeur complet comme avant ;
+  // plusieurs -> carrousel multi-image.
+  const chooseImagesFromGallery = async () => {
     setMultiPickBusy(true);
     try {
       const res = await launchImageLibrary({
@@ -162,15 +167,9 @@ export const StoryComposerScreen: React.FC = () => {
       setMedia(null);
       return;
     }
-    if (m === 'photo') void chooseImage(false);
+    if (m === 'photo') void chooseImagesFromGallery();
     else if (m === 'video') void chooseVideo(false);
     else void toggleRecord();
-  };
-
-  // Appui long sur l'icône Photo -> sélection MULTIPLE (jusqu'à 6), distincte
-  // de l'appui simple (une seule photo, comportement existant inchangé).
-  const onModeLongPress = (m: Mode) => {
-    if (m === 'photo') void chooseImagesMultiple();
   };
 
   const canPublish =
@@ -212,8 +211,6 @@ export const StoryComposerScreen: React.FC = () => {
             <Pressable
               key={m}
               onPress={() => onModePress(m)}
-              onLongPress={() => onModeLongPress(m)}
-              delayLongPress={350}
               style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
             >
               {multiPickBusy && m === 'photo' ? (
@@ -233,8 +230,6 @@ export const StoryComposerScreen: React.FC = () => {
                   color="#fff"
                 />
               )}
-              {/* petit repère : appui long = sélection multiple (jusqu'à 6) */}
-              {m === 'photo' && !multiPickBusy ? <View style={styles.multiHintDot} /> : null}
             </Pressable>
           ))}
         </View>
@@ -362,26 +357,24 @@ export const StoryComposerScreen: React.FC = () => {
                 />
                 <View style={styles.pickRow}>
                   <Pressable
-                    onPress={() => (mode === 'video' ? chooseVideo(false) : chooseImage(false))}
+                    onPress={() =>
+                      mode === 'video' ? chooseVideo(false) : chooseImagesFromGallery()
+                    }
                     style={styles.pickBtn}
                   >
                     <Icon name="image-multiple-outline" size={18} color="#fff" />
                     <Text style={styles.pickBtnText}>{t('stories.fromGallery')}</Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => (mode === 'video' ? chooseVideo(true) : chooseImage(true))}
+                    onPress={() =>
+                      mode === 'video' ? chooseVideo(true) : chooseImageFromCamera()
+                    }
                     style={styles.pickBtn}
                   >
                     <Icon name="camera-outline" size={18} color="#fff" />
                     <Text style={styles.pickBtnText}>{t('stories.fromCamera')}</Text>
                   </Pressable>
                 </View>
-                {mode === 'photo' ? (
-                  <Pressable onPress={chooseImagesMultiple} style={styles.multiPickLink}>
-                    <Icon name="image-multiple" size={15} color="#ffffffcc" />
-                    <Text style={styles.multiPickLinkText}>{t('stories.pickMultiple')}</Text>
-                  </Pressable>
-                ) : null}
               </>
             )}
           </View>
@@ -476,14 +469,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modeBtnActive: { backgroundColor: 'rgba(255,255,255,0.22)' },
-  multiHintDot: {
-    position: 'absolute',
-    bottom: 3,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#ffffffaa',
-  },
   canvas: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
   input: { color: '#fff', fontSize: 26, textAlign: 'center', width: '100%', maxHeight: '80%' },
   preview: { width: '100%', height: '100%' },
@@ -532,8 +517,6 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   pickBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  multiPickLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  multiPickLinkText: { color: '#ffffffcc', fontWeight: '600', fontSize: 12.5 },
   captionWrap: { paddingHorizontal: 20, paddingBottom: 6 },
   captionInput: {
     color: '#fff',
