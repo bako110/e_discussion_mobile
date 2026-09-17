@@ -103,12 +103,16 @@ export const MultiStoryComposerScreen: React.FC<MainScreenProps<'MultiStoryCompo
   // est local-first / synchrone — pas d'attente réseau réelle ici, l'upload
   // est différé et rejoué par l'outbox comme pour une image seule). ────────
   const publishAll = async () => {
+    console.warn(
+      `[multiStory][DIAG] publishAll() appelé — items.length=${items.length}, sendingRef=${sendingRef.current}`,
+    );
     if (sendingRef.current || items.length === 0) return;
     sendingRef.current = true;
     setSending(true);
     setSentCount(0);
     let failed = 0;
     for (const it of items) {
+      console.warn(`[multiStory][DIAG] createMedia pour key=${it.key}`);
       try {
         const mediaType: StoryMediaType = it.local.kind === 'video' ? 'video' : 'image';
         storyService.createMedia(
