@@ -461,6 +461,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
           callType: type,
         });
       } catch (e) {
+        // log SYSTÉMATIQUE (y compris en release — visible via adb logcat) :
+        // `callStartErrorMessage` masque volontairement `e.message` à
+        // l'utilisateur en prod, donc sans cette trace la vraie cause d'un
+        // échec de connexion room (après un POST /calls déjà réussi) est
+        // invisible en dehors d'un build __DEV__.
+        console.warn('[call] startCall échec après création serveur:', e);
         const code = (e as { code?: string; status?: number })?.code;
         const status = (e as { status?: number })?.status;
 
