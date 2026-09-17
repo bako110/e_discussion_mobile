@@ -591,7 +591,7 @@ export const ConversationsScreen: React.FC = () => {
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.filterChipsRow}
-        style={styles.filterChipsScroll}
+        style={[styles.filterChipsScroll, { backgroundColor: c.background }]}
       >
         {FILTER_OPTS.map((o) => {
           const active = convFilter === o.key;
@@ -735,7 +735,13 @@ const styles = StyleSheet.create({
   syncIconWrap: { width: 32, height: 44, alignItems: 'center', justifyContent: 'center' },
 
   filterChipsScroll: { flexGrow: 0 },
-  filterChipsRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingVertical: 10 },
+  filterChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
