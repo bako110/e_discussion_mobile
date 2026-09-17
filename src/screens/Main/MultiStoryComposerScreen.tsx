@@ -59,6 +59,11 @@ export const MultiStoryComposerScreen: React.FC<MainScreenProps<'MultiStoryCompo
   const [sending, setSending] = useState(false);
   const [sentCount, setSentCount] = useState(0);
   const listRef = useRef<FlatList<DraftItem>>(null);
+  // garde SYNCHRONE (setSending est async — un tap répété très rapide passe
+  // sinon la garde `sending` plusieurs fois avant le premier re-render, et
+  // republie tout le lot autant de fois qu'il y a eu de taps avant que le
+  // bouton ne se désactive réellement à l'écran).
+  const sendingRef = useRef(false);
 
   const [audienceMode, setAudienceMode] = useState<StoryAudienceMode>(
     () => storyService.readAudienceCache().mode,
@@ -98,7 +103,8 @@ export const MultiStoryComposerScreen: React.FC<MainScreenProps<'MultiStoryCompo
   // est local-first / synchrone — pas d'attente réseau réelle ici, l'upload
   // est différé et rejoué par l'outbox comme pour une image seule). ────────
   const publishAll = async () => {
-    if (sending || items.length === 0) return;
+    if (sendingRef.current || items.length === 0) return;
+    sendingRef.current = true;
     setSending(true);
     setSentCount(0);
     let failed = 0;
@@ -121,6 +127,7 @@ export const MultiStoryComposerScreen: React.FC<MainScreenProps<'MultiStoryCompo
       }
     }
     setSending(false);
+    sendingRef.current = false;
     await reload();
 
     if (failed === 0) {
