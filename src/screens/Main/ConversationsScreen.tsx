@@ -98,6 +98,8 @@ function previewMeta(
 
 type ConvFilter = 'all' | 'unread' | 'muted' | 'requests';
 
+const PAGE_SIZE = 30;
+
 export const ConversationsScreen: React.FC = () => {
   const navigation = useNavigation<MainNav>();
   const { t } = useTranslation();
@@ -142,6 +144,11 @@ export const ConversationsScreen: React.FC = () => {
   const [query, setQuery] = useState('');
   const [convFilter, setConvFilter] = useState<ConvFilter>('all');
   const [notifUnread, setNotifUnread] = useState(0);
+  // pagination locale (LIMIT/OFFSET SQLite) : `hasMore` estime qu'il reste des
+  // pages tant que la dernière page lue était pleine.
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const loadingMoreRef = useRef(false);
 
   useEffect(() => {
     const refresh = () => void notificationRepo.unreadCount().then(setNotifUnread);
@@ -149,14 +156,48 @@ export const ConversationsScreen: React.FC = () => {
     return notificationRepo.subscribe(refresh);
   }, []);
 
+  // recharge toujours la 1ère page en entier (comportement historique) : les
+  // events temps réel (nouveau message, lecture, présence...) peuvent changer
+  // l'ordre ou le contenu de n'importe quelle conversation déjà visible, donc
+  // on ne peut pas se contenter d'un patch partiel ici. Seul `loadMore`
+  // (scroll infini) étend au-delà de cette 1ère page.
   const load = useCallback(async () => {
     if (!ready) return;
     try {
-      setItems(await conversationService.list());
+      const page1 = await conversationService.list(PAGE_SIZE, 0);
+      setItems(page1);
+      setHasMore(page1.length >= PAGE_SIZE);
     } finally {
       setLoading(false);
     }
   }, [ready]);
+
+  /** Scroll infini : ajoute la page suivante sous les conversations déjà
+   * affichées. Dédupliqué par id (une conv déjà chargée peut ressurgir si
+   * `load()` a tourné entre-temps et décalé les offsets). */
+  const loadMore = useCallback(async () => {
+    if (!ready || loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const next = await conversationService.list(PAGE_SIZE, items.length);
+      setItems((cur) => {
+        const seen = new Set(cur.map((conv) => conv.id));
+        const merged = cur.slice();
+        for (const conv of next) {
+          if (!seen.has(conv.id)) {
+            seen.add(conv.id);
+            merged.push(conv);
+          }
+        }
+        return merged;
+      });
+      setHasMore(next.length >= PAGE_SIZE);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [ready, hasMore, items.length]);
 
   useFocusEffect(
     useCallback(() => {
@@ -386,7 +427,6 @@ export const ConversationsScreen: React.FC = () => {
               uri={item.partner.avatar_url}
               name={name}
               size={48}
-              online={online && item.partner.is_online}
             />
           </Pressable>
         ) : (
@@ -394,7 +434,6 @@ export const ConversationsScreen: React.FC = () => {
             uri={item.partner.avatar_url}
             name={name}
             size={54}
-            online={online && item.partner.is_online}
           />
         )}
         <View style={styles.rowBody}>
@@ -492,6 +531,14 @@ export const ConversationsScreen: React.FC = () => {
         right={
           <View style={styles.headerRight}>
             <Pressable
+              onPress={() => navigation.navigate('Appointments')}
+              style={styles.bellBtn}
+              hitSlop={8}
+              android_ripple={{ color: c.overlay, borderless: true }}
+            >
+              <Icon name="calendar-outline" size={20} color={c.onHeader} />
+            </Pressable>
+            <Pressable
               onPress={() => navigation.navigate('NotificationHistory')}
               style={styles.bellBtn}
               hitSlop={8}
@@ -576,6 +623,15 @@ export const ConversationsScreen: React.FC = () => {
           filtered.length === 0 ? styles.emptyWrap : styles.listContent
         }
         ListHeaderComponent={null}
+        onEndReachedThreshold={0.4}
+        onEndReached={() => void loadMore()}
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={styles.footerLoading}>
+              <ActivityIndicator color={c.primary} />
+            </View>
+          ) : null
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -679,17 +735,21 @@ const styles = StyleSheet.create({
   syncIconWrap: { width: 32, height: 44, alignItems: 'center', justifyContent: 'center' },
 
   filterChipsScroll: { flexGrow: 0 },
-  filterChipsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
+  filterChipsRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingVertical: 10 },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
+    gap: 4,
+    paddingHorizontal: 10,
     paddingVertical: 7,
-    borderRadius: 16,
+    // hauteur minimale généreuse : le texte (12px/700 + lineHeight 18)
+    // doit toujours tenir sans que le chip ne le tronque en bas, quelle
+    // que soit la police système de l'appareil.
+    minHeight: 34,
+    borderRadius: 17,
     borderWidth: 1,
   },
-  filterChipTxt: { fontSize: 12.5, fontWeight: '700' },
+  filterChipTxt: { fontSize: 12, fontWeight: '700', lineHeight: 18 },
 
   row: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, gap: 12, alignItems: 'center' },
   card: {
@@ -730,6 +790,7 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 8 },
   emptyWrap: { flexGrow: 1 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingBottom: 60 },
+  footerLoading: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 40, paddingBottom: 60 },
   emptyIcon: { width: 84, height: 84, borderRadius: 42, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 16, fontWeight: '700', textAlign: 'center' },

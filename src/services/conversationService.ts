@@ -20,8 +20,10 @@ import type {
 } from '@/types';
 
 export const conversationService = {
-  list(): Promise<ConversationSummary[]> {
-    return conversationRepo.list();
+  /** Lecture locale uniquement (le pull réseau alimente déjà tout le cache
+   * SQLite — voir `syncEngine.pullDeltas`). `limit` absent -> tout renvoyer. */
+  list(limit?: number, offset?: number): Promise<ConversationSummary[]> {
+    return conversationRepo.list(limit, offset);
   },
 
   get(id: string): Promise<ConversationSummary | null> {
@@ -67,6 +69,14 @@ export const conversationService = {
   async decline(conversationId: string): Promise<void> {
     await conversationRepo.setRequestStatus(conversationId, 'declined');
     await outbox.enqueue('decline_request', newClientId(), { conversationId });
+  },
+
+  /** Relance explicitement une demande refusée (bouton « Redemander » côté
+   * expéditeur, après l'erreur `request_declined` sur l'envoi). Réseau
+   * requis — action ponctuelle, pas mise en file dans l'outbox. */
+  async retry(conversationId: string): Promise<void> {
+    await apiClient.post(Endpoints.conversations.retry(conversationId));
+    await conversationRepo.setRequestStatus(conversationId, 'pending_outgoing');
   },
 
   async setMuted(conversationId: string, muted: boolean): Promise<void> {

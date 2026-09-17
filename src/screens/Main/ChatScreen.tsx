@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
+  type AppStateStatus,
   FlatList,
   Linking,
   KeyboardAvoidingView,
@@ -45,7 +47,8 @@ import {
   userService,
 } from '@/services';
 import { mediaCache } from '@/services/mediaCache';
-import { toggleVoice } from '@/services/voicePlayer';
+import { messageService as netMessageService } from '@/services/messageService.net';
+import { getVoiceState, subscribeVoice, toggleVoice } from '@/services/voicePlayer';
 import { retryFailedDecryptions, syncNow } from '@/sync/syncEngine';
 import type { ChatMessage, MessageType, PinDuration, PinnedMessage, RequestStatus } from '@/types';
 import { callStartErrorMessage } from '@/utils/callError';
@@ -57,6 +60,9 @@ type Item =
   | { kind: 'msg'; m: LocalMessage }
   | { kind: 'day'; label: string; key: string }
   | { kind: 'unread'; count: number; key: string };
+
+const INITIAL_PAGE_SIZE = 60;
+const OLDER_PAGE_SIZE = 40;
 
 /**
  * Construit la liste affichée (inversée : plus récent en premier) avec les
@@ -115,6 +121,18 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [unreadAtOpen, setUnreadAtOpen] = useState(0);
   const unreadCaptured = useRef(false);
   const [loading, setLoading] = useState(true);
+  // Scroll infini (historique plus ancien) : `loadedCount` est le nombre de
+  // messages que `reload()` doit redemander au local pour ne PAS faire
+  // "reculer" la liste jusqu'en haut à chaque rechargement déclenché par un
+  // événement temps réel pendant qu'on a déjà chargé plus ancien.
+  const loadedCountRef = useRef(INITIAL_PAGE_SIZE);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
+  // épuisement du LOCAL (SQLite) — une fois vrai, `loadOlder` tente le réseau.
+  const localExhaustedRef = useRef(false);
+  // épuisement du RÉSEAU (serveur) — plus rien à charger nulle part.
+  const [hasMoreRemote, setHasMoreRemote] = useState(true);
+  const netPageRef = useRef(1); // prochaine page serveur à demander (offset-based)
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -161,10 +179,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
 
   const reload = useCallback(async () => {
     const [page, conv] = await Promise.all([
-      messageService.page(conversationId, 60),
+      messageService.page(conversationId, loadedCountRef.current),
       conversationRepo.get(conversationId),
     ]);
     setMessages(page);
+    // le local peut avoir reçu de nouvelles lignes depuis le dernier
+    // `loadOlder` (sync, temps réel) : si la page redemandée revient pleine,
+    // le local n'est provisoirement plus considéré comme épuisé.
+    if (page.length >= loadedCountRef.current) localExhaustedRef.current = false;
     if (conv) {
       setRequestStatus(conv.request_status);
       setPartnerOnline(conv.partner.is_online);
@@ -198,6 +220,88 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     }
   }, [conversationId, partnerId, setRequestStatus]);
 
+  /**
+   * Scroll infini vers le haut (liste inversée -> `onEndReached`) : charge des
+   * messages plus anciens que ceux déjà affichés.
+   *
+   * Stratégie : d'abord le LOCAL (instantané, hors-ligne OK — la page SQLite
+   * grandit simplement via `loadedCountRef`). Si le local ne renvoie pas une
+   * page pleine, il est épuisé pour l'instant -> on tente le RÉSEAU (pages
+   * offset-based de `GET /conversations/{id}/messages`), on déchiffre/upsert
+   * chaque message reçu comme le fait `pullDeltas` (pour qu'il persiste en
+   * local et ne soit plus jamais re-téléchargé), puis on relit le local avec
+   * le nouveau total — ce qui remonte à `reload()` la fusion + le tri déjà
+   * gérés par la requête SQL.
+   */
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || messages.length === 0) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      if (!localExhaustedRef.current) {
+        const wanted = loadedCountRef.current + OLDER_PAGE_SIZE;
+        const page = await messageService.page(conversationId, wanted);
+        const grew = page.length > loadedCountRef.current;
+        if (grew) {
+          loadedCountRef.current = page.length;
+          setMessages(page);
+        }
+        // page.length < wanted -> le local a rendu tout ce qu'il avait, il est
+        // épuisé pour l'instant (que cette passe ait ou non trouvé du neuf) —
+        // le prochain `loadOlder` ira directement au réseau. On aligne alors
+        // le curseur réseau sur ce qui est déjà chargé (même taille de page
+        // que le réseau, `OLDER_PAGE_SIZE`) pour éviter de re-télécharger des
+        // messages déjà connus — un léger chevauchement reste possible si le
+        // total chargé n'est pas un multiple exact de `OLDER_PAGE_SIZE`
+        // (page initiale de 60), sans risque de doublon grâce à l'upsert
+        // idempotent par id.
+        if (page.length < wanted) {
+          localExhaustedRef.current = true;
+          netPageRef.current = Math.max(
+            1,
+            Math.floor(page.length / OLDER_PAGE_SIZE) + 1,
+          );
+        }
+        if (grew) return;
+      }
+      if (!hasMoreRemote || !online) return;
+      const netPage = netPageRef.current;
+      const raw = await netMessageService.history(conversationId, netPage, OLDER_PAGE_SIZE);
+      netPageRef.current = netPage + 1;
+      if (raw.length === 0) {
+        setHasMoreRemote(false);
+        return;
+      }
+      for (const m of raw) {
+        if (m.sender_id === myId) {
+          const local = await messageRepo.getById(m.id);
+          await messageRepo.upsertFromServer(m, {
+            mine: true,
+            plainBody: local?.body ?? (m.encrypted ? '' : m.body),
+          });
+        } else {
+          const decrypted = await netMessageService.decryptIfNeeded(m);
+          await messageRepo.upsertFromServer(decrypted, {
+            decryptFailed: !!decrypted.decryptFailed,
+            cipherBody: decrypted.decryptFailed && m.encrypted ? m.body : null,
+          });
+        }
+      }
+      if (raw.length < OLDER_PAGE_SIZE) setHasMoreRemote(false);
+      // le réseau a bien ecrit en local -> une nouvelle page locale les inclut
+      localExhaustedRef.current = false;
+      const wanted = loadedCountRef.current + raw.length;
+      const page = await messageService.page(conversationId, wanted);
+      loadedCountRef.current = wanted;
+      setMessages(page);
+    } catch (e) {
+      console.warn('[ChatScreen] loadOlder failed:', e);
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [conversationId, messages.length, myId, hasMoreRemote, online]);
+
   const reloadPinned = useCallback(() => {
     void conversationService
       .listPinned(conversationId)
@@ -206,6 +310,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   }, [conversationId]);
 
   useEffect(() => {
+    // nouvelle conversation ouverte -> pagination repartie de zéro
+    loadedCountRef.current = INITIAL_PAGE_SIZE;
+    localExhaustedRef.current = false;
+    netPageRef.current = 1;
+    setHasMoreRemote(true);
     // 1) on lit d'abord le compteur non-lus + les messages, PUIS on marque lu
     //    (sinon markRead remet le compteur à 0 avant qu'on l'ait capturé).
     void reload().then(() => {
@@ -321,10 +430,47 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     void conversationService.accept(conversationId).catch(() => undefined);
   }, [conversationId]);
 
+  /** Relance une demande refusée (bouton dans l'alerte affichée par
+   * `canSendNow`). Best-effort, silencieux si hors-ligne. */
+  const doRetryRequest = useCallback(() => {
+    void conversationService
+      .retry(conversationId)
+      .then(() => {
+        requestStatusRef.current = 'pending_outgoing';
+        setRequestStatusUi('pending_outgoing');
+      })
+      .catch(() => showToast(t('errors.generic'), { type: 'error' }));
+  }, [conversationId, t]);
+
+  /** Vérifie AVANT d'envoyer (texte, média, vocal…) si la demande de
+   * conversation le permet encore — on bloque ici plutôt que de laisser
+   * l'outbox échouer en silence en arrière-plan (send() est fire-and-forget,
+   * son échec réseau différé n'arriverait jamais à l'utilisateur avec un
+   * message clair). Ne s'applique qu'à MOI en tant qu'initiateur : en
+   * `pending_incoming` la bannière remplace déjà tout le composer. */
+  const canSendNow = useCallback((): boolean => {
+    if (requestStatusRef.current === 'declined') {
+      showAlert(t('chat.requestDeclinedTitle'), t('chat.requestDeclinedBody', { name: partnerName }), [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('chat.retryRequest'), onPress: doRetryRequest },
+      ]);
+      return false;
+    }
+    if (requestStatusRef.current === 'pending_outgoing') {
+      const sentCount = messages.filter((m) => m.sender_id === myId).length;
+      if (sentCount >= 3) {
+        showAlert(t('chat.requestLimitTitle'), t('chat.requestLimitBody', { name: partnerName }));
+        return false;
+      }
+    }
+    return true;
+  }, [messages, myId, partnerName, t, doRetryRequest]);
+
   const send = async () => {
     const body = text.trim();
     if (!body || sending) return;
     ensureAccepted();
+    if (!editing && !canSendNow()) return;
 
     // mode édition : on applique la modification au lieu d'un nouvel envoi
     if (editing) {
@@ -386,6 +532,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     ) => {
       setSendError(null);
       ensureAccepted();
+      if (!canSendNow()) return;
       try {
         await messageService.send({
           conversationId,
@@ -403,7 +550,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         setSendError(t('errors.generic'));
       }
     },
-    [conversationId, partnerId, myId, reload, t, ensureAccepted],
+    [conversationId, partnerId, myId, reload, t, ensureAccepted, canSendNow],
   );
 
   /** Envoi offline-first d'un fichier local (upload différé par l'outbox). */
@@ -411,6 +558,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     async (local: LocalMediaFile, viewOnce = false) => {
       setSendError(null);
       ensureAccepted();
+      if (!canSendNow()) return;
       try {
         await pendingMediaService.sendMedia({
           conversationId,
@@ -426,7 +574,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         setSendError(t('errors.generic'));
       }
     },
-    [conversationId, partnerId, myId, reload, t, ensureAccepted],
+    [conversationId, partnerId, myId, reload, t, ensureAccepted, canSendNow],
   );
 
   const openPreview = useCallback(
@@ -532,29 +680,86 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   );
 
   /** Le destinataire vient de taper sur une pièce jointe vue-unique
-   * (photo/vidéo/vocal/fichier) encore verrouillée : prévient le serveur
-   * (qui supprime le fichier définitivement) PUIS ouvre le média — dans cet
-   * ordre, pour ne jamais afficher un contenu déjà "consommé" ailleurs sans
-   * l'avoir réellement marqué comme tel. */
+   * (photo/vidéo/vocal/fichier) encore verrouillée. IMPORTANT : on affiche/
+   * télécharge TOUJOURS le média AVANT de prévenir le serveur — celui-ci
+   * supprime le fichier définitivement dès la confirmation, donc l'ordre
+   * inverse (confirmer puis afficher) renvoyait une erreur 404 au moment
+   * même de l'ouverture. Photo/vidéo : `MediaViewer` gère lui-même le
+   * téléchargement temporaire + la confirmation à sa fermeture (voir
+   * `viewOnceMessageId`). Vocal/fichier : téléchargés ici dans un dossier
+   * temporaire, confirmés+effacés après lecture/ouverture. */
   const onOpenViewOnce = useCallback(
     async (m: LocalMessage) => {
-      try {
-        await messageService.openViewOnce(m.id);
-      } catch {
-        showAlert(t('errors.generic'));
+      if (m.type === 'image' || m.type === 'video') {
+        const raw = mediaUrl(m.attachment_url);
+        if (!raw) return;
+        navigation.navigate('MediaViewer', {
+          url: raw,
+          type: m.type === 'video' ? 'video' : 'image',
+          thumbnailUrl: mediaUrl(
+            (m.attachment_meta?.thumbnail_url as string | undefined) ?? undefined,
+          ),
+          viewOnceMessageId: m.id,
+        });
         return;
       }
-      void reload();
-      if (m.type === 'image' || m.type === 'video') {
-        onOpenMedia(m);
-      } else if (m.type === 'voice') {
-        const raw = mediaUrl(m.attachment_url);
-        if (raw) void toggleVoice(raw, { conversationId: m.conversation_id, title: partnerName });
-      } else if (m.type === 'file') {
-        void onOpenFile(m);
+      if (m.type === 'voice') {
+        const local = await mediaCache.fetchTemp(m.attachment_url);
+        if (!local) {
+          showAlert(t('errors.generic'));
+          return;
+        }
+        await toggleVoice(local, { conversationId: m.conversation_id, title: partnerName });
+        // attend la VRAIE fin de lecture (pas juste le lancement) avant de
+        // nettoyer — un vocal de 3 min doit rester audible jusqu'au bout.
+        // `state.playing` redevient false soit à la fin naturelle, soit si
+        // l'utilisateur arrête/quitte manuellement (stopVoice ailleurs).
+        await new Promise<void>((resolve) => {
+          const check = (): boolean => {
+            const s = getVoiceState();
+            return s.url !== local || !s.playing;
+          };
+          if (check()) {
+            resolve();
+            return;
+          }
+          const unsub = subscribeVoice(() => {
+            if (check()) {
+              unsub();
+              resolve();
+            }
+          });
+        });
+        await messageService.openViewOnce(m.id).catch(() => undefined);
+        await mediaCache.deleteTemp(local);
+        void reload();
+        return;
+      }
+      if (m.type === 'file') {
+        const local = await mediaCache.fetchTemp(m.attachment_url);
+        if (!local) {
+          showAlert(t('errors.generic'));
+          return;
+        }
+        await Linking.openURL(local).catch(() => showAlert(t('errors.generic')));
+        // le fichier s'ouvre dans une app EXTERNE (lecteur PDF, etc.) — on ne
+        // sait pas quand l'utilisateur a fini de le consulter là-bas, donc on
+        // nettoie au retour dans E-discussion plutôt qu'après un délai fixe
+        // (qui casserait l'affichage si l'app externe met plus de temps).
+        await new Promise<void>((resolve) => {
+          const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
+            if (s === 'active') {
+              sub.remove();
+              resolve();
+            }
+          });
+        });
+        await messageService.openViewOnce(m.id).catch(() => undefined);
+        await mediaCache.deleteTemp(local);
+        void reload();
       }
     },
-    [onOpenMedia, onOpenFile, reload, t, partnerName],
+    [navigation, reload, t, partnerName],
   );
 
   const onOpenLocation = useCallback((lat: number, lng: number) => {
@@ -724,6 +929,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const sendQuick = useCallback(
     async (body: string) => {
       ensureAccepted();
+      if (!canSendNow()) return;
       try {
         await messageService.send({ conversationId, partnerId, senderId: myId, body });
         await reload();
@@ -733,7 +939,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         setSendError(t('errors.generic'));
       }
     },
-    [conversationId, partnerId, myId, reload, t, ensureAccepted],
+    [conversationId, partnerId, myId, reload, t, ensureAccepted, canSendNow],
   );
 
   const retry = async (m: LocalMessage) => {
@@ -1024,12 +1230,6 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
           </>
         }
       />
-      {!online ? (
-        <View style={[styles.offlineStrip, { backgroundColor: c.surfaceAlt }]}>
-          <Icon name="cloud-off-outline" size={14} color={c.textMuted} />
-          <Text style={[styles.offlineText, { color: c.textMuted }]}>{t('sync.offline')}</Text>
-        </View>
-      ) : null}
       <SyncBanner />
       <PinnedBanner pinned={pinnedMessages} />
 
@@ -1077,14 +1277,27 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                 </View>
               ) : null
             }
+            // liste inversée : `onEndReached` = on approche du HAUT visuel =
+            // charger des messages plus anciens (voir `loadOlder`).
+            onEndReachedThreshold={0.5}
+            onEndReached={() => void loadOlder()}
             ListFooterComponent={
-              items.length === 0 || !E2EE_ENABLED ? null : (
-                <Pressable style={styles.encBanner} onPress={() => setEncOpen(true)}>
-                  <Icon name="lock" size={12} color={c.textMuted} />
-                  <Text style={[styles.encBannerTxt, { color: c.textMuted }]}>
-                    {t('chat.encBanner')}
-                  </Text>
-                </Pressable>
+              items.length === 0 ? null : (
+                <>
+                  {loadingOlder ? (
+                    <View style={styles.olderLoading}>
+                      <ActivityIndicator size="small" color={c.textMuted} />
+                    </View>
+                  ) : null}
+                  {E2EE_ENABLED ? (
+                    <Pressable style={styles.encBanner} onPress={() => setEncOpen(true)}>
+                      <Icon name="lock" size={12} color={c.textMuted} />
+                      <Text style={[styles.encBannerTxt, { color: c.textMuted }]}>
+                        {t('chat.encBanner')}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </>
               )
             }
             renderItem={({ item, index }) => {
@@ -1502,14 +1715,6 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 18, paddingLeft: 6 },
   headerName: { fontSize: 16.5, fontWeight: '700', letterSpacing: -0.2 },
   headerSub: { fontSize: 12, fontWeight: '500', marginTop: 1 },
-  offlineStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 5,
-  },
-  offlineText: { fontSize: 12, fontWeight: '600' },
   dayWrap: { alignItems: 'center', marginVertical: 8 },
   dayPill: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
   unreadWrap: {
@@ -1593,6 +1798,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(140,150,170,0.12)',
   },
   encBannerTxt: { fontSize: 11.5, textAlign: 'center', lineHeight: 15 },
+  olderLoading: { paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   typingRow: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 6, alignItems: 'flex-start' },
   typingBubble: {
     flexDirection: 'row',

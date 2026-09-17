@@ -32,7 +32,13 @@ export const callService = {
     return storage.getJSON<CallLog[]>(K_HISTORY) ?? [];
   },
 
-  /** Historique d'appels (paginé) — rafraîchit le cache local au passage. */
+  /**
+   * Historique d'appels (paginé). Seule la page 1 réécrit le cache local
+   * MMKV (source affichée hors-ligne / au tout premier rendu) — les pages
+   * suivantes (scroll infini) ne sont gardées qu'en mémoire côté écran, pour
+   * ne pas faire grossir indéfiniment le cache instantané ni le désynchroniser
+   * d'une suppression/rafraîchissement fait entre-temps sur la page 1.
+   */
   async history(page = 1, limit = 40): Promise<CallLog[]> {
     const logs = await apiClient.get<CallLog[]>(
       `${Endpoints.calls.history}?page=${page}&limit=${limit}`,

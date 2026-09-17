@@ -40,6 +40,9 @@ type Row =
   | { kind: 'day'; key: string; label: string }
   | { kind: 'call'; key: string; log: CallLog };
 
+const INITIAL_LIMIT = 100; // 1ère page : large, aligné sur le comportement historique
+const PAGE_LIMIT = 40; // pages suivantes (scroll infini)
+
 /** Onglet Appels — historique (GET /calls) : filtres, groupé par jour,
  *  suppression individuelle (swipe), rappel en 1 tap, heure d'appel. */
 export const CallsScreen: React.FC = () => {
@@ -58,20 +61,64 @@ export const CallsScreen: React.FC = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [dateFilter, setDateFilter] = useState<CallDateFilter | null>(null);
   const openRow = useRef<Swipeable | null>(null);
+  // pagination réseau (scroll infini) : page suivante à charger + garde
+  // anti-doublon d'appel concurrent + fin d'historique atteinte.
+  const nextPageRef = useRef(2); // la page 1 est chargée par `load()`
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const [hasMore, setHasMore] = useState(true);
 
   const load = useCallback(async () => {
     // 1) cache local d'abord (instantané, hors-ligne OK)
     setItems(callService.readHistoryCache());
     setLoading(false);
-    // 2) rafraîchit depuis le serveur si possible
+    // 2) rafraîchit depuis le serveur si possible — reprend TOUJOURS à la
+    //    page 1 (un focus/pull-to-refresh remplace l'historique en mémoire,
+    //    le scroll infini repart de zéro derrière).
+    nextPageRef.current = 2;
+    setHasMore(true);
     try {
-      setItems(await callService.history(1, 100));
+      const page1 = await callService.history(1, INITIAL_LIMIT);
+      setItems(page1);
+      setHasMore(page1.length >= INITIAL_LIMIT);
     } catch {
       /* hors-ligne : on garde le cache local affiché */
     } finally {
       setRefreshing(false);
     }
   }, []);
+
+  /** Scroll infini : charge la page suivante et l'ajoute (dédupliquée par id,
+   * triée par date décroissante) — n'écrase JAMAIS le cache local MMKV, qui
+   * ne reflète que la 1ère page (voir `callService.history`). */
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const page = nextPageRef.current;
+      const next = await callService.history(page, PAGE_LIMIT);
+      nextPageRef.current = page + 1;
+      setHasMore(next.length >= PAGE_LIMIT);
+      setItems((cur) => {
+        const seen = new Set(cur.map((l) => l.id));
+        const merged = cur.slice();
+        for (const l of next) {
+          if (!seen.has(l.id)) {
+            seen.add(l.id);
+            merged.push(l);
+          }
+        }
+        merged.sort((a, b) => (a.started_at < b.started_at ? 1 : -1));
+        return merged;
+      });
+    } catch {
+      /* hors-ligne / échec réseau : on retentera au prochain onEndReached */
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [hasMore]);
 
   useFocusEffect(
     useCallback(() => {
@@ -390,6 +437,15 @@ export const CallsScreen: React.FC = () => {
           keyExtractor={(r) => r.key}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
+          onEndReachedThreshold={0.4}
+          onEndReached={() => void loadMore()}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footerLoading}>
+                <ActivityIndicator color={c.primary} />
+              </View>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -488,6 +544,7 @@ const styles = StyleSheet.create({
   bannerText: { fontSize: 12, flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   list: { paddingBottom: 12 },
+  footerLoading: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
 
   dayLabel: {
     fontSize: 12,

@@ -31,10 +31,20 @@ function toSummary(r: Row): ConversationSummary {
 }
 
 export const conversationRepo = {
-  async list(): Promise<ConversationSummary[]> {
-    const rows = await query<Row>(
-      'SELECT * FROM conversations ORDER BY COALESCE(last_message_at, updated_at) DESC',
-    );
+  /** `limit` absent -> tout renvoyer (comportement historique, utilisé par ex.
+   * pour calculer les partenaires déjà en conversation dans NewConversationScreen).
+   * `limit` fourni -> page LIMIT/OFFSET, pour le scroll infini de l'écran liste. */
+  async list(limit?: number, offset = 0): Promise<ConversationSummary[]> {
+    const rows =
+      limit == null
+        ? await query<Row>(
+            'SELECT * FROM conversations ORDER BY COALESCE(last_message_at, updated_at) DESC',
+          )
+        : await query<Row>(
+            `SELECT * FROM conversations ORDER BY COALESCE(last_message_at, updated_at) DESC
+               LIMIT ? OFFSET ?`,
+            [limit, offset],
+          );
     return rows.map(toSummary);
   },
 

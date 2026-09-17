@@ -39,6 +39,7 @@ export const Endpoints = {
     byId: (id: string) => `${V1}/conversations/${id}`,
     accept: (id: string) => `${V1}/conversations/${id}/accept`,
     decline: (id: string) => `${V1}/conversations/${id}/decline`,
+    retry: (id: string) => `${V1}/conversations/${id}/retry`,
     mute: (id: string) => `${V1}/conversations/${id}/mute`,
     hide: (id: string) => `${V1}/conversations/${id}/hide`,
     messages: (id: string) => `${V1}/conversations/${id}/messages`,
@@ -130,6 +131,14 @@ export const Endpoints = {
     cancel: (id: string) => `${V1}/calls/${id}/cancel`,
     hangup: (id: string) => `${V1}/calls/${id}/hangup`,
     rating: (id: string) => `${V1}/calls/${id}/rating`,
+  },
+  appointments: {
+    list: (status?: string) => `${V1}/appointments${status ? `?status=${status}` : ''}`,
+    create: `${V1}/appointments`,
+    byId: (id: string) => `${V1}/appointments/${id}`,
+    accept: (id: string) => `${V1}/appointments/${id}/accept`,
+    decline: (id: string) => `${V1}/appointments/${id}/decline`,
+    cancel: (id: string) => `${V1}/appointments/${id}/cancel`,
   },
   devices: {
     registerKeys: `${V1}/devices/keys`,
