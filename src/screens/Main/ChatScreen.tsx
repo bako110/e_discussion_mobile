@@ -872,6 +872,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const doForward = () => {
     const m = actionMsg;
     if (!m) return;
+    // Nom de l'AUTEUR ORIGINAL — pas celui qui clique "Transférer". Si `m`
+    // est déjà lui-même un transfert, on propage son `forwarded_from_name`
+    // (l'auteur d'origine, pas le dernier relais) plutôt que de l'écraser.
+    const forwardedFromName =
+      m.forwarded_from_name ?? (m.sender_id === myId ? me?.display_name || me?.username : partnerName) ?? null;
     void (async () => {
       const ids = await selectContacts({ title: t('chat.forwardSelectTitle') });
       if (!ids || ids.length === 0) return;
@@ -891,15 +896,11 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             attachmentUrl: m.attachment_url,
             attachmentMeta: m.attachment_meta,
             forwardedFromId: m.id,
+            forwardedFromName,
           });
           ok += 1;
         } catch (e) {
           console.warn('[forward] échec pour', contactId, ':', e);
-          // DIAGNOSTIC TEMPORAIRE : affiche le vrai message d'erreur (à
-          // retirer une fois la cause identifiée).
-          showToast(`[debug] ${contactId}: ${e instanceof Error ? e.message : String(e)}`, {
-            type: 'error',
-          });
           if (e instanceof ApiError && (e.status === 403 || e.code === 'blocked')) blockedCount += 1;
           else fail += 1;
         }

@@ -101,6 +101,9 @@ export async function initDb(): Promise<DB> {
       // `messages` echoue avec "no such column: forwarded_from_id" (cassait
       // meme l'envoi de messages normaux, pas seulement le transfert).
       ['forwarded_from_id', 'TEXT'],
+      // ajoutee en v15 — meme rattrapage prealable, meme raison (colonne
+      // referencee par les nouveaux INSERT/UPSERT de messageRepo).
+      ['forwarded_from_name', 'TEXT'],
     ];
     try {
       const info = await db.execute('PRAGMA table_info(messages);');
@@ -123,18 +126,27 @@ export async function initDb(): Promise<DB> {
       console.warn('[db] reconciliation schema ignoree:', e);
     }
 
-    // Même rattrapage pour group_messages (même colonne ajoutée en v12).
+    // Même rattrapage pour group_messages (mêmes colonnes ajoutées en v12/v15).
     try {
       const info = await db.execute('PRAGMA table_info(group_messages);');
       const have = new Set(
         (info.rows ?? []).map((r) => String((r as { name?: string }).name)),
       );
-      if (have.size > 0 && !have.has('forwarded_from_id')) {
-        try {
-          await db.execute('ALTER TABLE group_messages ADD COLUMN forwarded_from_id TEXT;');
-          console.warn('[db] colonne manquante rattrapee: group_messages.forwarded_from_id');
-        } catch (e) {
-          console.warn("[db] impossible d'ajouter group_messages.forwarded_from_id:", e);
+      if (have.size > 0) {
+        for (const [col, decl] of [
+          ['forwarded_from_id', 'TEXT'],
+          ['forwarded_from_name', 'TEXT'],
+          // ajoutee en v16 — meme rattrapage prealable, meme raison.
+          ['forward_count', 'INTEGER NOT NULL DEFAULT 0'],
+        ] as const) {
+          if (!have.has(col)) {
+            try {
+              await db.execute(`ALTER TABLE group_messages ADD COLUMN ${col} ${decl};`);
+              console.warn(`[db] colonne manquante rattrapee: group_messages.${col}`);
+            } catch (e) {
+              console.warn(`[db] impossible d'ajouter group_messages.${col}:`, e);
+            }
+          }
         }
       }
     } catch (e) {

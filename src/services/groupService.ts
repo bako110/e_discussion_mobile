@@ -24,6 +24,7 @@ import type {
   GroupKind,
   GroupMember,
   GroupMessage,
+  GroupMessageReaction,
   GroupPreview,
   GroupSettings,
   PinDuration,
@@ -134,6 +135,9 @@ export const groupService = {
     attachmentUrl?: string | null;
     attachmentMeta?: Record<string, unknown> | null;
     forwardedFromId: string;
+    /** Nom de l'auteur ORIGINAL du message transféré (pas celui qui
+     * transfère) — affiché "Transféré par {nom}" côté destinataire. */
+    forwardedFromName?: string | null;
   }): Promise<GroupMessage> {
     const saved = await apiClient.post<GroupMessage>(Endpoints.groups.messages(p.groupId), {
       type: p.type,
@@ -141,6 +145,7 @@ export const groupService = {
       attachment_url: p.attachmentUrl ?? undefined,
       attachment_meta: p.attachmentMeta ?? undefined,
       forwarded_from_id: p.forwardedFromId,
+      forwarded_from_name: p.forwardedFromName ?? undefined,
     });
     await groupRepo.upsertMessageFromServer(saved);
     await groupRepo.touchLastMessage(
@@ -203,6 +208,15 @@ export const groupService = {
     );
     await groupRepo.updateReactions(messageId, msg.reactions, msg.my_reaction);
     return msg;
+  },
+
+  /** Qui a réagi (emoji + profil public), pour la bottom sheet ouverte au
+   * tap sur un compteur de réaction. Toujours en ligne (liste potentiellement
+   * volumineuse, pas mise en cache local comme les messages eux-mêmes). */
+  listMessageReactions(groupId: string, messageId: string): Promise<GroupMessageReaction[]> {
+    return apiClient.get<GroupMessageReaction[]>(
+      Endpoints.groups.messageReactions(groupId, messageId),
+    );
   },
 
   /** Édite un message de groupe — auteur uniquement (vérifié aussi côté

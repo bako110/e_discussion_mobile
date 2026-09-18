@@ -396,7 +396,11 @@ export const MessageBubble: React.FC<Props> = ({
         {message.forwarded_from_id ? (
           <View style={[styles.forwardedRow, { opacity: 0.65 }]}>
             <Icon name="share-outline" size={12} color={fg} />
-            <Text style={[styles.forwardedTxt, { color: fg }]}>{t('chat.forwarded')}</Text>
+            <Text style={[styles.forwardedTxt, { color: fg }]}>
+              {message.forwarded_from_name
+                ? t('chat.forwardedBy', { name: message.forwarded_from_name })
+                : t('chat.forwarded')}
+            </Text>
           </View>
         ) : null}
 

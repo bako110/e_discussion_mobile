@@ -40,11 +40,13 @@ interface GMsgRow {
   attachment_url: string | null;
   attachment_meta: string | null;
   forwarded_from_id: string | null;
+  forwarded_from_name: string | null;
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;
   reactions_json: string | null;
   my_reaction: string | null;
+  forward_count: number | null;
   sync_state: string;
 }
 
@@ -111,11 +113,13 @@ function toGMsg(r: GMsgRow): LocalGroupMessage {
       ? (JSON.parse(r.attachment_meta) as Record<string, unknown>)
       : null,
     forwarded_from_id: r.forwarded_from_id,
+    forwarded_from_name: r.forwarded_from_name,
     edited_at: r.edited_at,
     deleted_at: r.deleted_at,
     created_at: r.created_at,
     reactions: r.reactions_json ? (JSON.parse(r.reactions_json) as Record<string, number>) : {},
     my_reaction: r.my_reaction,
+    forward_count: r.forward_count ?? 0,
     pending: r.sync_state !== 'synced',
     sync_state: r.sync_state as 'synced' | 'pending' | 'failed',
   };
@@ -340,16 +344,18 @@ export const groupRepo = {
     await run(
       `INSERT INTO group_messages
         (id, client_id, group_id, sender_id, sender_json, type, body, attachment_url,
-         attachment_meta, forwarded_from_id, edited_at, deleted_at, created_at, reactions_json, my_reaction, sync_state)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced')
+         attachment_meta, forwarded_from_id, forwarded_from_name, edited_at, deleted_at, created_at, reactions_json, my_reaction, forward_count, sync_state)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'synced')
        ON CONFLICT(id) DO UPDATE SET
          sender_json=COALESCE(excluded.sender_json, group_messages.sender_json),
          body=excluded.body,
          attachment_url=COALESCE(excluded.attachment_url, group_messages.attachment_url),
          attachment_meta=COALESCE(excluded.attachment_meta, group_messages.attachment_meta),
          forwarded_from_id=COALESCE(excluded.forwarded_from_id, group_messages.forwarded_from_id),
+         forwarded_from_name=COALESCE(excluded.forwarded_from_name, group_messages.forwarded_from_name),
          edited_at=excluded.edited_at, deleted_at=excluded.deleted_at,
          reactions_json=excluded.reactions_json, my_reaction=excluded.my_reaction,
+         forward_count=excluded.forward_count,
          sync_state='synced'`,
       [
         m.id,
@@ -362,11 +368,13 @@ export const groupRepo = {
         m.attachment_url,
         m.attachment_meta ? JSON.stringify(m.attachment_meta) : null,
         m.forwarded_from_id,
+        m.forwarded_from_name,
         m.edited_at,
         m.deleted_at,
         m.created_at,
         m.reactions && Object.keys(m.reactions).length ? JSON.stringify(m.reactions) : null,
         m.my_reaction,
+        m.forward_count ?? 0,
       ],
     );
   },
@@ -412,6 +420,17 @@ export const groupRepo = {
       myReaction,
       messageId,
     ]);
+  },
+
+  /** Incrémentation OPTIMISTE locale après un transfert réussi (le serveur
+   * incrémente aussi sa propre colonne, voir message_service.send — celle-ci
+   * évite d'attendre un refreshMessages() complet pour voir le compteur
+   * bouger sur MON propre appareil juste après avoir transféré). */
+  async incrementForwardCount(messageId: string): Promise<void> {
+    await run(
+      'UPDATE group_messages SET forward_count = forward_count + 1 WHERE id=?',
+      [messageId],
+    );
   },
 
   async setAttachment(

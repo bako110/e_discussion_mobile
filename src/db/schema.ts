@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 16;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -302,5 +302,22 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE messages ADD COLUMN view_once INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE messages ADD COLUMN view_once_opened INTEGER NOT NULL DEFAULT 0;
+  `,
+
+  // ── v15 : nom de l'auteur ORIGINAL sur un message transféré (façon
+  // "Transféré par Jean Dupont") — dénormalisé au moment du transfert, voir
+  // {Group,}Message.forwarded_from_name côté API/backend. Sur les DEUX
+  // tables : un message de groupe transféré atterrit aujourd'hui dans une
+  // conversation 1-1 (`messages`), jamais dans un autre groupe.
+  `
+  ALTER TABLE group_messages ADD COLUMN forwarded_from_name TEXT;
+  ALTER TABLE messages ADD COLUMN forwarded_from_name TEXT;
+  `,
+
+  // ── v16 : compteur de partages sur un message de GROUPE (bouton
+  // "Partager" fixe sous chaque message) — pas d'équivalent en 1-1, un
+  // message 1-1 n'est jamais lui-même retransféré ailleurs pour l'instant.
+  `
+  ALTER TABLE group_messages ADD COLUMN forward_count INTEGER NOT NULL DEFAULT 0;
   `,
 ];

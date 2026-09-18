@@ -90,6 +90,11 @@ interface SendParams {
    * WhatsApp), jamais chiffré (l'origine peut venir d'une AUTRE conversation
    * avec une session E2EE différente, ou ne plus être accessible). */
   forwardedFromId?: string | null;
+  /** Nom de l'AUTEUR ORIGINAL du message transféré (pas celui qui a cliqué
+   * "Transférer") — affiché "Transféré par {nom}" côté destinataire.
+   * L'origine peut être un message de GROUPE : jamais résolue côté serveur,
+   * fournie ici par l'appelant au moment du transfert. */
+  forwardedFromName?: string | null;
 }
 
 export const messageService = {
@@ -129,6 +134,7 @@ export const messageService = {
       attachmentMeta: p.attachmentMeta ?? null,
       replyTo: p.replyTo,
       forwardedFromId: p.forwardedFromId ?? null,
+      forwardedFromName: p.forwardedFromName ?? null,
       createdAt,
     });
     const preview = plain || attachmentPreview(type);
@@ -163,6 +169,7 @@ export const messageService = {
           attachmentMeta: p.attachmentMeta ?? undefined,
           replyToId: p.replyTo?.id,
           forwardedFromId: p.forwardedFromId ?? undefined,
+          forwardedFromName: p.forwardedFromName ?? undefined,
         });
       } catch (e) {
         console.warn('[send] enqueue a échoué:', String(e));

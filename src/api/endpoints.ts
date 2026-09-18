@@ -91,6 +91,8 @@ export const Endpoints = {
     message: (id: string, messageId: string) => `${V1}/groups/${id}/messages/${messageId}`,
     reactMessage: (id: string, messageId: string) =>
       `${V1}/groups/${id}/messages/${messageId}/react`,
+    messageReactions: (id: string, messageId: string) =>
+      `${V1}/groups/${id}/messages/${messageId}/reactions`,
     pinned: (id: string) => `${V1}/groups/${id}/pinned`,
     unpin: (id: string, messageId: string) => `${V1}/groups/${id}/pinned/${messageId}`,
     read: (id: string) => `${V1}/groups/${id}/read`,
@@ -139,6 +141,9 @@ export const Endpoints = {
     accept: (id: string) => `${V1}/appointments/${id}/accept`,
     decline: (id: string) => `${V1}/appointments/${id}/decline`,
     cancel: (id: string) => `${V1}/appointments/${id}/cancel`,
+    hide: (id: string) => `${V1}/appointments/${id}/hide`,
+    notes: (id: string) => `${V1}/appointments/${id}/notes`,
+    note: (id: string, noteId: string) => `${V1}/appointments/${id}/notes/${noteId}`,
   },
   devices: {
     registerKeys: `${V1}/devices/keys`,

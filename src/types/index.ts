@@ -84,6 +84,10 @@ export interface ChatMessage {
   attachment_meta: Record<string, unknown> | null;
   reply_to: ReplyPreview | null;
   forwarded_from_id: string | null;
+  // nom de l'auteur ORIGINAL du message transféré — voir GroupMessage
+  // .forwarded_from_name (même champ, même raison : l'origine peut être un
+  // message de groupe, jamais résolue côté serveur).
+  forwarded_from_name: string | null;
   reaction: string | null;
   delivered: boolean;
   read: boolean;
@@ -380,14 +384,26 @@ export interface GroupMessage {
   attachment_url: string | null;
   attachment_meta: Record<string, unknown> | null;
   forwarded_from_id: string | null;
+  // nom de l'auteur ORIGINAL du message transféré (pas celui qui a transféré)
+  // — null si ce n'est pas un transfert.
+  forwarded_from_name: string | null;
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;
   // réactions agrégées — {emoji: count}
   reactions: Record<string, number>;
   my_reaction: string | null;
+  // nombre de fois que CE message a été transféré ailleurs
+  forward_count: number;
   // client-only
   pending?: boolean;
+}
+
+/** Une réaction individuelle (qui a réagi + avec quel emoji) — alimente la
+ * bottom sheet ouverte au tap sur un compteur de réaction. */
+export interface GroupMessageReaction {
+  emoji: string;
+  user: UserPublic;
 }
 
 export interface CreateGroupInput {
@@ -505,4 +521,51 @@ export interface LinkedDevice {
   updated_at: string;
   remaining_one_time_prekeys: number;
   is_current: boolean;
+}
+
+// ── Rendez-vous (RDV) ────────────────────────────────────────────────────
+export type AppointmentStatus = 'scheduled' | 'cancelled';
+export type ParticipantStatus = 'pending' | 'accepted' | 'declined';
+
+export interface AppointmentParticipant {
+  id: string;
+  user_id: string;
+  status: ParticipantStatus;
+  responded_at: string | null;
+  user: UserPublic;
+}
+
+export interface Appointment {
+  id: string;
+  organizer_id: string;
+  organizer: UserPublic;
+  title: string;
+  description: string | null;
+  /** Lieu en texte libre (ex. "Café Central, Ouaga"), optionnel. */
+  location: string | null;
+  /** Lien Google/Apple Maps collé par l'organisateur, optionnel. */
+  location_map_url: string | null;
+  scheduled_at: string;
+  /** Heure de fin, optionnelle. */
+  ends_at: string | null;
+  status: AppointmentStatus;
+  participants: AppointmentParticipant[];
+  /** 'organizer' si je suis l'organisateur, sinon mon propre statut de participant. */
+  my_status: ParticipantStatus | 'organizer';
+  created_at: string;
+  updated_at: string;
+}
+
+export type AppointmentFilter = 'upcoming' | 'ongoing' | 'past' | 'cancelled';
+
+export type AppointmentNoteVisibility = 'private' | 'public';
+
+export interface AppointmentNote {
+  id: string;
+  appointment_id: string;
+  author: UserPublic;
+  visibility: AppointmentNoteVisibility;
+  body: string;
+  created_at: string;
+  updated_at: string;
 }

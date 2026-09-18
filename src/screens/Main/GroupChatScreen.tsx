@@ -22,6 +22,7 @@ import { GroupAttachment } from '@/components/chat/GroupAttachment';
 import { LinkedChannelsSheet } from '@/components/chat/LinkedChannelsSheet';
 import { MessageActionSheet, type MsgActionContext } from '@/components/chat/MessageActionSheet';
 import { PinnedBanner } from '@/components/chat/PinnedBanner';
+import { ReactionsListSheet } from '@/components/chat/ReactionsListSheet';
 import { useAuth } from '@/context/AuthContext';
 import { useGroups } from '@/context/GroupsContext';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
@@ -313,6 +314,21 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
       .catch(() => showToast(t('errors.generic'), { type: 'error' }));
   };
 
+  /** Tap direct sur un bouton 👍/👎 FIXE (pas d'appui long) — même mécanique
+   * de réaction que `doReact`/la palette d'appui long (une seule réaction
+   * par personne : re-taper le même bouton la retire, taper l'autre la
+   * remplace). */
+  const doQuickReact = (msg: LocalGroupMessage, emoji: '👍' | '👎') => {
+    const next = msg.my_reaction === emoji ? null : emoji;
+    void groupService
+      .react(groupId, msg.id, next)
+      .then(reload)
+      .catch(() => showToast(t('errors.generic'), { type: 'error' }));
+  };
+
+  const [reactionsSheetMsgId, setReactionsSheetMsgId] = useState<string | null>(null);
+  const openReactionsSheet = (messageId: string) => setReactionsSheetMsgId(messageId);
+
   const doCopy = () => {
     if (actionMsg?.body) Clipboard.setString(actionMsg.body);
   };
@@ -357,9 +373,18 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     });
   };
 
-  const doForward = () => {
-    const m = actionMsg;
+  /** `msg` explicite pour le bouton "Partager" FIXE (tap direct, pas de
+   * menu) ; retombe sur `actionMsg` pour l'appel depuis MessageActionSheet
+   * (appui long), comportement inchangé. */
+  const doForward = (msg?: LocalGroupMessage) => {
+    const m = msg ?? actionMsg;
     if (!m) return;
+    // Nom de l'AUTEUR ORIGINAL du message de groupe — pas celui qui clique
+    // "Transférer" (généralement moi). Si `m` est déjà lui-même un
+    // transfert, on propage son `forwarded_from_name` (l'auteur d'origine,
+    // pas le dernier relais) plutôt que de l'écraser avec le sender local.
+    const forwardedFromName =
+      m.forwarded_from_name ?? m.sender?.display_name ?? m.sender?.username ?? null;
     void (async () => {
       const ids = await selectContacts({ title: t('chat.forwardSelectTitle') });
       if (!ids || ids.length === 0) return;
@@ -379,20 +404,22 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
             attachmentUrl: m.attachment_url,
             attachmentMeta: m.attachment_meta,
             forwardedFromId: m.id,
+            forwardedFromName,
           });
           ok += 1;
         } catch (e) {
           console.warn('[forward] échec pour', contactId, ':', e);
-          // DIAGNOSTIC TEMPORAIRE : affiche le vrai message d'erreur (à
-          // retirer une fois la cause identifiée).
-          showToast(`[debug] ${contactId}: ${e instanceof Error ? e.message : String(e)}`, {
-            type: 'error',
-          });
           if (e instanceof ApiError && (e.status === 403 || e.code === 'blocked')) blocked += 1;
           else fail += 1;
         }
       }
-      if (ok > 0) showToast(t('chat.forwardSent', { count: ok }));
+      if (ok > 0) {
+        showToast(t('chat.forwardSent', { count: ok }));
+        // le serveur incrémente aussi sa propre colonne (voir
+        // message_service.send) — ceci évite d'attendre un refresh complet
+        // pour voir le compteur bouger sur MON propre écran.
+        void groupRepo.incrementForwardCount(m.id).then(reload);
+      }
       if (blocked > 0) showToast(t('chat.forwardFailedBlocked', { count: blocked }), { type: 'error' });
       if (fail > 0) showToast(t('chat.forwardFailed', { count: fail }), { type: 'error' });
     })();
@@ -581,7 +608,17 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
       !older ||
       new Date(item.created_at).toDateString() !== new Date(older.created_at).toDateString();
 
-    const reactionEntries = Object.entries(item.reactions ?? {});
+    // 👍/👎 sont des boutons FIXES (façon Facebook, toujours visibles, tap
+    // direct sans appui long) — les autres emojis restent des pastilles qui
+    // n'apparaissent que s'il y en a déjà au moins une (appui long, palette
+    // `MessageActionSheet`). Même table/contrainte côté serveur (un seul
+    // emoji par personne) : 👍/👎 ne sont qu'un AFFICHAGE différent, pas un
+    // mécanisme séparé — voir `doReact`.
+    const likeCount = item.reactions?.['👍'] ?? 0;
+    const dislikeCount = item.reactions?.['👎'] ?? 0;
+    const reactionEntries = Object.entries(item.reactions ?? {}).filter(
+      ([emoji]) => emoji !== '👍' && emoji !== '👎',
+    );
 
     // Le vocal affiche déjà l'avatar de l'expéditeur DANS la bulle elle-même
     // (façon WhatsApp, voir VoiceNoteBubble) — éviter de le dupliquer aussi
@@ -620,7 +657,9 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
                   color={mine ? c.bubbleOutText : c.bubbleInText}
                 />
                 <Text style={[styles.forwardedTxt, { color: mine ? c.bubbleOutText : c.bubbleInText }]}>
-                  {t('chat.forwarded')}
+                  {item.forwarded_from_name
+                    ? t('chat.forwardedBy', { name: item.forwarded_from_name })
+                    : t('chat.forwarded')}
                 </Text>
               </View>
             ) : null}
@@ -677,16 +716,62 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
             )}
           </Pressable>
         </View>
-        {reactionEntries.length > 0 ? (
+        {/* les messages "system" (arrivée/départ d'un membre) sont déjà
+            interceptés par l'early-return tout en haut de renderItem —
+            à ce stade `item.type` ne peut plus valoir 'system'. */}
+        {!item.deleted_at ? (
           <View
             style={[
               styles.reactionsRow,
               mine ? styles.reactionsRowMine : styles.reactionsRowTheirs,
             ]}
           >
+            {/* boutons FIXES — toujours visibles, tap direct (pas d'appui long) */}
+            <Pressable
+              onPress={() => doQuickReact(item, '👍')}
+              onLongPress={() => (likeCount > 0 ? openReactionsSheet(item.id) : undefined)}
+              style={[
+                styles.reactionPill,
+                { backgroundColor: c.surfaceAlt, borderColor: c.border },
+                item.my_reaction === '👍' && { borderColor: c.primary },
+              ]}
+            >
+              <Text style={styles.reactionEmoji}>👍</Text>
+              {likeCount > 0 ? (
+                <Text
+                  style={[styles.reactionCount, { color: c.textMuted }]}
+                  onPress={() => openReactionsSheet(item.id)}
+                >
+                  {likeCount}
+                </Text>
+              ) : null}
+            </Pressable>
+            <Pressable
+              onPress={() => doQuickReact(item, '👎')}
+              onLongPress={() => (dislikeCount > 0 ? openReactionsSheet(item.id) : undefined)}
+              style={[
+                styles.reactionPill,
+                { backgroundColor: c.surfaceAlt, borderColor: c.border },
+                item.my_reaction === '👎' && { borderColor: c.primary },
+              ]}
+            >
+              <Text style={styles.reactionEmoji}>👎</Text>
+              {dislikeCount > 0 ? (
+                <Text
+                  style={[styles.reactionCount, { color: c.textMuted }]}
+                  onPress={() => openReactionsSheet(item.id)}
+                >
+                  {dislikeCount}
+                </Text>
+              ) : null}
+            </Pressable>
+
+            {/* pastilles des autres emojis — appui long uniquement (palette
+                MessageActionSheet), n'apparaissent que s'il y en a déjà */}
             {reactionEntries.map(([emoji, count]) => (
-              <View
+              <Pressable
                 key={emoji}
+                onPress={() => openReactionsSheet(item.id)}
                 style={[
                   styles.reactionPill,
                   { backgroundColor: c.surfaceAlt, borderColor: c.border },
@@ -697,8 +782,24 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
                 {count > 1 ? (
                   <Text style={[styles.reactionCount, { color: c.textMuted }]}>{count}</Text>
                 ) : null}
-              </View>
+              </Pressable>
             ))}
+
+            {/* bouton Partager FIXE — même transfert que le menu (appui
+                long), accessible directement sans ouvrir MessageActionSheet.
+                Compteur = nombre de fois que CE message a déjà été transféré
+                (voir GroupMessage.forward_count, incrémenté côté serveur). */}
+            <Pressable
+              onPress={() => doForward(item)}
+              style={[styles.reactionPill, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+            >
+              <Icon name="share-outline" size={13} color={c.textMuted} />
+              {item.forward_count > 0 ? (
+                <Text style={[styles.reactionCount, { color: c.textMuted }]}>
+                  {item.forward_count}
+                </Text>
+              ) : null}
+            </Pressable>
           </View>
         ) : null}
         {showDay ? (
@@ -918,6 +1019,12 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
         onDeleteForMe={doDeleteForMe}
         onDeleteForEveryone={doDeleteForEveryone}
         onClose={() => setActionMsg(null)}
+      />
+      <ReactionsListSheet
+        visible={!!reactionsSheetMsgId}
+        groupId={groupId}
+        messageId={reactionsSheetMsgId}
+        onClose={() => setReactionsSheetMsgId(null)}
       />
     </Screen>
   );
