@@ -25,6 +25,7 @@ class MainApplication : Application(), ReactApplication {
               add(BackgroundKeepAlivePackage())
               add(RingtonePackage())
               add(KeepAwakePackage())
+              add(DeviceLocalePackage())
             }
 
         override fun getJSMainModuleName(): String = "index"

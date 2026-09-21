@@ -21,7 +21,27 @@ import { storage } from '@/utils/storage';
 
 const DIR = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/media`;
 const LEGACY_DIR = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/media`;
+// Dossier TEMPORAIRE pour les pièces jointes vue-unique (façon WhatsApp) —
+// jamais dans `DIR` (persistant) : le fichier ne doit survivre que le temps
+// du visionnage, jamais rester accessible après coup. Voir `fetchTemp`.
+const TEMP_DIR = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/view-once`;
 let dirReady: Promise<void> | null = null;
+let tempDirReady: Promise<void> | null = null;
+
+function ensureTempDir(): Promise<void> {
+  if (!tempDirReady) {
+    tempDirReady = (async () => {
+      try {
+        if (!(await ReactNativeBlobUtil.fs.isDir(TEMP_DIR))) {
+          await ReactNativeBlobUtil.fs.mkdir(TEMP_DIR);
+        }
+      } catch {
+        /* best-effort */
+      }
+    })();
+  }
+  return tempDirReady;
+}
 
 function ensureDir(): Promise<void> {
   if (!dirReady) {
@@ -313,6 +333,39 @@ export const mediaCache = {
       if (!(await ReactNativeBlobUtil.fs.exists(src))) return;
       await ReactNativeBlobUtil.fs.cp(src, dst);
       emitCached(remote, `file://${dst}`);
+    } catch {
+      /* best-effort */
+    }
+  },
+
+  /**
+   * Télécharge UNE pièce jointe vue-unique dans un dossier TEMPORAIRE (pas
+   * le cache persistant `DIR`) — pour l'afficher/l'écouter sans jamais en
+   * garder de copie durable. À appeler AVANT toute confirmation au serveur
+   * (qui supprime le fichier distant) : l'ordre garantit que le média a bien
+   * fini de charger avant de disparaître côté serveur. Le fichier obtenu
+   * DOIT être effacé via `deleteTemp()` une fois le visionnage terminé.
+   */
+  async fetchTemp(
+    rawUrl: string | null | undefined,
+    opts?: { onProgress?: (p: number) => void },
+  ): Promise<string | null> {
+    if (!rawUrl) return null;
+    if (isLocal(rawUrl)) return rawUrl;
+    const remote = mediaUrl(rawUrl) ?? rawUrl;
+    await ensureTempDir();
+    const localPath = `${TEMP_DIR}/${hash(remote)}${extFromUrl(remote)}`;
+    return download(remote, localPath, opts?.onProgress);
+  },
+
+  /** Efface un fichier téléchargé via `fetchTemp()`. Best-effort. */
+  async deleteTemp(localUri: string | null | undefined): Promise<void> {
+    if (!localUri) return;
+    const path = localUri.startsWith('file://') ? localUri.slice(7) : localUri;
+    try {
+      if (await ReactNativeBlobUtil.fs.exists(path)) {
+        await ReactNativeBlobUtil.fs.unlink(path);
+      }
     } catch {
       /* best-effort */
     }

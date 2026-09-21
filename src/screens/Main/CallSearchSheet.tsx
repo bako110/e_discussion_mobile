@@ -1,11 +1,12 @@
 /**
  * Bottom sheet de recherche d'appels par date précise + plage horaire
- * optionnelle. Pas de date-picker natif dans le projet (nécessiterait un
- * rebuild natif) — sélecteur maison : raccourcis courants + saisie
- * manuelle JJ/MM/AAAA et HH:MM.
+ * optionnelle. Sélection au tap via les pickers natifs Android/iOS
+ * (calendrier pour la date, horloge pour les heures) — raccourcis courants
+ * en plus pour les cas les plus fréquents (aujourd'hui/hier/semaine).
  */
 import React, { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
@@ -34,28 +35,16 @@ function endOfDay(d: Date): number {
   return x.getTime();
 }
 
-/** Parse "JJ/MM/AAAA" -> Date locale valide, ou null si invalide. */
-function parseDateInput(s: string): Date | null {
-  const m = s.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return null;
-  const day = Number(m[1]);
-  const month = Number(m[2]);
-  const year = Number(m[3]);
-  const d = new Date(year, month - 1, day);
-  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
-  return d;
+function formatDate(d: Date): string {
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
 }
-
-/** Parse "HH:MM" -> minutes depuis minuit, ou null si invalide/vide. */
-function parseTimeInput(s: string): number | null {
-  const t = s.trim();
-  if (!t) return null;
-  const m = t.match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const h = Number(m[1]);
-  const min = Number(m[2]);
-  if (h > 23 || min > 59) return null;
-  return h * 60 + min;
+function formatTime(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+function minutesFromDate(d: Date): number {
+  return d.getHours() * 60 + d.getMinutes();
 }
 
 export const CallSearchSheet: React.FC<{
@@ -70,30 +59,34 @@ export const CallSearchSheet: React.FC<{
   const insets = useSafeAreaInsets();
   const c = theme.colors;
 
-  const [dateInput, setDateInput] = useState('');
-  const [fromInput, setFromInput] = useState('');
-  const [toInput, setToInput] = useState('');
+  const [day, setDay] = useState<Date | null>(null);
+  const [fromMin, setFromMin] = useState<number | null>(null);
+  const [toMin, setToMin] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openPicker, setOpenPicker] = useState<'date' | 'from' | 'to' | null>(null);
 
   const shortcut = (daysAgo: number) => {
     const d = new Date();
     d.setDate(d.getDate() - daysAgo);
-    setDateInput(
-      `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`,
-    );
+    d.setHours(0, 0, 0, 0);
+    setDay(d);
+    setError(null);
+  };
+
+  const onPickerChange = (event: DateTimePickerEvent, picked?: Date) => {
+    // Android ferme le dialog tout seul après le choix (ou l'annulation) ;
+    // iOS reste ouvert (spinner inline) — voir onClose du picker pour ce cas.
+    if (Platform.OS === 'android') setOpenPicker(null);
+    if (event.type === 'dismissed' || !picked) return;
+    if (openPicker === 'date') setDay(picked);
+    else if (openPicker === 'from') setFromMin(minutesFromDate(picked));
+    else if (openPicker === 'to') setToMin(minutesFromDate(picked));
     setError(null);
   };
 
   const apply = () => {
-    const day = parseDateInput(dateInput);
     if (!day) {
       setError(t('calls.searchInvalidDate'));
-      return;
-    }
-    const fromMin = parseTimeInput(fromInput);
-    const toMin = parseTimeInput(toInput);
-    if ((fromInput.trim() && fromMin === null) || (toInput.trim() && toMin === null)) {
-      setError(t('calls.searchInvalidTime'));
       return;
     }
     if (fromMin !== null && toMin !== null && fromMin > toMin) {
@@ -106,9 +99,9 @@ export const CallSearchSheet: React.FC<{
   };
 
   const reset = () => {
-    setDateInput('');
-    setFromInput('');
-    setToInput('');
+    setDay(null);
+    setFromMin(null);
+    setToMin(null);
     setError(null);
     onReset();
     onClose();
@@ -143,46 +136,37 @@ export const CallSearchSheet: React.FC<{
         </View>
 
         <Text style={[styles.label, { color: c.textMuted }]}>{t('calls.searchDate')}</Text>
-        <View style={[styles.field, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
+        <Pressable
+          onPress={() => setOpenPicker('date')}
+          style={[styles.field, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+        >
           <Icon name="calendar-outline" size={18} color={c.textFaint} />
-          <TextInput
-            value={dateInput}
-            onChangeText={setDateInput}
-            placeholder="JJ/MM/AAAA"
-            placeholderTextColor={c.textFaint}
-            keyboardType="number-pad"
-            maxLength={10}
-            style={[styles.input, { color: c.text }]}
-          />
-        </View>
+          <Text style={[styles.input, { color: day ? c.text : c.textFaint }]}>
+            {day ? formatDate(day) : 'JJ/MM/AAAA'}
+          </Text>
+        </Pressable>
 
         <Text style={[styles.label, { color: c.textMuted }]}>{t('calls.searchTimeRange')}</Text>
         <View style={styles.timeRow}>
-          <View style={[styles.field, styles.timeField, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
+          <Pressable
+            onPress={() => setOpenPicker('from')}
+            style={[styles.field, styles.timeField, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+          >
             <Icon name="clock-outline" size={18} color={c.textFaint} />
-            <TextInput
-              value={fromInput}
-              onChangeText={setFromInput}
-              placeholder="HH:MM"
-              placeholderTextColor={c.textFaint}
-              keyboardType="number-pad"
-              maxLength={5}
-              style={[styles.input, { color: c.text }]}
-            />
-          </View>
+            <Text style={[styles.input, { color: fromMin !== null ? c.text : c.textFaint }]}>
+              {fromMin !== null ? formatTime(fromMin) : 'HH:MM'}
+            </Text>
+          </Pressable>
           <Text style={{ color: c.textMuted }}>—</Text>
-          <View style={[styles.field, styles.timeField, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
+          <Pressable
+            onPress={() => setOpenPicker('to')}
+            style={[styles.field, styles.timeField, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+          >
             <Icon name="clock-outline" size={18} color={c.textFaint} />
-            <TextInput
-              value={toInput}
-              onChangeText={setToInput}
-              placeholder="HH:MM"
-              placeholderTextColor={c.textFaint}
-              keyboardType="number-pad"
-              maxLength={5}
-              style={[styles.input, { color: c.text }]}
-            />
-          </View>
+            <Text style={[styles.input, { color: toMin !== null ? c.text : c.textFaint }]}>
+              {toMin !== null ? formatTime(toMin) : 'HH:MM'}
+            </Text>
+          </Pressable>
         </View>
 
         {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
@@ -195,14 +179,45 @@ export const CallSearchSheet: React.FC<{
           ) : null}
           <Pressable
             onPress={apply}
-            disabled={!dateInput.trim()}
-            style={[styles.btn, { backgroundColor: c.primary, opacity: dateInput.trim() ? 1 : 0.5 }]}
+            disabled={!day}
+            style={[styles.btn, { backgroundColor: c.primary, opacity: day ? 1 : 0.5 }]}
           >
             <Icon name="magnify" size={18} color="#fff" />
             <Text style={styles.btnTxt}>{t('common.search')}</Text>
           </Pressable>
         </View>
       </View>
+
+      {openPicker ? (
+        <DateTimePicker
+          value={
+            openPicker === 'date'
+              ? day ?? new Date()
+              : (() => {
+                  const base = new Date();
+                  const mins = openPicker === 'from' ? fromMin : toMin;
+                  base.setHours(mins !== null ? Math.floor(mins / 60) : base.getHours());
+                  base.setMinutes(mins !== null ? mins % 60 : base.getMinutes());
+                  return base;
+                })()
+          }
+          mode={openPicker === 'date' ? 'date' : 'time'}
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          is24Hour
+          onChange={onPickerChange}
+        />
+      ) : null}
+      {/* iOS : le picker reste ouvert (spinner inline) tant qu'on ne ferme
+          pas nous-mêmes — un bouton "Terminé" au-dessus du clavier système
+          n'existe pas pour ce mode, donc on ajoute le nôtre. */}
+      {Platform.OS === 'ios' && openPicker ? (
+        <Pressable
+          onPress={() => setOpenPicker(null)}
+          style={[styles.iosDoneBtn, { backgroundColor: c.primary }]}
+        >
+          <Text style={styles.btnTxt}>{t('common.done')}</Text>
+        </Pressable>
+      ) : null}
     </Modal>
   );
 };
@@ -255,4 +270,12 @@ const styles = StyleSheet.create({
   btnTxt: { color: '#fff', fontWeight: '800', fontSize: 14 },
   btnGhost: { backgroundColor: 'transparent', borderWidth: 1.5 },
   btnGhostTxt: { fontWeight: '800', fontSize: 14 },
+  iosDoneBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    marginTop: 8,
+    marginHorizontal: 20,
+    borderRadius: 24,
+  },
 });

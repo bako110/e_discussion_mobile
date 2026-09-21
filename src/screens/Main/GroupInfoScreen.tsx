@@ -460,6 +460,21 @@ export const GroupInfoScreen: React.FC<MainScreenProps<'GroupInfo'>> = ({
 
         {/* réglages rapides */}
         <View style={[styles.toggleCard, { backgroundColor: c.surfaceAlt }]}>
+          <Pressable
+            style={[styles.manageRow, { borderBottomColor: c.divider, borderBottomWidth: StyleSheet.hairlineWidth }]}
+            onPress={() =>
+              navigation.navigate('ChatSearch', {
+                mode: 'group',
+                groupId,
+                groupName: group?.name ?? '',
+              })
+            }
+            android_ripple={{ color: c.surface }}
+          >
+            <Icon name="magnify" size={20} color={c.primary} />
+            <Text style={[styles.manageTxt, { flex: 1 }, { color: c.text }]}>{t('chat.search')}</Text>
+            <Icon name="chevron-right" size={20} color={c.textFaint} />
+          </Pressable>
           <Pressable style={styles.toggleRow} onPress={toggleMute}>
             <Icon
               name={group?.muted ? 'bell-off-outline' : 'bell-outline'}

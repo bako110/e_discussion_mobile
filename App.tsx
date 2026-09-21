@@ -23,21 +23,26 @@ const App: React.FC = () => (
     <SafeAreaProvider>
       <ThemeProvider>
         <ThemedStatusBar />
-        <AuthProvider>
-          <SyncProvider>
-            <ChatPrefsProvider>
-              <CallPrefsProvider>
-                <AppErrorBoundary>
+        {/* Couvre TOUS les providers (pas seulement RootNavigator) : une
+            exception levée pendant leur (re)montage — ex. reprise depuis
+            l'arrière-plan après que l'OS a tué le process — doit afficher
+            l'écran de secours plutôt que faire planter l'app entière
+            (« a cessé de fonctionner » sans red-box en build release). */}
+        <AppErrorBoundary>
+          <AuthProvider>
+            <SyncProvider>
+              <ChatPrefsProvider>
+                <CallPrefsProvider>
                   <RootNavigator />
-                </AppErrorBoundary>
-              </CallPrefsProvider>
-            </ChatPrefsProvider>
-          </SyncProvider>
-        </AuthProvider>
-        {/* Alertes & feuilles d'actions maison — au-dessus de toute la navigation */}
-        <ActionSheetHost />
-        <AppAlertHost />
-        <ToastHost />
+                </CallPrefsProvider>
+              </ChatPrefsProvider>
+            </SyncProvider>
+          </AuthProvider>
+          {/* Alertes & feuilles d'actions maison — au-dessus de toute la navigation */}
+          <ActionSheetHost />
+          <AppAlertHost />
+          <ToastHost />
+        </AppErrorBoundary>
       </ThemeProvider>
     </SafeAreaProvider>
   </GestureHandlerRootView>

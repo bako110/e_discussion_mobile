@@ -4,6 +4,7 @@ import notifee, { EventType } from '@notifee/react-native';
 
 import { SplashView } from '@/components/common';
 import { useAuth } from '@/context/AuthContext';
+import { AppointmentSync } from '@/context/AppointmentSync';
 import { CallProvider } from '@/context/CallContext';
 import { GroupsProvider } from '@/context/GroupsContext';
 import { MessageNotifications } from '@/context/MessageNotifications';
@@ -98,6 +99,9 @@ export const RootNavigator: React.FC = () => {
       } else if (data.kind === 'story' && typeof data.authorId === 'string') {
         const authorId = data.authorId;
         if (navigationRef.isReady()) navigationRef.navigate('StoryViewer', { authorId });
+      } else if (data.kind === 'appointment' && typeof data.appointmentId === 'string') {
+        const appointmentId = data.appointmentId;
+        if (navigationRef.isReady()) navigationRef.navigate('AppointmentDetail', { appointmentId });
       }
     };
     void notifee.getInitialNotification().then((initial) => {
@@ -145,6 +149,7 @@ export const RootNavigator: React.FC = () => {
               </GroupsProvider>
             </StoriesProvider>
             <MessageSync />
+            <AppointmentSync />
             <MessageNotifications />
             <CallOverlay />
             <GlobalVoiceBar />

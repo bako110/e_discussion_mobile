@@ -1,7 +1,6 @@
 import React from 'react';
 import { Platform, StatusBar, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { useTheme } from '@/context/ThemeContext';
 
@@ -31,10 +30,12 @@ const BAR_HEIGHT_COMPACT = 48;
 /**
  * En-tete applicatif haut de gamme.
  *
- * - `variant="brand"` : peint SOUS la status bar (edge-to-edge) avec un
- *   degrade bleu, une ombre douce et des coins bas arrondis optionnels.
- *   La status bar passe en contenu clair automatiquement.
- * - `variant="plain"` : fond de la surface, texte normal (ecrans de detail).
+ * Les deux variantes partagent maintenant la MÊME base : le fond de l'écran
+ * (`c.background`), donc elles s'adaptent automatiquement au thème clair/
+ * sombre au lieu d'imposer le bleu de marque. `variant="brand"` ajoute
+ * juste un voile TRÈS léger de teinte primaire (overlay, pas un aplat) +
+ * coins bas arrondis optionnels + ombre douce ; `variant="plain"` reste
+ * un fond uni avec un simple filet de séparation.
  *
  * Le safe-area top est gere ici : les ecrans utilisent `<Screen edges={[]}>`
  * ou `edges={['top']}` selon qu'ils ont ou non ce header.
@@ -57,7 +58,9 @@ export const AppHeader: React.FC<Props> = ({
   const brand = variant === 'brand';
 
   const topPad = insets.top || (Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0);
-  const fg = brand ? c.onHeader : c.text;
+  // texte/icônes suivent TOUJOURS le thème courant (plus de blanc fixe sur
+  // fond bleu) — coherent clair/sombre pour les deux variantes.
+  const fg = c.text;
   const radius = brand && rounded ? 22 : 0;
   // Ombre portee UNIQUEMENT quand l'en-tete "flotte" (coins arrondis). Un
   // bandeau bord-a-bord (ecran conversation) touche le fond : aucune ombre.
@@ -68,7 +71,7 @@ export const AppHeader: React.FC<Props> = ({
       <StatusBar
         translucent
         backgroundColor="transparent"
-        barStyle={brand ? 'light-content' : theme.isDark ? 'light-content' : 'dark-content'}
+        barStyle={theme.isDark ? 'light-content' : 'dark-content'}
         animated
       />
       {/* Couche OMBRE : porte UNIQUEMENT l'ombre (aucun fond — sinon une
@@ -79,15 +82,15 @@ export const AppHeader: React.FC<Props> = ({
           withShadow && {
             borderBottomLeftRadius: radius,
             borderBottomRightRadius: radius,
-            backgroundColor: c.primaryLo,
+            backgroundColor: c.background,
           },
           withShadow && (theme.isDark ? styles.shadowDark : styles.shadow),
           style,
         ]}
       >
-        {/* Couche CONTENU. En-tete FLOTTANT (rounded) : degrade + coins
-            arrondis. En-tete BORD-A-BORD (conversation) : bleu UNI, aucune
-            couche supplementaire — pas de double teinte disgracieuse. */}
+        {/* Couche CONTENU : fond de l'écran (adapté au thème) + voile
+            de teinte primaire TRÈS léger si `brand` (juste assez pour
+            distinguer le header du contenu, jamais un aplat opaque). */}
         <View
           style={[
             styles.wrap,
@@ -95,30 +98,25 @@ export const AppHeader: React.FC<Props> = ({
               paddingTop: topPad,
               borderBottomLeftRadius: radius,
               borderBottomRightRadius: radius,
-              backgroundColor: brand ? c.primary : c.background,
+              backgroundColor: c.background,
             },
             !brand && { borderBottomColor: c.divider, borderBottomWidth: StyleSheet.hairlineWidth },
           ]}
         >
-        {brand && rounded ? (
-          <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
-            <Defs>
-              <LinearGradient id="hdrGrad" x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0" stopColor={c.primaryHi} />
-                <Stop offset="0.55" stopColor={c.primary} />
-                <Stop offset="1" stopColor={c.primaryLo} />
-              </LinearGradient>
-            </Defs>
-            <Rect
-              x="0"
-              y="0"
-              width="100%"
-              height="100%"
-              rx={radius}
-              ry={radius}
-              fill="url(#hdrGrad)"
-            />
-          </Svg>
+        {brand ? (
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                borderBottomLeftRadius: radius,
+                borderBottomRightRadius: radius,
+                // voile : ~8-10% d'opacité de la couleur de marque — visible
+                // sans jamais dominer le fond de l'écran sous-jacent.
+                backgroundColor: c.primary + (theme.isDark ? '1A' : '14'),
+              },
+            ]}
+          />
         ) : null}
 
         <View style={[styles.bar, { height: compact ? BAR_HEIGHT_COMPACT : BAR_HEIGHT }]}>

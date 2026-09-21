@@ -119,6 +119,11 @@ async function withRecLock<T>(fn: () => Promise<T>): Promise<T> {
   return p;
 }
 
+/** Borne haute d'un envoi groupé — au-delà, on force plusieurs sélections
+ * successives plutôt que de risquer d'empiler des dizaines de messages/
+ * uploads d'un coup (charge outbox + réseau). */
+const MAX_MULTI_IMAGES = 20;
+
 function assetToFile(asset: Asset | undefined, fallbackType: string): UploadFile | null {
   if (!asset?.uri) return null;
   const name = asset.fileName || asset.uri.split('/').pop() || `upload_${Date.now()}`;
@@ -141,6 +146,12 @@ export interface MediaPicker {
   recordSeconds: number;
   // ── offline-first : renvoient le fichier local, aucun réseau ──
   pickImageLocal: (opts?: { camera?: boolean }) => Promise<LocalMediaFile | null>;
+  /**
+   * Sélection MULTIPLE de photos depuis la galerie (jusqu'à `maxCount`,
+   * défaut 6) — façon WhatsApp « partager plusieurs photos ». Chaque asset
+   * choisi devient un `LocalMediaFile` indépendant, aucun upload ici.
+   */
+  pickImagesMultiple: (maxCount?: number) => Promise<LocalMediaFile[]>;
   pickVideoLocal: (opts?: { camera?: boolean }) => Promise<LocalMediaFile | null>;
   /** Ouvre directement l'appareil photo natif — photo OU vidéo (bascule
    * intégrée à l'interface caméra de l'OS). */
@@ -376,6 +387,50 @@ export function useMediaPicker(): MediaPicker {
     (opts?: { camera?: boolean }) => runPickLocal('photo', !!opts?.camera),
     [runPickLocal],
   );
+
+  /** Sélection MULTIPLE de photos depuis la galerie (pas la caméra — une
+   * seule photo à la fois y a du sens). Renvoie [] si annulé. `maxCount`
+   * borne le nombre choisi (défaut 6, plafonné à MAX_MULTI_IMAGES) pour
+   * éviter un envoi accidentel de tout un album. */
+  const pickImagesMultiple = useCallback(async (maxCount = 6): Promise<LocalMediaFile[]> => {
+    setBusy(true);
+    try {
+      const opts: ImageLibraryOptions = {
+        mediaType: 'photo',
+        quality: 0.85 as PhotoQuality,
+        selectionLimit: Math.min(Math.max(1, maxCount), MAX_MULTI_IMAGES),
+        includeExtra: true,
+      };
+      const res = await launchImageLibrary(opts);
+      if (res.didCancel) return [];
+      if (res.errorCode) {
+        alertError('Erreur', res.errorMessage || res.errorCode);
+        return [];
+      }
+      const assets = res.assets ?? [];
+      const files: LocalMediaFile[] = [];
+      for (const asset of assets) {
+        const file = assetToFile(asset, 'image/jpeg');
+        if (!file) continue;
+        files.push({
+          file,
+          kind: 'image',
+          size: asset.fileSize ?? null,
+          width: asset.width ?? null,
+          height: asset.height ?? null,
+          durationSec: null,
+        });
+      }
+      return files;
+    } catch (e) {
+      console.warn('[media] pick multi local failed:', e);
+      alertError('Erreur', 'Impossible de sélectionner ces photos.');
+      return [];
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const pickVideoLocal = useCallback(
     (opts?: { camera?: boolean }) => runPickLocal('video', !!opts?.camera),
     [runPickLocal],
@@ -694,6 +749,7 @@ export function useMediaPicker(): MediaPicker {
     recordingPaused,
     recordSeconds,
     pickImageLocal,
+    pickImagesMultiple,
     pickVideoLocal,
     pickCameraLocal,
     pickDocumentLocal,

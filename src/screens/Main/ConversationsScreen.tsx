@@ -558,7 +558,7 @@ export const ConversationsScreen: React.FC = () => {
         }
         bottom={
           <View style={styles.searchRow}>
-            <View style={[styles.searchBox, { backgroundColor: c.background }]}>
+            <View style={[styles.searchBox, { backgroundColor: c.surfaceAlt }]}>
               <Icon name="magnify" size={19} color={c.textFaint} />
               <TextInput
                 value={query}
@@ -685,8 +685,10 @@ export const ConversationsScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  brandLogo: { width: 32, height: 32, borderRadius: 16 },
-  brandText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: -0.4 },
+  // coins légèrement arrondis (façon icône d'app moderne) plutôt qu'un
+  // cercle complet — logo plus lisible, forme moins "avatar générique".
+  brandLogo: { width: 32, height: 32, borderRadius: 9 },
+  brandText: { fontSize: 20, fontWeight: '800', letterSpacing: -0.4 },
   fab: {
     position: 'absolute',
     right: 18,

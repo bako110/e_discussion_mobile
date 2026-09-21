@@ -7,10 +7,13 @@ import { AppearanceSettingsScreen } from '@/screens/Main/AppearanceSettingsScree
 import { AppointmentsScreen } from '@/screens/Main/AppointmentsScreen';
 import { CreateAppointmentScreen } from '@/screens/Main/CreateAppointmentScreen';
 import { AppointmentDetailScreen } from '@/screens/Main/AppointmentDetailScreen';
+import { AppointmentNotesScreen } from '@/screens/Main/AppointmentNotesScreen';
 import { BlockedUsersScreen } from '@/screens/Main/BlockedUsersScreen';
 import { ContactSyncScreen } from '@/screens/Main/ContactSyncScreen';
 import { ChatScreen } from '@/screens/Main/ChatScreen';
+import { ChatSearchScreen } from '@/screens/Main/ChatSearchScreen';
 import { ConversationInfoScreen } from '@/screens/Main/ConversationInfoScreen';
+import { SharedFilesScreen } from '@/screens/Main/SharedFilesScreen';
 import { ChatsSettingsScreen } from '@/screens/Main/ChatsSettingsScreen';
 import { CallsSettingsScreen } from '@/screens/Main/CallsSettingsScreen';
 import { ChannelDiscussionScreen } from '@/screens/Main/ChannelDiscussionScreen';
@@ -26,6 +29,8 @@ import { GroupJoinRequestsScreen } from '@/screens/Main/GroupJoinRequestsScreen'
 import { AddGroupMembersScreen } from '@/screens/Main/AddGroupMembersScreen';
 import { ChannelLiveViewerScreen } from '@/screens/Main/ChannelLiveViewerScreen';
 import { ChatMediaPreviewScreen } from '@/screens/Main/ChatMediaPreviewScreen';
+import { ChatMultiMediaPreviewScreen } from '@/screens/Main/ChatMultiMediaPreviewScreen';
+import { GalleryPickerScreen } from '@/screens/Main/GalleryPickerScreen';
 import { GroupQrScreen } from '@/screens/Main/GroupQrScreen';
 import { GroupsListScreen } from '@/screens/Main/GroupsListScreen';
 import { HelpSettingsScreen } from '@/screens/Main/HelpSettingsScreen';
@@ -65,7 +70,9 @@ export const MainNavigator: React.FC = () => (
   <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <Stack.Screen name="Tabs" component={TabNavigator} />
     <Stack.Screen name="Chat" component={ChatScreen} />
+    <Stack.Screen name="ChatSearch" component={ChatSearchScreen} />
     <Stack.Screen name="ConversationInfo" component={ConversationInfoScreen} />
+    <Stack.Screen name="SharedFiles" component={SharedFilesScreen} />
     <Stack.Screen name="UserProfile" component={UserProfileScreen} />
     <Stack.Screen name="NewConversation" component={NewConversationScreen} />
     <Stack.Screen name="EditProfile" component={EditProfileScreen} />
@@ -112,6 +119,16 @@ export const MainNavigator: React.FC = () => (
       name="ChatMediaPreview"
       component={ChatMediaPreviewScreen}
       options={{ animation: 'fade' }}
+    />
+    <Stack.Screen
+      name="ChatMultiMediaPreview"
+      component={ChatMultiMediaPreviewScreen}
+      options={{ animation: 'fade' }}
+    />
+    <Stack.Screen
+      name="GalleryPicker"
+      component={GalleryPickerScreen}
+      options={{ animation: 'slide_from_bottom' }}
     />
     <Stack.Screen
       name="StoryViewer"
@@ -176,6 +193,7 @@ export const MainNavigator: React.FC = () => (
       options={{ animation: 'slide_from_bottom' }}
     />
     <Stack.Screen name="AppointmentDetail" component={AppointmentDetailScreen} />
+    <Stack.Screen name="AppointmentNotes" component={AppointmentNotesScreen} />
     <Stack.Screen
       name="ImageCrop"
       component={ImageCropScreen}

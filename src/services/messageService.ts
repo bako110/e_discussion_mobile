@@ -103,6 +103,14 @@ export const messageService = {
     return messageRepo.page(conversationId, limit, beforeCreatedAt);
   },
 
+  /** Recherche locale (texte et/ou plage de dates) — voir `messageRepo.search`. */
+  search(
+    conversationId: string,
+    opts: { queryText?: string; dateFrom?: string; dateTo?: string; limit?: number },
+  ): Promise<LocalMessage[]> {
+    return messageRepo.search(conversationId, opts);
+  },
+
   /** Envoi local-first :
    *  1. insère la bulle optimiste TOUT DE SUITE (⏱) et la renvoie ;
    *  2. chiffre + empile l'outbox de façon FIABLE (persistée) en arrière-plan.

@@ -106,6 +106,17 @@ export const CallPrefsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
     if (hydratedFor.current === me.id) return;
     hydratedFor.current = me.id;
+    // DEBUG TEMPORAIRE : confirme si le serveur renvoie bien ces champs
+    // (sinon ?? DEFAULTS écrase silencieusement les prefs locales à
+    // chaque démarrage) — à retirer une fois le diagnostic fait.
+    console.warn('[CallPrefs] hydratation depuis /me :', {
+      call_ringtone: me.call_ringtone,
+      call_vibrate: me.call_vibrate,
+      call_answer_on_speaker: me.call_answer_on_speaker,
+      call_low_data: me.call_low_data,
+      call_block_unknown: me.call_block_unknown,
+      cacheAvant: readCache(),
+    });
     const server: CallPrefs = {
       ringtone: me.call_ringtone ?? DEFAULTS.ringtone,
       vibrate: me.call_vibrate ?? DEFAULTS.vibrate,

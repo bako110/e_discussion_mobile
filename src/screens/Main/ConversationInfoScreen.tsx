@@ -67,6 +67,7 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
   const [muted, setMuted] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [media, setMedia] = useState<SharedMedia[]>([]);
+  const [fileCount, setFileCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [encOpen, setEncOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -90,7 +91,9 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
       const [detail, blk, med] = await Promise.all([
         conversationService.detail(conversationId).catch(() => null),
         userService.blockedUsers().catch(() => [] as UserPublic[]),
-        conversationService.media(conversationId, 1, 12).catch(() => [] as SharedMedia[]),
+        // page large : le filtrage photos/vidéos vs fichiers se fait ici
+        // (l'API renvoie tous les types de pièces jointes mélangés).
+        conversationService.media(conversationId, 1, 60).catch(() => [] as SharedMedia[]),
       ]);
       if (detail) {
         setMuted(detail.muted);
@@ -100,7 +103,13 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
         if (remote) setProfile(remote);
       }
       setBlocked(blk.some((u) => u.id === partnerId));
-      if (med.length) setMedia(med);
+      if (med.length) {
+        // Médias, façon WhatsApp : uniquement photos/vidéos en grille ici —
+        // les fichiers (documents) ont leur propre page dédiée, voir
+        // `SharedFilesScreen` et la ligne "Fichiers" plus bas.
+        setMedia(med.filter((m) => m.type === 'image' || m.type === 'video'));
+        setFileCount(med.filter((m) => m.type === 'file').length);
+      }
     } catch {
       /* hors-ligne — on garde le local */
     }
@@ -303,7 +312,8 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
               icon="magnify"
               label={t('chat.search')}
               onPress={() =>
-                navigation.navigate('Chat', {
+                navigation.navigate('ChatSearch', {
+                  mode: 'dm',
                   conversationId,
                   partnerId,
                   partnerName: name,
@@ -314,7 +324,8 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
             />
           </View>
 
-          {/* Médias partagés */}
+          {/* Médias partagés — uniquement photos/vidéos, façon WhatsApp
+              (les fichiers vivent dans leur propre page, voir plus bas). */}
           <SettingsSection title={t('chat.sharedMedia')}>
             {media.length > 0 ? (
               <View style={styles.mediaWrap}>
@@ -330,17 +341,7 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
                         })
                       }
                     >
-                      {m.type === 'image' || m.type === 'video' ? (
-                        <Image source={{ uri: mediaUrl(m.url) }} style={styles.mediaImg} />
-                      ) : (
-                        <View style={[styles.mediaImg, styles.mediaFile, { backgroundColor: c.surfaceAlt }]}>
-                          <Icon
-                            name={m.type === 'voice' ? 'microphone' : 'file-outline'}
-                            size={22}
-                            color={c.textMuted}
-                          />
-                        </View>
-                      )}
+                      <Image source={{ uri: mediaUrl(m.url) }} style={styles.mediaImg} />
                       {m.type === 'video' ? (
                         <View style={styles.playBadge}>
                           <Icon name="play" size={12} color="#fff" />
@@ -357,6 +358,13 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
                 </Text>
               </View>
             )}
+            <SettingsRow
+              icon="file-document-outline"
+              label={t('chat.files')}
+              value={fileCount > 0 ? String(fileCount) : undefined}
+              onPress={() => navigation.navigate('SharedFiles', { conversationId })}
+              last
+            />
           </SettingsSection>
 
           {/* Notifications */}
@@ -501,7 +509,6 @@ const styles = StyleSheet.create({
   mediaRow: { paddingHorizontal: 12, gap: 8 },
   mediaThumb: { width: 78, height: 78, borderRadius: 10, overflow: 'hidden' },
   mediaImg: { width: 78, height: 78, borderRadius: 10 },
-  mediaFile: { alignItems: 'center', justifyContent: 'center' },
   playBadge: {
     position: 'absolute',
     right: 5,

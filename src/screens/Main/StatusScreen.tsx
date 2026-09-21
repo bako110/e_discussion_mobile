@@ -218,7 +218,7 @@ export const StatusScreen: React.FC = () => {
           <View
             style={[
               styles.cardRing,
-              { borderColor: item.has_unseen ? c.primary : 'rgba(255,255,255,0.85)' },
+              { borderColor: item.has_unseen ? c.storyRing : 'rgba(255,255,255,0.85)' },
             ]}
           >
             <Avatar uri={item.author.avatar_url} name={name} size={34} />
@@ -278,7 +278,7 @@ export const StatusScreen: React.FC = () => {
           </View>
         }
         bottom={
-          <View style={[styles.searchBox, { backgroundColor: c.background }]}>
+          <View style={[styles.searchBox, { backgroundColor: c.surfaceAlt }]}>
             <Icon name="magnify" size={19} color={c.textFaint} />
             <TextInput
               value={query}
@@ -433,7 +433,7 @@ export const StatusScreen: React.FC = () => {
                       },
                     ]}
                   >
-                    <View style={[styles.actRing, { borderColor: item.has_unseen ? c.primary : c.border }]}>
+                    <View style={[styles.actRing, { borderColor: item.has_unseen ? c.storyRing : c.border }]}>
                       <Avatar uri={item.author.avatar_url} name={name} size={40} />
                     </View>
                     <View style={styles.actBody}>
@@ -492,7 +492,7 @@ export const StatusScreen: React.FC = () => {
                       <Text style={[styles.rankTxt, { color: c.primary }]}>{i + 1}</Text>
                     </View>
                     <View
-                      style={[styles.actRing, { borderColor: item.has_unseen ? c.primary : c.border }]}
+                      style={[styles.actRing, { borderColor: item.has_unseen ? c.storyRing : c.border }]}
                     >
                       <Avatar uri={item.author.avatar_url} name={name} size={40} />
                     </View>

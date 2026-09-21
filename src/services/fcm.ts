@@ -18,6 +18,7 @@ import { conversationRepo } from '@/db/repositories/conversationRepo';
 import { groupRepo } from '@/db/repositories/groupRepo';
 
 import {
+  displayAppointmentNotification,
   displayIncomingCall,
   displayMessageNotification,
   displayMissedCall,
@@ -123,6 +124,39 @@ export async function handleFcmDataMessage(
       authorName: pick(data, 'author_name') || pick(data, 'title') || 'Statut',
       authorAvatar: pick(data, 'author_avatar') || null,
     });
+    return;
+  }
+
+  if (type.startsWith('appointment.')) {
+    const appointmentId = pick(data, 'appointment_id');
+    const apptTitle = pick(data, 'title') || 'Rendez-vous';
+    // Le TITRE affiché par le système doit toujours annoncer le TYPE
+    // ("Rendez-vous" / "Invitation…"), jamais juste le titre du RDV choisi
+    // par l'utilisateur — sinon rien ne distingue visuellement une notif RDV
+    // d'un message ou d'une autre notif dans le centre de notifications.
+    let notifTitle = '📅 Rendez-vous';
+    let body = '';
+    if (type === 'appointment.invite') {
+      notifTitle = '📅 Invitation à un rendez-vous';
+      body = `${pick(data, 'organizer_name') || 'Quelqu’un'} vous invite : ${apptTitle}`;
+    } else if (type === 'appointment.response') {
+      const accepted = pick(data, 'status') === 'accepted';
+      notifTitle = accepted ? '📅 Rendez-vous accepté' : '📅 Rendez-vous décliné';
+      body = `${pick(data, 'responder_name') || 'Un participant'} a ${accepted ? 'accepté' : 'décliné'} : ${apptTitle}`;
+    } else if (type === 'appointment.cancelled') {
+      notifTitle = '📅 Rendez-vous annulé';
+      body = `« ${apptTitle} » a été annulé`;
+    } else if (type === 'appointment.reminder') {
+      const kind = pick(data, 'kind');
+      notifTitle = '📅 Rappel de rendez-vous';
+      body =
+        kind === 'h24'
+          ? `« ${apptTitle} » a lieu dans 24 heures`
+          : kind === 'h1'
+            ? `« ${apptTitle} » a lieu dans 1 heure`
+            : `« ${apptTitle} » commence maintenant`;
+    }
+    await displayAppointmentNotification({ appointmentId, title: notifTitle, body: body || apptTitle });
     return;
   }
 }

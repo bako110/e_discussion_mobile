@@ -14,6 +14,22 @@
  *   « au démarrage de l'app » va ICI, dans le bon ordre.
  */
 
+// 0. Filet global : capture toute exception JS fatale qui échappe à React
+//    (listener AppState/NetInfo hors rendu, callback headless, timer...).
+//    `AppErrorBoundary` ne voit QUE les erreurs levées pendant le rendu React
+//    — sans ce handler, une exception ici tue le pont JS et se traduit, en
+//    build release (pas de red-box), par « l'app a cessé de fonctionner »
+//    sans aucune trace exploitable. PAS un import (les imports sont hoistés
+//    avant tout statement de ce fichier, voir ci-dessus) — un vrai
+//    statement exécuté en premier, avant que le moindre import puisse planter.
+if (typeof ErrorUtils !== 'undefined') {
+  const defaultHandler = ErrorUtils.getGlobalHandler();
+  ErrorUtils.setGlobalHandler((error, isFatal) => {
+    console.warn('[bootstrap] exception JS non gérée', { isFatal, error });
+    defaultHandler(error, isFatal);
+  });
+}
+
 // 1. crypto.getRandomValues — requis par @noble/* (E2E) et la génération d'UUID.
 import 'react-native-get-random-values';
 

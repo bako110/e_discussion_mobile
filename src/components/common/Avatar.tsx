@@ -9,6 +9,10 @@ interface Props {
   name?: string | null;
   size?: number;
   online?: boolean;
+  /** Anneau coloré (voir `theme.colors.storyRing`) signalant un statut/story
+   * non vu(e) de cette personne — même code couleur que dans les listes de
+   * conversations et de statuts, pour rester reconnaissable partout. */
+  storyRing?: boolean;
 }
 
 const PALETTE = ['#2F80ED', '#27AE79', '#7B61FF', '#E0389A', '#E8A13C', '#1B6FE0'];
@@ -29,13 +33,18 @@ function colorFor(seed: string): string {
   return PALETTE[h % PALETTE.length]!;
 }
 
-export const Avatar: React.FC<Props> = ({ uri, name, size = 48, online }) => {
+export const Avatar: React.FC<Props> = ({ uri, name, size = 48, online, storyRing }) => {
   const { theme } = useTheme();
   const radius = size / 2;
   const dot = Math.max(10, size * 0.28);
   const resolved = mediaUrl(uri);
+  // l'anneau se dessine EN DEHORS de l'avatar (comme les listes existantes) :
+  // la taille réelle inclut son épaisseur + un petit espace, l'image garde `size`.
+  const ringBorder = Math.max(2, Math.round(size * 0.055));
+  const ringGap = Math.max(1, Math.round(size * 0.035));
+  const ringBox = size + 2 * (ringBorder + ringGap);
 
-  return (
+  const avatarContent = (
     <View style={{ width: size, height: size }}>
       {resolved ? (
         <Image source={{ uri: resolved }} style={{ width: size, height: size, borderRadius: radius }} />
@@ -65,6 +74,24 @@ export const Avatar: React.FC<Props> = ({ uri, name, size = 48, online }) => {
           ]}
         />
       ) : null}
+    </View>
+  );
+
+  if (!storyRing) return avatarContent;
+
+  return (
+    <View
+      style={{
+        width: ringBox,
+        height: ringBox,
+        borderRadius: ringBox / 2,
+        borderWidth: ringBorder,
+        borderColor: theme.colors.storyRing,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {avatarContent}
     </View>
   );
 };

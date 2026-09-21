@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -105,7 +105,8 @@ function withDaySeparators(
 }
 
 export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigation }) => {
-  const { conversationId, partnerId, partnerName, partnerAvatar } = route.params;
+  const { conversationId, partnerId, partnerName, partnerAvatar, jumpToMessageId, jumpToCreatedAt } =
+    route.params;
   const { t } = useTranslation();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -174,8 +175,24 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   const [blocked, setBlocked] = useState(false);
   const typingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const partnerTypingTtl = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // "jump to message" depuis l'écran de recherche — ref pour scroller
+  // jusqu'à l'index cible, id surligné brièvement le temps de le repérer.
+  const listRef = useRef<FlatList<Item>>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const highlightTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // évite de rejouer le jump à chaque re-render tant que la cible n'a pas
+  // changé (ex: reload() déclenché par un événement temps réel pendant qu'on
+  // vient d'atterrir ici depuis la recherche).
+  const jumpedToRef = useRef<string | null>(null);
 
   const myId = me?.id ?? '';
+  // calculé tôt (avant les effets de "jump to message" ci-dessous, qui en
+  // dépendent pour repérer l'index du message ciblé) plutôt qu'en fin de
+  // composant — `withDaySeparators` est peu coûteux (une seule passe).
+  const items = useMemo(
+    () => withDaySeparators(messages, unreadAtOpen, myId),
+    [messages, unreadAtOpen, myId],
+  );
 
   const reload = useCallback(async () => {
     const [page, conv] = await Promise.all([
@@ -333,6 +350,75 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     void syncNow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
+
+  /**
+   * "Jump to message" depuis l'écran de recherche : on ne connaît pas
+   * l'INDEX du message ciblé dans la page locale déjà chargée (il peut être
+   * bien plus ancien que `INITIAL_PAGE_SIZE`). Stratégie robuste : compter
+   * combien de messages locaux sont "plus récents ou égaux" à sa date
+   * (`countAtOrNewer`), puis redemander une page au moins aussi grande
+   * (+marge) — le message cible est alors garanti présent dans `messages`,
+   * sans avoir à deviner une pagination par offset.
+   */
+  useEffect(() => {
+    if (!jumpToMessageId) return;
+    if (jumpedToRef.current === jumpToMessageId) return; // déjà traité
+    let cancelled = false;
+    void (async () => {
+      try {
+        const wanted = jumpToCreatedAt
+          ? (await messageRepo.countAtOrNewer(conversationId, jumpToCreatedAt)) + 20
+          : loadedCountRef.current;
+        if (wanted > loadedCountRef.current) {
+          loadedCountRef.current = wanted;
+          const page = await messageService.page(conversationId, wanted);
+          if (cancelled) return;
+          setMessages(page);
+        }
+      } catch (e) {
+        console.warn('[ChatScreen] jump-to-message load failed:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jumpToMessageId, jumpToCreatedAt, conversationId]);
+
+  // une fois la page (re)chargée assez grande, `items` contient (si trouvé)
+  // le message ciblé -> on scrolle jusqu'à lui et on le surligne brièvement.
+  useEffect(() => {
+    if (!jumpToMessageId || jumpedToRef.current === jumpToMessageId) return;
+    const idx = items.findIndex((it) => it.kind === 'msg' && it.m.id === jumpToMessageId);
+    if (idx === -1) return; // pas encore chargé (l'effet ci-dessus tourne peut-être encore)
+    jumpedToRef.current = jumpToMessageId;
+    // léger délai : laisse le temps à la FlatList de rendre la page qui vient
+    // de grandir avant de lui demander de scroller dedans.
+    const id = setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+    }, 60);
+    setHighlightedMessageId(jumpToMessageId);
+    if (highlightTimeout.current) clearTimeout(highlightTimeout.current);
+    highlightTimeout.current = setTimeout(() => setHighlightedMessageId(null), 1800);
+    return () => clearTimeout(id);
+  }, [items, jumpToMessageId]);
+
+  // message très ancien jamais synchronisé localement -> `countAtOrNewer` a
+  // pu renvoyer un compte qui ne le couvre pas (ex: il vient d'un autre
+  // appareil et n'a pas encore atteint ce téléphone) : on prévient plutôt
+  // que de laisser l'utilisateur face à une liste qui ne bouge jamais.
+  useEffect(() => {
+    if (!jumpToMessageId || loading) return;
+    if (jumpedToRef.current === jumpToMessageId) return;
+    const found = items.some((it) => it.kind === 'msg' && it.m.id === jumpToMessageId);
+    if (found) return;
+    const id = setTimeout(() => {
+      if (jumpedToRef.current !== jumpToMessageId) {
+        jumpedToRef.current = jumpToMessageId; // n'affiche l'erreur qu'une fois
+        showToast(t('chat.jumpToMessageFailed'), { type: 'error' });
+      }
+    }, 2500);
+    return () => clearTimeout(id);
+  }, [items, jumpToMessageId, loading, t]);
 
   // le message entrant est ingéré globalement par <MessageSync/> ; ici on se
   // contente de recharger la liste quand un message de CETTE conv est arrivé.
@@ -1162,7 +1248,6 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
   ];
 
   const c = theme.colors;
-  const items = withDaySeparators(messages, unreadAtOpen, myId);
 
   // si MA connexion est coupée, je ne peux pas savoir si le partenaire est en
   // ligne -> on n'affiche plus le point vert ni « en ligne » (comme WhatsApp).
@@ -1232,6 +1317,20 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               <Pressable hitSlop={10} onPress={() => placeCall('voice')}>
                 <Icon name="phone-outline" size={21} color={c.onHeader} />
               </Pressable>
+              <Pressable
+                hitSlop={10}
+                onPress={() =>
+                  navigation.navigate('ChatSearch', {
+                    mode: 'dm',
+                    conversationId,
+                    partnerId,
+                    partnerName,
+                    partnerAvatar,
+                  })
+                }
+              >
+                <Icon name="magnify" size={21} color={c.onHeader} />
+              </Pressable>
               <Pressable hitSlop={10} onPress={() => setMenuOpen(true)}>
                 <Icon name="dots-vertical" size={22} color={c.onHeader} />
               </Pressable>
@@ -1260,6 +1359,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
           keyboardVerticalOffset={0}
         >
           <FlatList
+            ref={listRef}
             data={items}
             inverted
             keyExtractor={(it) => (it.kind === 'msg' ? it.m.id : it.key)}
@@ -1268,6 +1368,22 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                 ? styles.emptyContent
                 : { paddingVertical: 10 }
             }
+            // secours classique FlatList : l'index ciblé n'est pas encore
+            // mesuré (item hors zone déjà rendue) -> on scrolle approximativement
+            // par offset puis on retente le scrollToIndex exact.
+            onScrollToIndexFailed={(info) => {
+              listRef.current?.scrollToOffset({
+                offset: info.averageItemLength * info.index,
+                animated: false,
+              });
+              setTimeout(() => {
+                listRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: true,
+                  viewPosition: 0.5,
+                });
+              }, 100);
+            }}
             ListHeaderComponent={
               partnerTyping ? (
                 <View style={styles.typingRow}>
@@ -1336,7 +1452,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
               const grouped =
                 prev?.kind === 'msg' && prev.m.sender_id === item.m.sender_id;
               const mine = item.m.sender_id === myId;
-              return (
+              const bubble = (
                 <MessageBubble
                   message={item.m}
                   mine={mine}
@@ -1353,6 +1469,15 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
                   senderName={mine ? t('common.you') : partnerName}
                 />
               );
+              // surlignage temporaire du message ciblé par un "jump to
+              // message" depuis la recherche — juste un fond teinté, retiré
+              // après un délai (voir l'effet plus haut).
+              if (item.m.id === highlightedMessageId) {
+                return (
+                  <View style={{ backgroundColor: c.primary + '22' }}>{bubble}</View>
+                );
+              }
+              return bubble;
             }}
           />
 

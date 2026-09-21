@@ -60,6 +60,14 @@ export const groupService = {
     return groupRepo.page(id, 40, beforeCreatedAt);
   },
 
+  /** Recherche locale (texte et/ou plage de dates) — voir `groupRepo.search`. */
+  search(
+    id: string,
+    opts: { queryText?: string; dateFrom?: string; dateTo?: string; limit?: number },
+  ): Promise<LocalGroupMessage[]> {
+    return groupRepo.search(id, opts);
+  },
+
   // ── Rafraîchissement serveur (best-effort) ─────────────────────────────
   /** Récupère mes groupes/chaînes et les fusionne en local. */
   async refreshList(): Promise<void> {

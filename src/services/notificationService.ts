@@ -50,6 +50,7 @@ import { getNotifPrefs } from './notificationPrefs';
 const CH_CALLS = 'calls_v4';
 const CH_MESSAGES = 'messages_v2';
 const CH_STORIES = 'stories_v2';
+const CH_APPOINTMENTS = 'appointments_v1';
 
 /**
  * Le son et la vibration sont fixés AU NIVEAU DU CANAL sur Android (immuables
@@ -130,6 +131,14 @@ export async function ensureNotificationSetup(): Promise<void> {
       importance: AndroidImportance.DEFAULT,
       sound: 'default',
       vibration: false,
+      visibility: AndroidVisibility.PRIVATE,
+    },
+    {
+      id: CH_APPOINTMENTS,
+      name: 'Rendez-vous',
+      importance: AndroidImportance.HIGH,
+      sound: 'default',
+      vibration: true,
       visibility: AndroidVisibility.PRIVATE,
     },
   ];
@@ -352,6 +361,38 @@ export async function displayStoryNotification(d: StoryNotifData): Promise<void>
         showTimestamp: true,
       },
       ios: { sound: undefined },
+    })
+    .catch(() => undefined);
+}
+
+// ── Rendez-vous (RDV) ────────────────────────────────────────────────────
+export interface AppointmentNotifData {
+  appointmentId: string;
+  title: string;
+  body: string;
+}
+
+/** Invitation, réponse (accepté/refusé), annulation ou rappel (24h/1h/heure)
+ * d'un rendez-vous — un seul type de notif, le texte varie selon l'event
+ * (voir `data.type` côté serveur dans appointment_service.py /
+ * appointment_reminders.py, traduit ici en un texte affichable). */
+export async function displayAppointmentNotification(d: AppointmentNotifData): Promise<void> {
+  await ensureNotificationSetup();
+  await notifee
+    .displayNotification({
+      id: `appt-${d.appointmentId}-${Date.now()}`,
+      title: d.title,
+      body: d.body,
+      data: { kind: 'appointment', appointmentId: d.appointmentId },
+      android: {
+        channelId: CH_APPOINTMENTS,
+        category: AndroidCategory.REMINDER,
+        importance: AndroidImportance.HIGH,
+        pressAction: { id: 'open-appointment', launchActivity: 'default' },
+        timestamp: Date.now(),
+        showTimestamp: true,
+      },
+      ios: { sound: 'default' },
     })
     .catch(() => undefined);
 }

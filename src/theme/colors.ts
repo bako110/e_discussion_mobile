@@ -49,6 +49,10 @@ export interface AppColors {
   // divers
   online: string;
   overlay: string;
+  /** Anneau de statut/story non vu — volontairement distinct de `primary`
+   * (bleu de la marque) pour se démarquer visuellement dans la liste des
+   * discussions, façon Instagram/WhatsApp. */
+  storyRing: string;
 }
 
 const BRAND = {
@@ -63,9 +67,12 @@ export const LightColors: AppColors = {
 
   onPrimary: '#FFFFFF',
 
+  // le header n'est plus un aplat bleu (voir AppHeader.tsx) — il prend le
+  // fond de l'écran + un léger voile, donc son texte suit désormais les
+  // mêmes couleurs que le reste de l'app plutôt qu'un blanc fixe.
   headerBg: '#3F86E8',
-  onHeader: '#FFFFFF',
-  onHeaderMuted: 'rgba(255,255,255,0.82)',
+  onHeader: '#0F1B3D',
+  onHeaderMuted: '#5A6784',
 
   background: '#FFFFFF',
   surface: '#F5F8FE',
@@ -90,6 +97,7 @@ export const LightColors: AppColors = {
 
   online: '#27AE79',
   overlay: 'rgba(15,27,61,0.45)',
+  storyRing: '#F0722F',
 };
 
 export const DarkColors: AppColors = {
@@ -99,9 +107,11 @@ export const DarkColors: AppColors = {
   primaryLo: '#2F80ED',
   onPrimary: '#06122B',
 
+  // même raison qu'en clair : le header suit le fond de l'écran + un voile,
+  // son texte reprend donc les couleurs de texte standard du thème sombre.
   headerBg: '#12213B',
   onHeader: '#EAF1FF',
-  onHeaderMuted: 'rgba(234,241,255,0.7)',
+  onHeaderMuted: '#9DAAC4',
 
   background: '#0B1220',
   surface: '#131C2E',
@@ -126,6 +136,7 @@ export const DarkColors: AppColors = {
 
   online: '#2BB673',
   overlay: 'rgba(0,0,0,0.55)',
+  storyRing: '#FF8A4C',
 };
 
 export const BrandGradient = [BRAND.primaryHi, BRAND.primary, BRAND.accent];

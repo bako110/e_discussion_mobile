@@ -289,6 +289,49 @@ export const groupRepo = {
     return rows[0] ? toGMsg(rows[0]) : null;
   },
 
+  /**
+   * Recherche locale (texte et/ou plage de dates) dans un groupe/chaîne —
+   * même logique que `messageRepo.search` (voir son commentaire) : `body`
+   * est déjà en clair, un `LIKE` suffit.
+   */
+  async search(
+    groupId: string,
+    opts: { queryText?: string; dateFrom?: string; dateTo?: string; limit?: number },
+  ): Promise<LocalGroupMessage[]> {
+    const conds = ['group_id=?', 'deleted_at IS NULL', "type='text'"];
+    const args: unknown[] = [groupId];
+    const q = opts.queryText?.trim();
+    if (q) {
+      conds.push('LOWER(body) LIKE ?');
+      args.push(`%${q.toLowerCase()}%`);
+    }
+    if (opts.dateFrom) {
+      conds.push('created_at >= ?');
+      args.push(opts.dateFrom);
+    }
+    if (opts.dateTo) {
+      conds.push('created_at <= ?');
+      args.push(opts.dateTo);
+    }
+    args.push(opts.limit ?? 100);
+    const rows = await query<GMsgRow>(
+      `SELECT * FROM group_messages WHERE ${conds.join(' AND ')} ORDER BY created_at DESC LIMIT ?`,
+      args,
+    );
+    return rows.map(toGMsg);
+  },
+
+  /** Combien de messages locaux (non supprimés) ont `created_at >= createdAt`
+   * — dimensionne la page à charger pour un "jump to message" depuis la
+   * recherche (voir `messageRepo.countAtOrNewer`, même logique). */
+  async countAtOrNewer(groupId: string, createdAt: string): Promise<number> {
+    const rows = await query<{ n: number }>(
+      'SELECT COUNT(*) as n FROM group_messages WHERE group_id=? AND created_at >= ?',
+      [groupId, createdAt],
+    );
+    return rows[0]?.n ?? 0;
+  },
+
   /** Groupes qui ont déjà de l'historique local (= déjà ouverts au moins une fois). */
   async groupIdsWithMessages(): Promise<Set<string>> {
     const rows = await query<{ group_id: string }>(

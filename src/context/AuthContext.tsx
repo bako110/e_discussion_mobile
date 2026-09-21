@@ -16,9 +16,11 @@ import React, {
   useState,
 } from 'react';
 
+import { showToast } from '@/components/common';
 import { ensureDeviceRegistered, refillOneTimePrekeysIfLow } from '@/crypto';
 import { authService } from '@/services';
 import { E2EE_ENABLED } from '@/utils/constants';
+import i18n from '@/i18n';
 import { unregisterPushToken } from '@/services/pushTokenService';
 import { setSyncUser } from '@/sync/syncEngine';
 import type { UserMe } from '@/types';
@@ -80,11 +82,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     (async () => {
+      // Appelé UNIQUEMENT quand le serveur a explicitement rejeté le refresh
+      // token (401/403 réel — voir `isAuthRejection` dans api/client.ts) :
+      // une simple coupure réseau ne déclenche jamais ce callback, donc pas
+      // besoin de revérifier le cache ici — c'est une vraie déconnexion.
       const hasTokens = await authService.bootstrap(() => {
         if (!cancelled) {
           setMe(null);
           setSyncUser(null);
           setStatus('unauthenticated');
+          // sans ce toast, la déconnexion forcée (refresh token invalide/
+          // expiré) était totalement silencieuse — l'utilisateur se
+          // retrouvait sur l'écran de connexion sans comprendre pourquoi.
+          showToast(i18n.t('auth.sessionExpired'), { type: 'info' });
         }
       });
       if (!hasTokens) {

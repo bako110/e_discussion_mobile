@@ -29,6 +29,12 @@ export type MainStackParamList = {
     partnerId: string;
     partnerName: string;
     partnerAvatar?: string | null;
+    /** Depuis l'écran de recherche : id du message à faire défiler jusqu'à
+     * l'écran et surligner brièvement. `jumpToCreatedAt` (son `created_at`)
+     * sert à dimensionner le chargement local nécessaire pour le trouver —
+     * voir `messageRepo.countAtOrNewer`. */
+    jumpToMessageId?: string;
+    jumpToCreatedAt?: string;
   };
   /** Détail / paramètres d'une conversation (contact, médias, sourdine…). */
   ConversationInfo: {
@@ -36,6 +42,24 @@ export type MainStackParamList = {
     partnerId: string;
     partnerName: string;
     partnerAvatar?: string | null;
+  };
+  /** Recherche de messages (texte + plage de dates) dans une conversation
+   * 1-to-1 OU un groupe/chaîne — un seul écran réutilisable, `mode` distingue
+   * les deux formes de params. */
+  ChatSearch:
+    | {
+        mode: 'dm';
+        conversationId: string;
+        partnerId: string;
+        partnerName: string;
+        partnerAvatar?: string | null;
+      }
+    | { mode: 'group'; groupId: string; groupName: string };
+  /** Page dédiée façon WhatsApp : uniquement les FICHIERS (documents)
+   * partagés dans la conversation — jamais mélangés aux photos/vidéos, qui
+   * restent dans la grille de `ConversationInfo`. */
+  SharedFiles: {
+    conversationId: string;
   };
   /** Aperçu du profil d'un utilisateur en lecture seule (photo, bio,
    * présence) — ouvert en tapant un avatar hors du chat (recherche, membres
@@ -104,6 +128,18 @@ export type MainStackParamList = {
     senderId: string;
     local: LocalMediaFile;
   };
+  /** Aperçu de PLUSIEURS photos avant envoi groupé dans une conversation —
+   * grille de vignettes + une légende commune appliquée à la DERNIÈRE image
+   * (façon WhatsApp). Chaque photo part comme un message séparé. */
+  ChatMultiMediaPreview: {
+    conversationId: string;
+    partnerId: string;
+    senderId: string;
+    locals: LocalMediaFile[];
+  };
+  /** Galerie maison à sélection multiple (cases à cocher, badge d'ordre) —
+   * remplace le sélecteur système. `token` relie l'appel à sa réponse. */
+  GalleryPicker: { token: string; maxCount?: number };
   StoryViewer: { authorId: string };
   /** Repartage d'une story existante (mienne ou d'un contact) comme nouveau
    * statut, façon WhatsApp « Ajouter à mon statut » — légende éditable avant
@@ -120,7 +156,14 @@ export type MainStackParamList = {
   /** Liste « Voir tout » filtrée par type. */
   GroupsList: { kind?: GroupKind } | undefined;
   /** Chat d'un groupe / chaîne. */
-  GroupChat: { groupId: string; name: string };
+  GroupChat: {
+    groupId: string;
+    name: string;
+    /** Voir `Chat.jumpToMessageId` — même mécanique de "jump to message"
+     * depuis l'écran de recherche. */
+    jumpToMessageId?: string;
+    jumpToCreatedAt?: string;
+  };
   /** Détail : membres, invitation, quitter. */
   GroupInfo: { groupId: string };
   AddGroupMembers: { groupId: string };
@@ -150,6 +193,11 @@ export type MainStackParamList = {
     thumbnailUrl?: string;
     /** si fourni + média reçu -> on marque « ouvert » (écran Infos). */
     messageId?: string;
+    /** Groupe d'images envoyées ensemble (voir MediaGroupBubble) : permet de
+     * défiler précédent/suivant SANS revenir au fil de discussion — `index`
+     * pointe sur `url` dans ce tableau. Images uniquement (jamais mêlé à
+     * une vidéo/vue unique). */
+    gallery?: { urls: string[]; index: number };
     /** vue unique (façon WhatsApp) : le fichier est téléchargé dans un
      * dossier TEMPORAIRE (pas le cache persistant), affiché, puis effacé
      * localement + confirmé "ouvert" au serveur (suppression définitive)
@@ -169,6 +217,9 @@ export type MainStackParamList = {
   CreateAppointment: { preselectedUserIds?: string[] } | undefined;
   /** Détail d'un RDV : participants + statuts, actions accepter/refuser/annuler. */
   AppointmentDetail: { appointmentId: string };
+  /** Notes du RDV — ajout/lecture/gestion, ouvert depuis le bouton dédié du
+   * détail plutôt qu'affiché en place. */
+  AppointmentNotes: { appointmentId: string };
 };
 
 /** Nav du stack principal, accessible depuis un ecran d'onglet. */

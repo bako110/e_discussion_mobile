@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -26,6 +26,7 @@ import {
   COUNTRIES,
   DEFAULT_COUNTRY,
   type Country,
+  detectUserCountry,
   formatPretty,
   toE164,
 } from '@/utils/countries';
@@ -41,6 +42,14 @@ export const PhoneScreen: React.FC<AuthScreenProps<'Phone'>> = ({ navigation }) 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // pays deviné (SIM > locale) présélectionné dès que l'utilisateur n'a pas
+  // déjà touché au sélecteur — on ne veut jamais écraser un choix manuel.
+  const countryTouched = React.useRef(false);
+  useEffect(() => {
+    void detectUserCountry().then((detected) => {
+      if (!countryTouched.current) setCountry(detected);
+    });
+  }, []);
 
   const digits = local.replace(/\D/g, '');
   const valid = digits.replace(/^0+/, '').length >= 6;
@@ -126,7 +135,10 @@ export const PhoneScreen: React.FC<AuthScreenProps<'Phone'>> = ({ navigation }) 
       <CountryPickerModal
         visible={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={setCountry}
+        onSelect={(c2) => {
+          countryTouched.current = true;
+          setCountry(c2);
+        }}
         selectedIso={country.iso}
       />
 

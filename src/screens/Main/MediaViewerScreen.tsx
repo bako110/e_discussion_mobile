@@ -22,35 +22,80 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
   route,
   navigation,
 }) => {
-  const { url, type, thumbnailUrl, messageId } = route.params;
+  const { type, thumbnailUrl, messageId, viewOnceMessageId, gallery } = route.params;
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
+  // navigation précédent/suivant au sein d'un envoi groupé (voir
+  // MediaGroupBubble) — `galleryIndex` prime sur `route.params.url` une fois
+  // qu'on a bougé, pour rester dans la liste fournie à l'ouverture.
+  const [galleryIndex, setGalleryIndex] = useState(gallery?.index ?? 0);
+  const url = gallery ? gallery.urls[galleryIndex]! : route.params.url;
+
   const videoRef = useRef<VideoRef>(null);
-  const [loading, setLoading] = useState(type === 'video');
+  const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  // vidéo : le fichier local si déjà téléchargé, sinon l'URL distante
-  const [videoUri, setVideoUri] = useState<string>(
-    () => mediaCache.localFor(url) ?? mediaUrl(url) ?? url,
+  // image/vidéo : URI affichable — pour une vue unique, TOUJOURS un fichier
+  // temporaire téléchargé ici (jamais le cache persistant habituel).
+  const [displayUri, setDisplayUri] = useState<string | null>(
+    viewOnceMessageId ? null : (mediaCache.localFor(url) ?? mediaUrl(url) ?? url),
   );
+  // chemin temporaire à effacer à la fermeture (vue unique uniquement).
+  const tempPathRef = useRef<string | null>(null);
+  // pour ne confirmer/effacer qu'une seule fois même si l'écran se démonte 2x.
+  const consumedRef = useRef(false);
 
   useEffect(() => {
-    if (type !== 'video') return;
-    if (messageId) messageService.markPlayed(messageId); // « ouvert à … »
-    // télécharge + garde en local pour les prochaines fois / hors-ligne
-    void mediaCache.fetchNow(url).then((local) => {
-      if (local) setVideoUri(local);
+    if (!viewOnceMessageId) {
+      if (type === 'video' && messageId) messageService.markPlayed(messageId);
+      if (type === 'video') {
+        void mediaCache.fetchNow(url).then((local) => {
+          if (local) setDisplayUri(local);
+        });
+      } else {
+        // image (y compris navigation précédent/suivant en galerie) :
+        // même résolution que l'état initial, ré-exécutée à chaque `url`.
+        setDisplayUri(mediaCache.localFor(url) ?? mediaUrl(url) ?? url);
+      }
+      return;
+    }
+    // Vue unique : télécharge dans un dossier TEMPORAIRE avant toute
+    // confirmation au serveur — l'ordre garantit que le média a bien fini de
+    // charger avant que le fichier ne disparaisse côté serveur.
+    void mediaCache.fetchTemp(url).then((local) => {
+      if (!local) {
+        setFailed(true);
+        setLoading(false);
+        return;
+      }
+      tempPathRef.current = local;
+      setDisplayUri(local);
     });
-  }, [type, url, messageId]);
+  }, [type, url, messageId, viewOnceMessageId]);
 
-  // coupe la vidéo dès que l'écran perd le focus (retour arrière, navigation
-  // ailleurs, mise en arrière-plan) — sans ça elle pouvait continuer à jouer
-  // en arrière-plan après avoir quitté le lecteur.
+  useEffect(() => {
+    if (type === 'image') setLoading(false);
+  }, [type, displayUri]);
+
+  // Fermeture du viewer (retour arrière, navigation ailleurs) : le média
+  // vue-unique a été affiché au moins une fois -> on efface la copie
+  // temporaire locale ET on confirme "ouvert" au serveur (qui supprime le
+  // fichier définitivement). Fait UNE seule fois.
   useFocusEffect(
     useCallback(() => {
-      return () => videoRef.current?.pause();
-    }, []),
+      return () => {
+        videoRef.current?.pause();
+        if (viewOnceMessageId && !consumedRef.current) {
+          consumedRef.current = true;
+          void mediaCache.deleteTemp(tempPathRef.current);
+          void messageService.openViewOnce(viewOnceMessageId).catch(() => undefined);
+        }
+      };
+    }, [viewOnceMessageId]),
   );
+
+  const hasPrev = !!gallery && galleryIndex > 0;
+  const hasNext = !!gallery && galleryIndex < gallery.urls.length - 1;
 
   return (
     <View style={styles.root}>
@@ -62,45 +107,77 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
         <Icon name="close" size={26} color="#fff" />
       </Pressable>
 
-      {type === 'image' ? (
-        <CachedImage uri={url} forceDownload style={styles.image} resizeMode="contain" />
+      {gallery ? (
+        <View style={[styles.counter, { top: insets.top + 16 }]} pointerEvents="none">
+          <Text style={styles.counterTxt}>
+            {galleryIndex + 1} / {gallery.urls.length}
+          </Text>
+        </View>
+      ) : null}
+
+      {hasPrev ? (
+        <Pressable
+          onPress={() => {
+            setLoading(true);
+            setGalleryIndex((i) => i - 1);
+          }}
+          hitSlop={12}
+          style={[styles.navArrow, styles.navArrowLeft]}
+        >
+          <Icon name="chevron-left" size={30} color="#fff" />
+        </Pressable>
+      ) : null}
+      {hasNext ? (
+        <Pressable
+          onPress={() => {
+            setLoading(true);
+            setGalleryIndex((i) => i + 1);
+          }}
+          hitSlop={12}
+          style={[styles.navArrow, styles.navArrowRight]}
+        >
+          <Icon name="chevron-right" size={30} color="#fff" />
+        </Pressable>
+      ) : null}
+
+      {failed ? (
+        <View style={styles.center}>
+          <Icon name="alert-circle-outline" size={40} color="#ffffffaa" />
+          <Text style={styles.hint}>{t('errors.generic')}</Text>
+        </View>
+      ) : !displayUri ? (
+        <View style={styles.center} pointerEvents="none">
+          {thumbnailUrl ? (
+            <CachedImage uri={thumbnailUrl} style={StyleSheet.absoluteFill} resizeMode="contain" />
+          ) : null}
+          <ActivityIndicator color="#fff" size="large" />
+        </View>
+      ) : type === 'image' ? (
+        <CachedImage uri={displayUri} forceDownload style={styles.image} resizeMode="contain" />
       ) : (
         <View style={styles.videoWrap}>
-          {failed ? (
-            <View style={styles.center}>
-              <Icon name="alert-circle-outline" size={40} color="#ffffffaa" />
-              <Text style={styles.hint}>{t('errors.generic')}</Text>
-            </View>
-          ) : (
-            <>
-              <Video
-                ref={videoRef}
-                source={{ uri: videoUri }}
-                style={StyleSheet.absoluteFill}
-                resizeMode="contain"
-                controls
-                paused={false}
-                onLoad={() => setLoading(false)}
-                onError={() => {
-                  setFailed(true);
-                  setLoading(false);
-                }}
-                onEnd={() => videoRef.current?.seek(0)}
-              />
-              {loading ? (
-                <View style={styles.center} pointerEvents="none">
-                  {thumbnailUrl ? (
-                    <CachedImage
-                      uri={thumbnailUrl}
-                      style={StyleSheet.absoluteFill}
-                      resizeMode="contain"
-                    />
-                  ) : null}
-                  <ActivityIndicator color="#fff" size="large" />
-                </View>
+          <Video
+            ref={videoRef}
+            source={{ uri: displayUri }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="contain"
+            controls
+            paused={false}
+            onLoad={() => setLoading(false)}
+            onError={() => {
+              setFailed(true);
+              setLoading(false);
+            }}
+            onEnd={() => videoRef.current?.seek(0)}
+          />
+          {loading ? (
+            <View style={styles.center} pointerEvents="none">
+              {thumbnailUrl ? (
+                <CachedImage uri={thumbnailUrl} style={StyleSheet.absoluteFill} resizeMode="contain" />
               ) : null}
-            </>
-          )}
+              <ActivityIndicator color="#fff" size="large" />
+            </View>
+          ) : null}
         </View>
       )}
     </View>
@@ -124,4 +201,28 @@ const styles = StyleSheet.create({
   videoWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   center: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   hint: { color: '#ffffffcc', fontSize: 13, marginTop: 8 },
+  counter: {
+    position: 'absolute',
+    alignSelf: 'center',
+    zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  counterTxt: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
+  navArrow: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -22,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navArrowLeft: { left: 8 },
+  navArrowRight: { right: 8 },
 });

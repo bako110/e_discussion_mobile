@@ -1,9 +1,25 @@
 /**
- * Client HTTP minimal (fetch) — auth Bearer, refresh automatique sur 401,
- * retry réseau exponentiel, timeout 30 s. Aligné sur le backend E-discussion
- * (enveloppe d'erreur `{ detail: { code, message } }`).
+ * Client HTTP minimal (fetch) — auth Bearer, refresh PROACTIF avant
+ * expiration + refresh réactif de secours sur 401, retry réseau
+ * exponentiel, timeout 30 s. Aligné sur le backend E-discussion (enveloppe
+ * d'erreur `{ detail: { code, message } }`).
+ *
+ * Pourquoi un refresh proactif en plus du réactif-sur-401 : l'access token
+ * dure 30 min (`ACCESS_TOKEN_EXPIRE_MINUTES` côté serveur) — sans rien de
+ * plus, TOUTE requête émise après cette fenêtre part avec un token déjà
+ * expiré, échoue en 401, puis retente après coup. En pratique ça se
+ * produisait en RAFALE (plusieurs endpoints appelés en parallèle au retour
+ * au premier plan/au démarrage) — chacun payait son propre aller-retour de
+ * refresh au lieu d'un seul, partagé, déclenché EN AMONT. Le minuteur
+ * ci-dessous rafraîchit quelques minutes avant l'échéance réelle du token,
+ * façon WhatsApp (session qui ne "coupe" jamais en cours d'usage normal) —
+ * le chemin réactif-sur-401 reste le filet de sécurité (réseau coupé
+ * pendant la fenêtre proactive, minuteur JS gelé en arrière-plan, etc.).
  */
+import { AppState, type AppStateStatus } from 'react-native';
+
 import { API_BASE_URL } from '@/utils/constants';
+import { decodeJwtExpiryMs } from '@/utils/jwt';
 
 export class ApiError extends Error {
   constructor(
@@ -30,9 +46,41 @@ let accessToken: string | null = null;
 let refreshFn: (() => Promise<string>) | null = null;
 let onUnauthorized: (() => void) | null = null;
 let refreshPromise: Promise<string> | null = null;
+let proactiveTimer: ReturnType<typeof setTimeout> | null = null;
+
+// marge avant l'échéance réelle : on rafraîchit en avance pour absorber la
+// latence réseau du refresh lui-même + l'horloge du device qui peut dériver
+// un peu par rapport au serveur — jamais pile au moment où le token meurt.
+const PROACTIVE_REFRESH_MARGIN_MS = 2 * 60_000;
+// borne basse : si le token est déjà expiré/quasi expiré au moment où on le
+// reçoit (horloge très décalée, refresh qui a traîné), on retente quand
+// même après un court délai plutôt que d'appeler refreshAccessToken() en
+// boucle synchrone.
+const PROACTIVE_REFRESH_MIN_DELAY_MS = 5_000;
+
+function clearProactiveTimer(): void {
+  if (proactiveTimer) {
+    clearTimeout(proactiveTimer);
+    proactiveTimer = null;
+  }
+}
+
+
+function scheduleProactiveRefresh(): void {
+  clearProactiveTimer();
+  if (!accessToken || !refreshFn) return;
+  const expiryMs = decodeJwtExpiryMs(accessToken);
+  if (expiryMs === null) return;
+  const delay = Math.max(PROACTIVE_REFRESH_MIN_DELAY_MS, expiryMs - Date.now() - PROACTIVE_REFRESH_MARGIN_MS);
+  proactiveTimer = setTimeout(() => {
+    void refreshAccessToken();
+  }, delay);
+}
 
 export const setAccessToken = (t: string | null) => {
   accessToken = t;
+  if (t) scheduleProactiveRefresh();
+  else clearProactiveTimer();
 };
 export const getAccessToken = () => accessToken;
 export const setRefreshFn = (fn: () => Promise<string>) => {
@@ -41,6 +89,16 @@ export const setRefreshFn = (fn: () => Promise<string>) => {
 export const setOnUnauthorized = (fn: () => void) => {
   onUnauthorized = fn;
 };
+
+/** true si l'erreur signifie "le serveur a explicitement rejeté ce token"
+ * (401/403 avec une vraie réponse) plutôt qu'une simple absence de réseau —
+ * seule la première justifie une déconnexion. Sans cette distinction, TOUTE
+ * coupure réseau pendant un refresh (mode avion, zone blanche...) renvoyait
+ * l'utilisateur à l'écran de connexion alors que son cache local restait
+ * parfaitement valide et exploitable (façon WhatsApp hors-ligne). */
+function isAuthRejection(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
+}
 
 /** Rafraîchit le token d'accès à la demande — pour un chemin qui ne passe
  * PAS par `request()`/`upload()` (ex: authentification WebSocket), qui ne
@@ -53,13 +111,29 @@ export async function refreshAccessToken(): Promise<string | null> {
       refreshPromise = null;
     });
     const fresh = await refreshPromise;
-    setAccessToken(fresh);
+    setAccessToken(fresh); // reprogramme aussi le prochain refresh proactif
     return fresh;
-  } catch {
-    onUnauthorized?.();
+  } catch (err) {
+    // hors-ligne / timeout / erreur serveur transitoire (5xx) : on NE
+    // déconnecte PAS — l'access token expiré reste en place, les requêtes
+    // suivantes échoueront proprement et l'app continue sur son cache local
+    // jusqu'au retour du réseau, où le refresh proactif reprendra tout seul.
+    if (isAuthRejection(err)) onUnauthorized?.();
     return null;
   }
 }
+
+// Minuteur JS non fiable en arrière-plan (Android/iOS suspendent le JS) : au
+// retour au premier plan, on vérifie l'échéance réelle du token et on
+// rafraîchit tout de suite s'il est déjà expiré/sur le point de l'être —
+// sans attendre qu'une requête échoue en 401 en premier.
+AppState.addEventListener('change', (state: AppStateStatus) => {
+  if (state !== 'active' || !accessToken) return;
+  const expiryMs = decodeJwtExpiryMs(accessToken);
+  if (expiryMs !== null && expiryMs - Date.now() <= PROACTIVE_REFRESH_MARGIN_MS) {
+    void refreshAccessToken();
+  }
+});
 
 const TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;
@@ -118,7 +192,11 @@ async function request<T>(
         const fresh = await refreshPromise;
         setAccessToken(fresh);
         return request<T>(endpoint, options, true);
-      } catch {
+      } catch (err) {
+        // le refresh a échoué par manque de réseau (pas un vrai rejet
+        // serveur) : ne pas déconnecter, remonter une erreur réseau normale
+        // — l'appelant (souvent silencieux, best-effort) garde son cache.
+        if (!isAuthRejection(err)) throw new ApiError(0, 'Erreur réseau');
         onUnauthorized?.();
         throw new ApiError(401, 'Session expirée', 'token_expired');
       }

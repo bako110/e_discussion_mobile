@@ -1,3 +1,5 @@
+export { appointmentService } from './appointmentService';
+export type { CreateAppointmentInput } from './appointmentService';
 export { authService } from './authService';
 export { callService } from './callService';
 export { channelLiveService } from './channelLiveService';

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -55,7 +55,7 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   route,
   navigation,
 }) => {
-  const { groupId, name: initialName } = route.params;
+  const { groupId, name: initialName, jumpToMessageId, jumpToCreatedAt } = route.params;
   const { t } = useTranslation();
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -78,12 +78,19 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   const [actionMsg, setActionMsg] = useState<LocalGroupMessage | null>(null);
   const [editingMsg, setEditingMsg] = useState<LocalGroupMessage | null>(null);
   const [pinnedMessages, setPinnedMessages] = useState<PinnedMessage[]>([]);
+  // "jump to message" depuis l'écran de recherche — voir la même mécanique
+  // dans ChatScreen (commentaires détaillés là-bas).
+  const listRef = useRef<FlatList<LocalGroupMessage>>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const highlightTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jumpedToRef = useRef<string | null>(null);
+  const loadedCountRef = useRef(60);
 
   /** Lecture locale (instantanée, hors-ligne OK). */
   const reload = useCallback(async () => {
     const [g, hist] = await Promise.all([
       groupRepo.get(groupId),
-      groupRepo.page(groupId, 60),
+      groupRepo.page(groupId, loadedCountRef.current),
     ]);
     setGroup(g);
     setMessages(hist);
@@ -95,11 +102,39 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   }, [groupId]);
 
   useEffect(() => {
+    loadedCountRef.current = 60;
     void reload();
     // rafraîchissement serveur best-effort (silencieux si hors-ligne)
     void groupService.refreshMessages(groupId).then(reload).catch(() => undefined);
     reloadPinned();
   }, [groupId, reload, reloadPinned]);
+
+  /** Voir le commentaire détaillé de la même mécanique dans ChatScreen —
+   * on dimensionne la page locale à charger pour garantir que le message
+   * ciblé par la recherche y soit inclus. */
+  useEffect(() => {
+    if (!jumpToMessageId) return;
+    if (jumpedToRef.current === jumpToMessageId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const wanted = jumpToCreatedAt
+          ? (await groupRepo.countAtOrNewer(groupId, jumpToCreatedAt)) + 20
+          : loadedCountRef.current;
+        if (wanted > loadedCountRef.current) {
+          loadedCountRef.current = wanted;
+          const hist = await groupRepo.page(groupId, wanted);
+          if (cancelled) return;
+          setMessages(hist);
+        }
+      } catch (e) {
+        console.warn('[GroupChatScreen] jump-to-message load failed:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jumpToMessageId, jumpToCreatedAt, groupId]);
 
   // État du direct en cours (chaînes uniquement) — alimente le menu "⋮" du
   // header. Rafraîchi périodiquement tant que cet écran est ouvert : un
@@ -581,6 +616,37 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
   // liste inversée + séparateurs de jour
   const data = [...messages].reverse();
 
+  // une fois `data` assez grand pour contenir la cible -> scroll + surlignage
+  // bref (voir la mécanique jumelle, commentée en détail, dans ChatScreen).
+  useEffect(() => {
+    if (!jumpToMessageId || jumpedToRef.current === jumpToMessageId) return;
+    const idx = data.findIndex((m) => m.id === jumpToMessageId);
+    if (idx === -1) return;
+    jumpedToRef.current = jumpToMessageId;
+    const id = setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+    }, 60);
+    setHighlightedMessageId(jumpToMessageId);
+    if (highlightTimeout.current) clearTimeout(highlightTimeout.current);
+    highlightTimeout.current = setTimeout(() => setHighlightedMessageId(null), 1800);
+    return () => clearTimeout(id);
+  }, [data, jumpToMessageId]);
+
+  // message ciblé jamais trouvé localement (pas encore synchronisé sur cet
+  // appareil) -> toast discret plutôt qu'une liste qui ne bouge jamais.
+  useEffect(() => {
+    if (!jumpToMessageId || loading) return;
+    if (jumpedToRef.current === jumpToMessageId) return;
+    if (data.some((m) => m.id === jumpToMessageId)) return;
+    const id = setTimeout(() => {
+      if (jumpedToRef.current !== jumpToMessageId) {
+        jumpedToRef.current = jumpToMessageId;
+        showToast(t('chat.jumpToMessageFailed'), { type: 'error' });
+      }
+    }, 2500);
+    return () => clearTimeout(id);
+  }, [data, jumpToMessageId, loading, t]);
+
   const renderItem = ({ item, index }: { item: LocalGroupMessage; index: number }) => {
     if (item.type === 'system') {
       return (
@@ -625,8 +691,12 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
     // à gauche de la ligne.
     const isVoiceMsg = item.type === 'voice';
 
+    // surlignage temporaire du message ciblé par un "jump to message" venu
+    // de la recherche — un fond teinté qui s'efface après un délai (voir
+    // l'effet de scroll+surlignage plus haut).
+    const highlighted = item.id === highlightedMessageId;
     return (
-      <View>
+      <View style={highlighted ? { backgroundColor: c.primary + '22' } : undefined}>
         <View style={[styles.bubbleRow, mine ? styles.rowMine : styles.rowTheirs]}>
           {!mine && !isVoiceMsg ? (
             <Avatar uri={senderAvatar} name={senderName} size={28} />
@@ -842,6 +912,18 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
                 </Text>
               </View>
             </Pressable>
+            <Pressable
+              hitSlop={10}
+              onPress={() =>
+                navigation.navigate('ChatSearch', {
+                  mode: 'group',
+                  groupId,
+                  groupName: title,
+                })
+              }
+            >
+              <Icon name="magnify" size={21} color={c.text} />
+            </Pressable>
             <Pressable onPress={openGroupMenu} hitSlop={10}>
               <Icon name="dots-vertical" size={22} color={c.text} />
             </Pressable>
@@ -892,11 +974,25 @@ export const GroupChatScreen: React.FC<MainScreenProps<'GroupChat'>> = ({
           keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         >
           <FlatList
+            ref={listRef}
             data={data}
             inverted
             keyExtractor={(m) => m.id}
             renderItem={renderItem}
             contentContainerStyle={styles.list}
+            onScrollToIndexFailed={(info) => {
+              listRef.current?.scrollToOffset({
+                offset: info.averageItemLength * info.index,
+                animated: false,
+              });
+              setTimeout(() => {
+                listRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: true,
+                  viewPosition: 0.5,
+                });
+              }, 100);
+            }}
           />
 
           {data.length === 0 ? (

@@ -458,6 +458,52 @@ export const messageRepo = {
     );
   },
 
+  /**
+   * Recherche locale (texte et/ou plage de dates) — pour l'écran de recherche
+   * dans une discussion. `body` contient déjà le texte EN CLAIR une fois
+   * déchiffré (voir `looksEncrypted`) : un simple `LIKE` insensible à la casse
+   * suffit, pas besoin de re-déchiffrer à la volée. On ignore les messages
+   * supprimés (`deleted_at`) et les types non-texte (média sans légende n'a
+   * pas de `body` cherchable).
+   */
+  async search(
+    conversationId: string,
+    opts: { queryText?: string; dateFrom?: string; dateTo?: string; limit?: number },
+  ): Promise<LocalMessage[]> {
+    const conds = ['conversation_id=?', 'deleted_at IS NULL', "type='text'"];
+    const args: unknown[] = [conversationId];
+    const q = opts.queryText?.trim();
+    if (q) {
+      conds.push('LOWER(body) LIKE ?');
+      args.push(`%${q.toLowerCase()}%`);
+    }
+    if (opts.dateFrom) {
+      conds.push('created_at >= ?');
+      args.push(opts.dateFrom);
+    }
+    if (opts.dateTo) {
+      conds.push('created_at <= ?');
+      args.push(opts.dateTo);
+    }
+    args.push(opts.limit ?? 100);
+    const rows = await query<Row>(
+      `SELECT * FROM messages WHERE ${conds.join(' AND ')} ORDER BY created_at DESC LIMIT ?`,
+      args,
+    );
+    return rows.map(toMsg);
+  },
+
+  /** Combien de messages locaux (non supprimés) ont `created_at >= createdAt`
+   * — sert à dimensionner la page à charger pour garantir qu'un message
+   * ciblé par un "jump to message" (venant de la recherche) soit inclus. */
+  async countAtOrNewer(conversationId: string, createdAt: string): Promise<number> {
+    const rows = await query<{ n: number }>(
+      'SELECT COUNT(*) as n FROM messages WHERE conversation_id=? AND created_at >= ?',
+      [conversationId, createdAt],
+    );
+    return rows[0]?.n ?? 0;
+  },
+
   /** « Effacer la discussion » — supprime tous les messages locaux. */
   async clearConversation(conversationId: string): Promise<void> {
     await run('DELETE FROM messages WHERE conversation_id=?', [conversationId]);

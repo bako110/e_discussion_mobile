@@ -4,6 +4,8 @@
  * Liste volontairement large mais pas exhaustive (les principaux + Afrique
  * francophone). Ajouter des entrees ici au besoin.
  */
+import { NativeModules, Platform } from 'react-native';
+
 export interface Country {
   iso: string;
   name: string;
@@ -55,6 +57,50 @@ export const COUNTRIES: Country[] = [
 ];
 
 export const DEFAULT_COUNTRY = COUNTRIES[0];
+
+/**
+ * Détecte le pays de l'utilisateur pour présélectionner l'indicatif à
+ * l'inscription — plus fiable que la locale système (souvent restée sur un
+ * réglage d'usine jamais changé). Ordre de repli :
+ *   1. SIM/réseau mobile (Android, module natif `DeviceLocaleModule`,
+ *      aucune permission requise) ;
+ *   2. locale de l'appareil (iOS, ou Android sans SIM/réseau capté) ;
+ *   3. `DEFAULT_COUNTRY` si rien de tout ça ne correspond à un pays connu.
+ * Ne lève jamais — best-effort, ne doit jamais bloquer l'écran d'inscription.
+ */
+export async function detectUserCountry(): Promise<Country> {
+  const byIso = (iso: string | null | undefined): Country | null =>
+    iso ? (COUNTRIES.find((c) => c.iso === iso.toUpperCase()) ?? null) : null;
+
+  if (Platform.OS === 'android') {
+    try {
+      const mod = NativeModules.DeviceLocaleModule as
+        | { getSimCountryIso(): Promise<string | null> }
+        | undefined;
+      const iso = await mod?.getSimCountryIso();
+      const found = byIso(iso);
+      if (found) return found;
+    } catch {
+      /* module natif absent (build pas encore rebuild) — repli locale */
+    }
+  }
+
+  try {
+    const raw =
+      Platform.OS === 'ios'
+        ? NativeModules.SettingsManager?.settings?.AppleLocale ??
+          NativeModules.SettingsManager?.settings?.AppleLanguages?.[0]
+        : NativeModules.I18nManager?.localeIdentifier;
+    // "fr-BF" / "fr_BF" -> "BF"
+    const region = String(raw ?? '').split(/[-_]/)[1];
+    const found = byIso(region);
+    if (found) return found;
+  } catch {
+    /* repli final ci-dessous */
+  }
+
+  return DEFAULT_COUNTRY ?? COUNTRIES[0]!;
+}
 
 /** Assemble un numero E.164 a partir d'un pays et de la saisie locale
  * (on retire le 0 initial des numeros nationaux type FR/BE). */

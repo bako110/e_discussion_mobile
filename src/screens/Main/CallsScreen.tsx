@@ -38,7 +38,14 @@ const FILTERS: { key: Filter; icon: string }[] = [
 
 type Row =
   | { kind: 'day'; key: string; label: string }
-  | { kind: 'call'; key: string; log: CallLog };
+  // `log` = l'appel le plus récent du groupe (affiché) ; `group` = tous les
+  // appels qu'il représente (1 seul élément si pas de regroupement).
+  | { kind: 'call'; key: string; log: CallLog; group: CallLog[] };
+
+// Fenêtre de regroupement façon WhatsApp : appels consécutifs du même
+// correspondant, dans le même sens (entrant/sortant), à moins d'1h d'écart
+// -> une seule ligne "Nom (N)" au lieu de N lignes identiques.
+const GROUP_WINDOW_MS = 60 * 60 * 1000;
 
 const INITIAL_LIMIT = 100; // 1ère page : large, aligné sur le comportement historique
 const PAGE_LIMIT = 40; // pages suivantes (scroll infini)
@@ -168,20 +175,41 @@ export const CallsScreen: React.FC = () => {
     });
   }, [items, filter, me?.id, dateFilter]);
 
-  // regroupe par jour
+  // regroupe par jour, puis par correspondant+sens si <1h d'écart (WhatsApp)
   const rows: Row[] = useMemo(() => {
     const out: Row[] = [];
     let lastDay = '';
+    let lastGroup: { peerId: string | null; inbound: boolean } | null = null;
     for (const l of filtered) {
       const d = dayLabel(l.started_at);
+      const inbound = l.callee_id === me?.id;
+      const peerId = l.peer?.id ?? null;
       if (d !== lastDay) {
         out.push({ kind: 'day', key: `d-${d}`, label: d });
         lastDay = d;
+        lastGroup = null; // jamais de regroupement au-delà d'un changement de jour
       }
-      out.push({ kind: 'call', key: l.id, log: l });
+      const lastRow = out[out.length - 1];
+      const canMerge =
+        lastRow?.kind === 'call' &&
+        lastGroup !== null &&
+        peerId !== null &&
+        lastGroup.peerId === peerId &&
+        lastGroup.inbound === inbound &&
+        Math.abs(new Date(lastRow.log.started_at).getTime() - new Date(l.started_at).getTime()) <
+          GROUP_WINDOW_MS;
+      if (canMerge && lastRow?.kind === 'call') {
+        // `filtered` est trié du + récent au + ancien -> `l` est plus ancien
+        // que `lastRow.log` : on l'ajoute au groupe SANS changer l'appel
+        // affiché (toujours le plus récent).
+        lastRow.group.push(l);
+      } else {
+        out.push({ kind: 'call', key: l.id, log: l, group: [l] });
+        lastGroup = { peerId, inbound };
+      }
     }
     return out;
-  }, [filtered]);
+  }, [filtered, me?.id]);
 
   const redial = (log: CallLog) => {
     if (!log.peer) return;
@@ -205,11 +233,15 @@ export const CallsScreen: React.FC = () => {
     );
   };
 
-  const removeOne = (log: CallLog) => {
+  /** Supprime UN appel, ou tout un groupe replié (ligne "Nom (N)") d'un coup
+   * — swiper la ligne groupée supprime tout ce qu'elle représente, pas
+   * seulement l'appel le plus récent affiché. */
+  const removeOne = (group: CallLog[]) => {
     openRow.current?.close();
+    const ids = new Set(group.map((g) => g.id));
     // optimiste
-    setItems((cur) => cur.filter((x) => x.id !== log.id));
-    void callService.remove(log.id).catch(() => void load());
+    setItems((cur) => cur.filter((x) => !ids.has(x.id)));
+    for (const id of ids) void callService.remove(id).catch(() => void load());
   };
 
   const clearAll = () => {
@@ -225,18 +257,23 @@ export const CallsScreen: React.FC = () => {
     );
   };
 
-  const toggleSelect = (id: string) => {
+  /** `ids` : un seul id (ligne non groupée) ou tous les ids d'un groupe replié
+   * — une ligne "Nom (N)" se sélectionne/désélectionne toujours en bloc. */
+  const toggleSelect = (ids: string[]) => {
     setSelectedIds((cur) => {
       const next = new Set(cur);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const allSelected = ids.every((id) => next.has(id));
+      for (const id of ids) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
       return next;
     });
   };
 
-  const startSelection = (log: CallLog) => {
+  const startSelection = (group: CallLog[]) => {
     openRow.current?.close();
-    setSelectedIds(new Set([log.id]));
+    setSelectedIds(new Set(group.map((g) => g.id)));
   };
 
   const cancelSelection = () => setSelectedIds(new Set());
@@ -256,7 +293,7 @@ export const CallsScreen: React.FC = () => {
     );
   };
 
-  const renderCall = (log: CallLog) => {
+  const renderCall = (log: CallLog, group: CallLog[]) => {
     const name = log.peer?.display_name || log.peer?.username || t('calls.unknown');
     const inbound = log.callee_id === me?.id;
     const missed = isMissed(log);
@@ -268,7 +305,8 @@ export const CallsScreen: React.FC = () => {
       : log.status === 'missed' || log.status === 'cancelled'
         ? 'phone-cancel'
         : 'phone-outgoing';
-    const selected = selectedIds.has(log.id);
+    const groupIds = group.map((g) => g.id);
+    const selected = groupIds.every((id) => selectedIds.has(id));
 
     const renderRight = (
       _progress: Animated.AnimatedInterpolation<number>,
@@ -280,7 +318,7 @@ export const CallsScreen: React.FC = () => {
         extrapolate: 'clamp',
       });
       return (
-        <Pressable style={[styles.delAction, { backgroundColor: c.danger }]} onPress={() => removeOne(log)}>
+        <Pressable style={[styles.delAction, { backgroundColor: c.danger }]} onPress={() => removeOne(group)}>
           <Animated.View style={{ transform: [{ scale }], alignItems: 'center' }}>
             <Icon name="trash-can-outline" size={22} color="#fff" />
             <Text style={styles.delTxt}>{t('common.delete')}</Text>
@@ -297,8 +335,8 @@ export const CallsScreen: React.FC = () => {
           { backgroundColor: selected ? c.primary + '14' : c.card },
         ]}
         android_ripple={{ color: c.surfaceAlt }}
-        onPress={() => (selectionMode ? toggleSelect(log.id) : redial(log))}
-        onLongPress={() => (selectionMode ? toggleSelect(log.id) : startSelection(log))}
+        onPress={() => (selectionMode ? toggleSelect(groupIds) : redial(log))}
+        onLongPress={() => (selectionMode ? toggleSelect(groupIds) : startSelection(group))}
       >
         {selectionMode ? (
           <View
@@ -320,7 +358,7 @@ export const CallsScreen: React.FC = () => {
             style={[styles.rowName, { color: missed ? c.danger : c.text }]}
             numberOfLines={1}
           >
-            {name}
+            {group.length > 1 ? `${name} (${group.length})` : name}
           </Text>
           <View style={styles.rowMeta}>
             <Icon name={arrow} size={14} color={dirColor} />
@@ -370,7 +408,7 @@ export const CallsScreen: React.FC = () => {
     item.kind === 'day' ? (
       <Text style={[styles.dayLabel, { color: c.textMuted }]}>{item.label}</Text>
     ) : (
-      renderCall(item.log)
+      renderCall(item.log, item.group)
     );
 
   return (
