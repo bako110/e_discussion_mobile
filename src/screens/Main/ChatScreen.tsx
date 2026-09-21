@@ -1223,7 +1223,13 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       key: 'media',
       icon: 'image-multiple-outline',
       label: t('chat.menuMedia'),
-      onPress: openInfo,
+      onPress: () => navigation.navigate('SharedMedia', { conversationId }),
+    },
+    {
+      key: 'files',
+      icon: 'file-document-outline',
+      label: t('chat.files'),
+      onPress: () => navigation.navigate('SharedFiles', { conversationId }),
     },
     {
       key: 'mute',

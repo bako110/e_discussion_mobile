@@ -14,6 +14,7 @@ import { ChatScreen } from '@/screens/Main/ChatScreen';
 import { ChatSearchScreen } from '@/screens/Main/ChatSearchScreen';
 import { ConversationInfoScreen } from '@/screens/Main/ConversationInfoScreen';
 import { SharedFilesScreen } from '@/screens/Main/SharedFilesScreen';
+import { SharedMediaScreen } from '@/screens/Main/SharedMediaScreen';
 import { ChatsSettingsScreen } from '@/screens/Main/ChatsSettingsScreen';
 import { CallsSettingsScreen } from '@/screens/Main/CallsSettingsScreen';
 import { ChannelDiscussionScreen } from '@/screens/Main/ChannelDiscussionScreen';
@@ -73,6 +74,7 @@ export const MainNavigator: React.FC = () => (
     <Stack.Screen name="ChatSearch" component={ChatSearchScreen} />
     <Stack.Screen name="ConversationInfo" component={ConversationInfoScreen} />
     <Stack.Screen name="SharedFiles" component={SharedFilesScreen} />
+    <Stack.Screen name="SharedMedia" component={SharedMediaScreen} />
     <Stack.Screen name="UserProfile" component={UserProfileScreen} />
     <Stack.Screen name="NewConversation" component={NewConversationScreen} />
     <Stack.Screen name="EditProfile" component={EditProfileScreen} />

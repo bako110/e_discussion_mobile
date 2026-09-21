@@ -2,11 +2,14 @@
  * Détail / paramètres d'une conversation 1-to-1 — écran "profil" du contact.
  *  - en-tête carte : dégradé + grand avatar + présence + nom/@username/bio
  *  - actions rapides : appel audio / vidéo / rechercher
- *  - Médias, liens et docs partagés
  *  - Notifications (sourdine)
  *  - Fond d'écran de la discussion
  *  - Chiffrement (ouvre l'explication)
  *  - Bloquer / Signaler / Effacer la discussion
+ *
+ * Médias/fichiers : PAS ici (façon WhatsApp épuré) — accessibles uniquement
+ * depuis le menu ⋮ du chat (`SharedMedia`/`SharedFiles`), pour ne pas
+ * dupliquer l'accès à deux endroits.
  *
  * Confidentialité : tous les champs affichés ici (avatar, présence, dernière
  * connexion, à propos) viennent déjà filtrés par le backend selon les
@@ -16,16 +19,7 @@
  * de logique de confidentialité à dupliquer ici.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
@@ -47,9 +41,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { conversationRepo } from '@/db/repositories/conversationRepo';
 import type { MainScreenProps } from '@/navigation/types';
 import { conversationService, userService } from '@/services';
-import type { SharedMedia, UserPublic } from '@/types';
+import type { UserPublic } from '@/types';
 import { callStartErrorMessage } from '@/utils/callError';
-import { mediaUrl } from '@/utils/media';
 import { lastSeenLabel } from '@/utils/time';
 
 export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'>> = ({
@@ -66,8 +59,6 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
   const [profile, setProfile] = useState<UserPublic | null>(null);
   const [muted, setMuted] = useState(false);
   const [blocked, setBlocked] = useState(false);
-  const [media, setMedia] = useState<SharedMedia[]>([]);
-  const [fileCount, setFileCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [encOpen, setEncOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -88,12 +79,9 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
     // 2) rafraîchit depuis le serveur (best-effort) — c'est LUI qui applique
     //    déjà les règles de confidentialité du contact avant de répondre.
     try {
-      const [detail, blk, med] = await Promise.all([
+      const [detail, blk] = await Promise.all([
         conversationService.detail(conversationId).catch(() => null),
         userService.blockedUsers().catch(() => [] as UserPublic[]),
-        // page large : le filtrage photos/vidéos vs fichiers se fait ici
-        // (l'API renvoie tous les types de pièces jointes mélangés).
-        conversationService.media(conversationId, 1, 60).catch(() => [] as SharedMedia[]),
       ]);
       if (detail) {
         setMuted(detail.muted);
@@ -103,13 +91,6 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
         if (remote) setProfile(remote);
       }
       setBlocked(blk.some((u) => u.id === partnerId));
-      if (med.length) {
-        // Médias, façon WhatsApp : uniquement photos/vidéos en grille ici —
-        // les fichiers (documents) ont leur propre page dédiée, voir
-        // `SharedFilesScreen` et la ligne "Fichiers" plus bas.
-        setMedia(med.filter((m) => m.type === 'image' || m.type === 'video'));
-        setFileCount(med.filter((m) => m.type === 'file').length);
-      }
     } catch {
       /* hors-ligne — on garde le local */
     }
@@ -324,49 +305,6 @@ export const ConversationInfoScreen: React.FC<MainScreenProps<'ConversationInfo'
             />
           </View>
 
-          {/* Médias partagés — uniquement photos/vidéos, façon WhatsApp
-              (les fichiers vivent dans leur propre page, voir plus bas). */}
-          <SettingsSection title={t('chat.sharedMedia')}>
-            {media.length > 0 ? (
-              <View style={styles.mediaWrap}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>
-                  {media.map((m) => (
-                    <Pressable
-                      key={m.message_id}
-                      style={styles.mediaThumb}
-                      onPress={() =>
-                        navigation.navigate('MediaViewer', {
-                          url: mediaUrl(m.url) ?? m.url,
-                          type: m.type === 'video' ? 'video' : 'image',
-                        })
-                      }
-                    >
-                      <Image source={{ uri: mediaUrl(m.url) }} style={styles.mediaImg} />
-                      {m.type === 'video' ? (
-                        <View style={styles.playBadge}>
-                          <Icon name="play" size={12} color="#fff" />
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            ) : (
-              <View style={styles.mediaEmpty}>
-                <Text style={[styles.mediaEmptyTxt, { color: c.textFaint }]}>
-                  {t('chat.noSharedMedia')}
-                </Text>
-              </View>
-            )}
-            <SettingsRow
-              icon="file-document-outline"
-              label={t('chat.files')}
-              value={fileCount > 0 ? String(fileCount) : undefined}
-              onPress={() => navigation.navigate('SharedFiles', { conversationId })}
-              last
-            />
-          </SettingsSection>
-
           {/* Notifications */}
           <SettingsSection title={t('chat.notifications')}>
             <View style={styles.toggleRow}>
@@ -504,24 +442,6 @@ const styles = StyleSheet.create({
   quick: { alignItems: 'center', gap: 6, width: 74 },
   quickIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   quickLabel: { fontSize: 12, fontWeight: '600' },
-
-  mediaWrap: { paddingVertical: 10 },
-  mediaRow: { paddingHorizontal: 12, gap: 8 },
-  mediaThumb: { width: 78, height: 78, borderRadius: 10, overflow: 'hidden' },
-  mediaImg: { width: 78, height: 78, borderRadius: 10 },
-  playBadge: {
-    position: 'absolute',
-    right: 5,
-    bottom: 5,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mediaEmpty: { padding: 16, alignItems: 'center' },
-  mediaEmptyTxt: { fontSize: 13 },
 
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   toggleTxt: { flex: 1 },

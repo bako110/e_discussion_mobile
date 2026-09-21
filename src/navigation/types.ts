@@ -57,8 +57,14 @@ export type MainStackParamList = {
     | { mode: 'group'; groupId: string; groupName: string };
   /** Page dédiée façon WhatsApp : uniquement les FICHIERS (documents)
    * partagés dans la conversation — jamais mélangés aux photos/vidéos, qui
-   * restent dans la grille de `ConversationInfo`. */
+   * ont leur propre grille dans `SharedMedia`. */
   SharedFiles: {
+    conversationId: string;
+  };
+  /** Page « Médias » (grille photos/vidéos) — ouverte directement depuis le
+   * menu ⋮ du chat, PAS depuis le profil du contact (qui n'a plus de section
+   * médias/fichiers, pour ne pas dupliquer l'accès). */
+  SharedMedia: {
     conversationId: string;
   };
   /** Aperçu du profil d'un utilisateur en lecture seule (photo, bio,
