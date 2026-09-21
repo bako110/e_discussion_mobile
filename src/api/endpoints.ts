@@ -63,6 +63,8 @@ export const Endpoints = {
     mine: `${V1}/stories/mine`,
     create: `${V1}/stories`,
     audience: `${V1}/stories/audience`,
+    mutedAuthors: `${V1}/stories/muted-authors`,
+    muteAuthor: (authorId: string) => `${V1}/stories/authors/${authorId}/mute`,
     byId: (id: string) => `${V1}/stories/${id}`,
     view: (id: string) => `${V1}/stories/${id}/view`,
     viewers: (id: string) => `${V1}/stories/${id}/viewers`,

@@ -15,7 +15,7 @@ import { useFocusEffect, useNavigation, useRoute, type RouteProp } from '@react-
 import { useTranslation } from 'react-i18next';
 import Video, { type VideoRef } from 'react-native-video';
 
-import { Avatar, CachedImage, confirmAlert, Icon } from '@/components/common';
+import { Avatar, CachedImage, confirmAlert, Icon, showSheet, showToast } from '@/components/common';
 import { LikersTicker } from '@/components/story/LikersTicker';
 import { fontStyle, QUICK_REACTIONS } from '@/components/story/storyConfig';
 import { useCachedMedia } from '@/hooks/useCachedMedia';
@@ -677,6 +677,45 @@ export const StoryViewerScreen: React.FC = () => {
   const bg = current.background_color || '#111827';
   const author = group?.author;
 
+  /** Menu « ⋮ » sur le statut d'un AUTRE utilisateur — pour l'instant juste
+   * « Masquer ses statuts » (unidirectionnel, voir storyService.muteAuthor :
+   * n'affecte QUE mon feed, l'auteur continue de voir mes statuts et de
+   * m'écrire normalement, contrairement à un blocage de compte classique).
+   * Pas de useCallback : ce composant a déjà des `return` conditionnels
+   * avant ce point, donc `author` n'est disponible qu'ici — une fonction
+   * simple (recréée à chaque rendu) évite toute question d'ordre des hooks. */
+  const openAuthorMenu = () => {
+    if (!author || isMine) return;
+    const name = author.display_name || author.username || '—';
+    setPaused(true);
+    showSheet({
+      title: name,
+      actions: [
+        {
+          label: t('stories.muteAuthor'),
+          icon: 'eye-off-outline',
+          onPress: () => {
+            confirmAlert(
+              t('stories.muteAuthorTitle'),
+              t('stories.muteAuthorBody', { name }),
+              () => {
+                void storyService
+                  .muteAuthor(author.id)
+                  .then(() => {
+                    showToast(t('stories.muteAuthorDone', { name }));
+                    navigation.goBack();
+                  })
+                  .catch(() => showToast(t('errors.generic'), { type: 'error' }));
+              },
+              { confirmText: t('stories.muteAuthor'), onCancel: () => setPaused(false) },
+            );
+          },
+        },
+      ],
+      onCancel: () => setPaused(false),
+    });
+  };
+
   return (
     <View style={[styles.root, { backgroundColor: bg }]} {...swipe.panHandlers}>
       {/* Contenu visuel (média + fond coloré + légende) — SEUL ce bloc suit
@@ -809,7 +848,11 @@ export const StoryViewerScreen: React.FC = () => {
           <Pressable onPress={removeOwn} hitSlop={12} style={styles.iconBtn}>
             <Icon name="delete-outline" size={22} color="#fff" />
           </Pressable>
-        ) : null}
+        ) : (
+          <Pressable onPress={openAuthorMenu} hitSlop={12} style={styles.iconBtn}>
+            <Icon name="dots-vertical" size={22} color="#fff" />
+          </Pressable>
+        )}
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.iconBtn}>
           <Icon name="close" size={24} color="#fff" />
         </Pressable>

@@ -7,6 +7,7 @@ import type {
   Story,
   StoryFeedItem,
   StoryViewer,
+  UserPublic,
 } from '@/types';
 
 export type StoryAudienceMode = 'contacts' | 'contacts_except' | 'only';
@@ -407,5 +408,20 @@ export const storyService = {
       mode: clean.mode,
       contact_ids: clean.contact_ids,
     });
+  },
+
+  // ── « Masquer ses statuts » (unidirectionnel, ne touche ni messages ni
+  // appels — sans rapport avec le blocage de compte). Réseau direct : pas
+  // d'outbox, action ponctuelle rarement répétée hors-ligne. ──────────────
+  mutedAuthors(): Promise<UserPublic[]> {
+    return apiClient.get<UserPublic[]>(Endpoints.stories.mutedAuthors);
+  },
+
+  muteAuthor(authorId: string): Promise<void> {
+    return apiClient.post(Endpoints.stories.muteAuthor(authorId)).then(() => undefined);
+  },
+
+  unmuteAuthor(authorId: string): Promise<void> {
+    return apiClient.delete(Endpoints.stories.muteAuthor(authorId)).then(() => undefined);
   },
 };
