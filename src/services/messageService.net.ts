@@ -82,7 +82,6 @@ export const messageService = {
         `contentType=${payload.contentType}`,
         `senderDev=${payload.senderDeviceId}`,
         `hasX3DH=${!!payload.x3dhEphemeralPublicKey}`,
-        `otpkId=${payload.x3dhOneTimePrekeyId}`,
         '->',
         String(e),
       );

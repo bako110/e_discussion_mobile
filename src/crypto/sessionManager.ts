@@ -9,8 +9,16 @@
  * appareils) est une phase suivante. Un seul bundle (le premier appareil
  * actif renvoyé par le serveur) est utilisé pour l'instant.
  *
- * Porté depuis stream_mobile — adapté au client HTTP d'E-discussion
- * (`apiClient.*` renvoie directement le JSON, pas `{ data }`).
+ * Pas de one-time prekeys (X3DH à 3 DH, sans OTPK optionnelle) : l'ancienne
+ * version gérait un stock d'OTPK par appareil (génération, réapprovisionnement,
+ * consommation serveur, cascade de bootstrap "avec OTPK / sans OTPK / reset
+ * de session") — cette machinerie était la principale source de sessions
+ * incohérentes en usage réel (OTPK consommée puis un message la référençant
+ * arrive en retard, désync du compteur restant côté serveur, etc.). X3DH
+ * reste cryptographiquement solide sans elle (voir x3dh.ts) ; on perd
+ * uniquement la protection optionnelle "et si la clé d'identité ET le signed
+ * prekey de B sont un jour compromis ET qu'un attaquant a aussi intercepté
+ * le tout 1er message" — un raffinement de Signal, pas un défaut de fond.
  */
 import { Platform } from 'react-native';
 
@@ -19,9 +27,7 @@ import { apiClient, Endpoints } from '@/api';
 import {
   clearX3dhInit,
   clearSessionConfirmed,
-  deleteOneTimePrekey,
   deleteSession,
-  generateOneTimePrekeys,
   getSignedPrekeyPrivate,
   isSessionConfirmed,
   loadOrCreateDeviceIdentity,
@@ -29,7 +35,6 @@ import {
   loadSession,
   loadX3dhInit,
   markSessionConfirmed,
-  peekOneTimePrekeyPrivate,
   saveSession,
   saveX3dhInit,
   wipeAllE2EE,
@@ -46,14 +51,6 @@ import {
   toBase64,
 } from './doubleRatchet';
 import { bundleFromApi, type PreKeyBundle, x3dhInitiate, x3dhReceive } from './x3dh';
-
-const OTPK_LOW_WATERMARK = 10;
-const OTPK_REFILL_COUNT = 20;
-
-interface KeysCountRow {
-  device_id: string;
-  remaining_one_time_prekeys: number;
-}
 
 let registrationPromise: Promise<void> | null = null;
 
@@ -72,17 +69,6 @@ export async function ensureDeviceRegistered(): Promise<void> {
     const identity = await loadOrCreateDeviceIdentity();
     const signedPrekey = await loadOrCreateSignedPrekey(identity);
 
-    let remaining = 0;
-    try {
-      const rows = await apiClient.get<KeysCountRow[]>(Endpoints.devices.myKeysCount);
-      remaining =
-        (rows ?? []).find((d) => d.device_id === identity.deviceId)?.remaining_one_time_prekeys ?? 0;
-    } catch {
-      // premier lancement : pas encore enregistré, on enregistre ci-dessous
-    }
-    if (remaining > 0) return;
-
-    const oneTimePrekeys = await generateOneTimePrekeys(OTPK_REFILL_COUNT);
     await apiClient.post(Endpoints.devices.registerKeys, {
       device_id: identity.deviceId,
       device_label: Platform.OS === 'ios' ? 'iPhone' : 'Android',
@@ -92,7 +78,7 @@ export async function ensureDeviceRegistered(): Promise<void> {
       signed_prekey: signedPrekey.publicKey,
       prekey_signature: signedPrekey.signature,
       registration_id: Math.floor(Math.random() * 0x7fffffff),
-      one_time_prekeys: oneTimePrekeys.map((k) => ({ key_id: k.prekey_id, public_key: k.public_key })),
+      one_time_prekeys: [],
     });
   })();
   return registrationPromise;
@@ -111,25 +97,6 @@ export async function resetLocalE2EE(): Promise<void> {
   bundleDeviceCache.clear();
   registrationPromise = null;
   await ensureDeviceRegistered();
-  await refillOneTimePrekeysIfLow();
-}
-
-/** Réapprovisionne le stock d'OTPK côté serveur si bas — best-effort. */
-export async function refillOneTimePrekeysIfLow(): Promise<void> {
-  try {
-    const identity = await loadOrCreateDeviceIdentity();
-    const rows = await apiClient.get<KeysCountRow[]>(Endpoints.devices.myKeysCount);
-    const mine = (rows ?? []).find((d) => d.device_id === identity.deviceId);
-    if (!mine || mine.remaining_one_time_prekeys > OTPK_LOW_WATERMARK) return;
-
-    const oneTimePrekeys = await generateOneTimePrekeys(OTPK_REFILL_COUNT);
-    await apiClient.post(Endpoints.devices.addPrekeys, {
-      device_id: identity.deviceId,
-      one_time_prekeys: oneTimePrekeys.map((k) => ({ key_id: k.prekey_id, public_key: k.public_key })),
-    });
-  } catch {
-    // le prochain démarrage réessaiera
-  }
 }
 
 export interface EncryptedPayload {
@@ -141,7 +108,6 @@ export interface EncryptedPayload {
   nonce: string;
   ciphertext: string;
   x3dhEphemeralPublicKey?: string;
-  x3dhOneTimePrekeyId?: number | null;
   x3dhSenderIdentityPublicKey?: string;
 }
 
@@ -207,7 +173,7 @@ export async function encryptMessageForUser(
     session = initSessionAsInitiator(result.sharedSecret, result.ephemeralKeyPair, bundle.signedPrekey);
     x3dhInfo = {
       ephemeralPublicKey: toBase64(result.ephemeralKeyPair.publicKey),
-      oneTimePrekeyId: result.usedOneTimePrekeyId,
+      oneTimePrekeyId: null,
       senderIdentityPublicKey: toBase64(identity.identityKeyPair.publicKey),
     };
     await saveX3dhInit(recipientUserId, deviceId, x3dhInfo);
@@ -231,7 +197,6 @@ export async function encryptMessageForUser(
     nonce: toBase64(encrypted.nonce),
     ciphertext: toBase64(encrypted.ciphertext),
     x3dhEphemeralPublicKey: x3dhInfo?.ephemeralPublicKey,
-    x3dhOneTimePrekeyId: x3dhInfo?.oneTimePrekeyId ?? undefined,
     x3dhSenderIdentityPublicKey: x3dhInfo?.senderIdentityPublicKey,
   };
 }
@@ -254,23 +219,15 @@ export async function decryptMessageFromUser(
     !!payload.x3dhEphemeralPublicKey &&
     !!payload.x3dhSenderIdentityPublicKey;
 
-  // `useOtpk` : au 1er essai on tente AVEC l'OTPK indiquee ; si le bootstrap
-  // echoue (OTPK deja consommee / jamais recue apres un reinstall...), on
-  // retente SANS OTPK (X3DH degrade a 3 DH), ce que le pair aura peut-etre
-  // fait aussi si son bundle a ete servi sans OTPK.
-  const bootstrap = async (useOtpk: boolean): Promise<SessionState> => {
+  const bootstrap = async (): Promise<SessionState> => {
     const signedPrekeyPair = await getSignedPrekeyPrivate();
     if (!signedPrekeyPair) throw new Error('E2EE_NO_LOCAL_SIGNED_PREKEY');
-    const otpkPrivate =
-      useOtpk && payload.x3dhOneTimePrekeyId != null
-        ? await peekOneTimePrekeyPrivate(payload.x3dhOneTimePrekeyId)
-        : null;
     const sharedSecret = x3dhReceive(
       identity.identityKeyPair,
       signedPrekeyPair.privateKey,
       fromBase64(payload.x3dhSenderIdentityPublicKey!),
       fromBase64(payload.x3dhEphemeralPublicKey!),
-      otpkPrivate?.privateKey ?? null,
+      null,
     );
     return initSessionAsReceiver(sharedSecret, signedPrekeyPair);
   };
@@ -279,7 +236,7 @@ export async function decryptMessageFromUser(
     if (!canBootstrap) {
       throw new Error('E2EE_SESSION_MISSING: pas de session et message non exploitable');
     }
-    session = await bootstrap(true);
+    session = await bootstrap();
   }
 
   const encrypted: EncryptedMessage = {
@@ -297,22 +254,17 @@ export async function decryptMessageFromUser(
     () => Promise.resolve(ratchetDecrypt(session!, encrypted)),
   ];
   if (canBootstrap) {
-    // 2) session receveur reconstruite depuis le X3DH du message (avec OTPK)
+    // 2) session receveur reconstruite depuis le X3DH du message
     attempts.push(async () => {
-      session = await bootstrap(true);
+      session = await bootstrap();
       return ratchetDecrypt(session, encrypted);
     });
-    // 3) idem SANS OTPK (bundle servi degrade / OTPK perdue apres reinstall)
-    attempts.push(async () => {
-      session = await bootstrap(false);
-      return ratchetDecrypt(session, encrypted);
-    });
-    // 4) dernier recours : on efface toute trace de session pour ce device et
+    // 3) dernier recours : on efface toute trace de session pour ce device et
     //    on repart d'un bootstrap propre (cas : ancienne session incoherente)
     attempts.push(async () => {
       await deleteSession(senderUserId, payload.senderDeviceId);
       await clearSessionConfirmed(senderUserId, payload.senderDeviceId);
-      session = await bootstrap(true);
+      session = await bootstrap();
       return ratchetDecrypt(session, encrypted);
     });
   }
@@ -331,12 +283,8 @@ export async function decryptMessageFromUser(
 
   await saveSession(senderUserId, payload.senderDeviceId, session);
   // On a reussi a lire un message de ce pair -> notre propre session
-  // initiateur vers lui est prouvee : on arrete d'y rejoindre le X3DH, et on
-  // peut enfin consommer definitivement l'OTPK utilisee pour ce bootstrap.
+  // initiateur vers lui est prouvee : on arrete d'y rejoindre le X3DH.
   await markSessionConfirmed(senderUserId, payload.senderDeviceId);
   await clearX3dhInit(senderUserId, payload.senderDeviceId);
-  if (payload.x3dhOneTimePrekeyId != null) {
-    await deleteOneTimePrekey(payload.x3dhOneTimePrekeyId);
-  }
   return new TextDecoder().decode(plaintextBytes);
 }

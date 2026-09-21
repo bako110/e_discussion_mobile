@@ -6,16 +6,16 @@
  *  - react-native-keychain (Keychain iOS / Keystore Android, protection
  *    matérielle) : stocke uniquement la CLÉ DE CHIFFREMENT MMKV elle-même
  *    (un secret de 256 bits), jamais les clés E2EE directement.
- *  - MMKV chiffré (avec cette clé) : stocke l'identité de l'appareil, les
- *    signed/one-time prekeys privées, et l'état de chaque session Double
- *    Ratchet (une par appareil distant).
+ *  - MMKV chiffré (avec cette clé) : stocke l'identité de l'appareil, la
+ *    signed prekey privée, et l'état de chaque session Double Ratchet (une
+ *    par appareil distant).
  *
  * Une instance MMKV séparée de `utils/storage.ts` (qui n'est pas chiffrée) —
  * ne jamais migrer ce module vers le storage général de l'app.
  */
 import { MMKV } from 'react-native-mmkv';
 import * as Keychain from 'react-native-keychain';
-import { randomBytes, randomId, toBase64, fromBase64, generateX25519KeyPair, type KeyPair } from './primitives';
+import { randomBytes, toBase64, fromBase64, generateX25519KeyPair, type KeyPair } from './primitives';
 import { generateEd25519KeyPair, sign as ed25519Sign } from './primitives';
 import { signPrekey } from './x3dh';
 import { serializeSession, deserializeSession, type SessionState, type SerializedSessionState } from './doubleRatchet';
@@ -105,10 +105,15 @@ export async function loadOrCreateDeviceIdentity(): Promise<DeviceIdentity> {
   return identity;
 }
 
-// ── Signed prekey + one-time prekeys (parties privées) ───────────────────────
+// ── Signed prekey (partie privée) ────────────────────────────────────────────
+// Pas de one-time prekeys : la cascade "avec OTPK / sans OTPK / re-bootstrap"
+// dans l'ancien sessionManager était la principale source de sessions
+// incohérentes (OTPK consommée par un pair puis rejouée par un autre après un
+// message perdu, désync des compteurs côté serveur). X3DH tolère nativement
+// leur absence (voir x3dh.ts : dh4 conditionnel) — sécurité X3DH standard à
+// 3 DH, juste sans la protection supplémentaire optionnelle du 1er message.
 
 const SIGNED_PREKEY_KEY = 'signed_prekey';
-const OTPK_PREFIX = 'otpk:';
 
 export async function loadOrCreateSignedPrekey(identity: DeviceIdentity): Promise<{ id: number; publicKey: string; signature: string }> {
   const mmkv = await getMmkv();
@@ -133,60 +138,6 @@ export async function getSignedPrekeyPrivate(): Promise<KeyPair | null> {
   if (!raw) return null;
   const s = JSON.parse(raw);
   return { publicKey: fromBase64(s.publicKey), privateKey: fromBase64(s.privateKey) };
-}
-
-/** Génère un lot de nouvelles OTPK (à envoyer au serveur via POST
- * /devices/keys ou /devices/keys/one-time-prekeys), stocke les parties
- * privées localement pour pouvoir répondre à un X3DH entrant plus tard. */
-export async function generateOneTimePrekeys(count: number): Promise<{ prekey_id: number; public_key: string }[]> {
-  const mmkv = await getMmkv();
-  const out: { prekey_id: number; public_key: string }[] = [];
-  // randomId() reste dans la plage int32 (colonne Postgres `prekey_id`,
-  // Date.now() la dépasse largement — bug corrigé ici) ; Set pour garantir
-  // l'unicité au sein du lot malgré le tirage aléatoire.
-  const usedIds = new Set<number>();
-  for (let i = 0; i < count; i++) {
-    const keyPair = generateX25519KeyPair();
-    let id = randomId();
-    while (usedIds.has(id)) id = randomId();
-    usedIds.add(id);
-    mmkv.set(`${OTPK_PREFIX}${id}`, JSON.stringify({
-      id, publicKey: toBase64(keyPair.publicKey), privateKey: toBase64(keyPair.privateKey),
-    }));
-    out.push({ prekey_id: id, public_key: toBase64(keyPair.publicKey) });
-  }
-  return out;
-}
-
-/** Retrouve la clé privée d'une OTPK par son id (fournie par le serveur dans
- * le payload x3dh_initial reçu) — et la supprime immédiatement après lecture
- * (usage unique, jamais réutilisable, cf. forward secrecy du 1er message). */
-export async function consumeOneTimePrekeyPrivate(prekeyId: number): Promise<KeyPair | null> {
-  const mmkv = await getMmkv();
-  const key = `${OTPK_PREFIX}${prekeyId}`;
-  const raw = mmkv.getString(key);
-  if (!raw) return null;
-  mmkv.delete(key);
-  const s = JSON.parse(raw);
-  return { publicKey: fromBase64(s.publicKey), privateKey: fromBase64(s.privateKey) };
-}
-
-/** Lit une OTPK privée SANS la supprimer. Utilisé pendant le bootstrap de
- * session côté récepteur : tant que la session n'est pas confirmée, un
- * message X3DH peut être rejoué (le pair ré-attache le même blob) et on doit
- * pouvoir re-dériver le même secret. La suppression réelle a lieu via
- * `deleteOneTimePrekey` une fois la session confirmée. */
-export async function peekOneTimePrekeyPrivate(prekeyId: number): Promise<KeyPair | null> {
-  const mmkv = await getMmkv();
-  const raw = mmkv.getString(`${OTPK_PREFIX}${prekeyId}`);
-  if (!raw) return null;
-  const s = JSON.parse(raw);
-  return { publicKey: fromBase64(s.publicKey), privateKey: fromBase64(s.privateKey) };
-}
-
-export async function deleteOneTimePrekey(prekeyId: number): Promise<void> {
-  const mmkv = await getMmkv();
-  mmkv.delete(`${OTPK_PREFIX}${prekeyId}`);
 }
 
 // ── Sessions Double Ratchet (une par appareil distant) ───────────────────────

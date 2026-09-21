@@ -149,7 +149,6 @@ export const Endpoints = {
   },
   devices: {
     registerKeys: `${V1}/devices/keys`,
-    addPrekeys: `${V1}/devices/keys/one-time-prekeys`,
     myKeysCount: `${V1}/devices/me/keys-count`,
     mine: `${V1}/devices/me`,
     pushToken: `${V1}/devices/push-token`,

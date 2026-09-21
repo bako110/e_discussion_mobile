@@ -43,9 +43,10 @@ export const WS_URL = `${API_BASE_URL.replace(/^http/, 'ws')}/api/v1/ws`;
 export const APP_NAME = 'E-discussion';
 
 /**
- * Chiffrement E2EE (Signal : X3DH + Double Ratchet). DÉSACTIVÉ temporairement
- * le temps de fiabiliser l'implémentation : les messages texte partent en
- * CLAIR. Tout le module `src/crypto/` reste en place — remettre à `true` pour
- * réactiver (aucun autre changement requis).
+ * Chiffrement E2EE (Signal : X3DH + Double Ratchet) pour les messages TEXTE
+ * en conversation 1-to-1. Réactivé après simplification de l'orchestration
+ * de session (retrait des one-time prekeys, source des sessions incohérentes
+ * précédentes — voir crypto/sessionManager.ts). Médias/vidéos pas encore
+ * chiffrés (prochaine étape).
  */
-export const E2EE_ENABLED = false;
+export const E2EE_ENABLED = true;

@@ -17,7 +17,7 @@ import React, {
 } from 'react';
 
 import { showToast } from '@/components/common';
-import { ensureDeviceRegistered, refillOneTimePrekeysIfLow } from '@/crypto';
+import { ensureDeviceRegistered } from '@/crypto';
 import { authService } from '@/services';
 import { E2EE_ENABLED } from '@/utils/constants';
 import i18n from '@/i18n';
@@ -54,9 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const registerE2EE = useCallback(() => {
     if (!E2EE_ENABLED) return; // E2EE désactivé temporairement
-    ensureDeviceRegistered()
-      .then(() => refillOneTimePrekeysIfLow())
-      .catch(() => undefined);
+    ensureDeviceRegistered().catch(() => undefined);
   }, []);
 
   const applySession = useCallback(
