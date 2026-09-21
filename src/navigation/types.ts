@@ -210,6 +210,10 @@ export type MainStackParamList = {
      * SEULEMENT à la fermeture de ce viewer — jamais avant, sinon le média
      * peut disparaître côté serveur avant même d'avoir fini de charger. */
     viewOnceMessageId?: string;
+    /** Pièce jointe 1-to-1 chiffrée (voir `mediaCache.encCtxFor`) — absent
+     * pour un média en clair (groupe, ancien envoi). Ne s'applique pas à
+     * `gallery` (jamais chiffré actuellement, voir MediaGroupBubble). */
+    enc?: { senderId: string; fileKeyEncrypted: string };
   };
   /** « Infos » d'un message envoyé : horodatages distribué / lu / écouté. */
   MessageInfo: { messageId: string; type: string };

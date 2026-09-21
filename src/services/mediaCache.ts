@@ -16,8 +16,90 @@
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import NetInfo from '@react-native-community/netinfo';
 
+import { decryptFile, decryptMessageFromUser, fromBase64, type EncryptedPayload } from '@/crypto';
 import { mediaUrl } from '@/utils/media';
 import { storage } from '@/utils/storage';
+
+/**
+ * Contexte nécessaire pour déchiffrer une pièce jointe 1-to-1 (voir
+ * `crypto/fileCrypto.ts`) : qui l'a envoyée (pour retrouver la session
+ * Signal) + la clé de fichier, elle-même chiffrée pour nous exactement comme
+ * un message texte (`attachment_meta.file_key_encrypted`, JSON stringifié
+ * d'un `EncryptedPayload`). `undefined` = pas de déchiffrement (média de
+ * groupe, jamais chiffré, ou pièce jointe envoyée avant ce chantier).
+ */
+export interface MediaEncContext {
+  senderId: string;
+  fileKeyEncrypted: string;
+}
+
+/**
+ * Construit le contexte de déchiffrement à partir d'un expéditeur + des
+ * métadonnées de pièce jointe brutes — `undefined` si non chiffrée (média de
+ * groupe, ancien envoi d'avant ce chantier, ou pas de pièce jointe). Centralise
+ * la lecture de `encrypted`/`file_key_encrypted` pour tous les appelants
+ * (MessageBubble, ChatScreen, MediaViewerScreen, SharedFilesScreen…) plutôt
+ * que de dupliquer ce cast `Record<string, unknown>` partout.
+ */
+export function encCtxFromMeta(
+  senderId: string | null | undefined,
+  meta: Record<string, unknown> | null | undefined,
+): MediaEncContext | undefined {
+  if (!senderId || !meta || meta.encrypted !== true) return undefined;
+  const fileKeyEncrypted = meta.file_key_encrypted;
+  if (typeof fileKeyEncrypted !== 'string' || !fileKeyEncrypted) return undefined;
+  return { senderId, fileKeyEncrypted };
+}
+
+/** Variante pratique pour un `LocalMessage`/`ChatMessage` (a `sender_id` +
+ * `attachment_meta`) — voir `encCtxFromMeta`. */
+export function encCtxFor(message: {
+  sender_id: string;
+  attachment_meta: Record<string, unknown> | null;
+} | null | undefined): MediaEncContext | undefined {
+  return encCtxFromMeta(message?.sender_id, message?.attachment_meta);
+}
+
+/** Déchiffre `fileKeyEncrypted` (payload Signal) pour obtenir la clé de
+ * fichier en clair. Ne lève jamais : `null` en cas d'échec (session cassée,
+ * JSON invalide) — l'appelant dégrade vers « média indisponible ». */
+async function resolveFileKey(enc: MediaEncContext): Promise<Uint8Array | null> {
+  try {
+    const payload = JSON.parse(enc.fileKeyEncrypted) as EncryptedPayload;
+    const b64 = await decryptMessageFromUser(enc.senderId, payload);
+    return fromBase64(b64);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Déchiffre en place un fichier téléchargé (blob nonce+ciphertext) : écrit le
+ * clair dans un fichier temporaire puis le substitue à `encryptedPath`, pour
+ * que le CHEMIN FINAL en cache reste le même que pour un média non chiffré
+ * (aucun autre changement nécessaire côté résolution de chemin/hash). Best
+ * -effort : si le déchiffrement échoue (clé indéchiffrable, fichier
+ * corrompu), le fichier chiffré est supprimé plutôt que laissé en cache sous
+ * une forme inexploitable — l'appelant retombera sur `null`/`missing`.
+ */
+async function decryptInPlace(encryptedPath: string, enc: MediaEncContext): Promise<boolean> {
+  const fileKey = await resolveFileKey(enc);
+  if (!fileKey) {
+    await ReactNativeBlobUtil.fs.unlink(encryptedPath).catch(() => undefined);
+    return false;
+  }
+  const plainPath = `${encryptedPath}.plain`;
+  try {
+    await decryptFile(`file://${encryptedPath}`, fileKey, `file://${plainPath}`);
+    await ReactNativeBlobUtil.fs.unlink(encryptedPath).catch(() => undefined);
+    await ReactNativeBlobUtil.fs.mv(plainPath, encryptedPath);
+    return true;
+  } catch {
+    await ReactNativeBlobUtil.fs.unlink(plainPath).catch(() => undefined);
+    await ReactNativeBlobUtil.fs.unlink(encryptedPath).catch(() => undefined);
+    return false;
+  }
+}
 
 const DIR = `${ReactNativeBlobUtil.fs.dirs.DocumentDir}/media`;
 const LEGACY_DIR = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/media`;
@@ -140,6 +222,7 @@ async function download(
   remote: string,
   localPath: string,
   onProgress?: (p: number) => void,
+  enc?: MediaEncContext,
 ): Promise<string | null> {
   try {
     await ensureDir();
@@ -158,9 +241,19 @@ async function download(
     }
     const res = await task;
     const status = res.info().status;
-    if (status >= 200 && status < 300) return `file://${localPath}`;
-    void ReactNativeBlobUtil.fs.unlink(localPath).catch(() => undefined);
-    return null;
+    if (status < 200 || status >= 300) {
+      void ReactNativeBlobUtil.fs.unlink(localPath).catch(() => undefined);
+      return null;
+    }
+    // Le blob téléchargé est le CIPHERTEXTE (nonce+ciphertext, voir
+    // fileCrypto.ts) : on le déchiffre en place AVANT d'exposer le chemin —
+    // le cache disque final ne doit jamais contenir que du clair, comme pour
+    // un média non chiffré (rétrocompatibilité : mêmes chemins, même API).
+    if (enc) {
+      const ok = await decryptInPlace(localPath, enc);
+      if (!ok) return null;
+    }
+    return `file://${localPath}`;
   } catch {
     void ReactNativeBlobUtil.fs.unlink(localPath).catch(() => undefined);
     return null;
@@ -182,7 +275,7 @@ export const mediaCache = {
   resolve(
     rawUrl: string | null | undefined,
     onCached?: (localUri: string) => void,
-    opts?: { force?: boolean },
+    opts?: { force?: boolean; enc?: MediaEncContext },
   ): string | undefined {
     if (!rawUrl) return undefined;
     if (isLocal(rawUrl)) return rawUrl;
@@ -196,6 +289,9 @@ export const mediaCache = {
 
     void (async () => {
       try {
+        // Un fichier déjà en cache est TOUJOURS du clair (on ne persiste
+        // jamais le blob chiffré intermédiaire, voir `download`) — pas de
+        // déchiffrement à refaire ici même si `opts.enc` est fourni.
         if (await ReactNativeBlobUtil.fs.exists(localPath)) {
           emitCached(remote, `file://${localPath}`);
           onCached?.(`file://${localPath}`);
@@ -204,7 +300,7 @@ export const mediaCache = {
         if (!mayDownload) return;
         let job = inFlight.get(remote);
         if (!job) {
-          job = download(remote, localPath);
+          job = download(remote, localPath, undefined, opts?.enc);
           inFlight.set(remote, job);
           void job.finally(() => inFlight.delete(remote));
         }
@@ -218,7 +314,10 @@ export const mediaCache = {
       }
     })();
 
-    return remote;
+    // Chiffré : l'URL distante pointe vers un blob illisible tel quel (jamais
+    // affichable directement) — on ne l'expose pas en attendant le
+    // téléchargement + déchiffrement ; `onCached` prendra le relais.
+    return opts?.enc ? undefined : remote;
   },
 
   /** Chemin local `file://…` SI déjà connu en mémoire (synchrone). */
@@ -265,7 +364,7 @@ export const mediaCache = {
    */
   async fetchNow(
     rawUrl: string | null | undefined,
-    opts?: { onProgress?: (p: number) => void },
+    opts?: { onProgress?: (p: number) => void; enc?: MediaEncContext },
   ): Promise<string | null> {
     if (!rawUrl) return null;
     if (isLocal(rawUrl)) return rawUrl;
@@ -287,7 +386,7 @@ export const mediaCache = {
     let job = inFlight.get(remote);
     if (!job) {
       progress.set(remote, 0);
-      job = download(remote, localPath, opts?.onProgress);
+      job = download(remote, localPath, opts?.onProgress, opts?.enc);
       inFlight.set(remote, job);
       void job.finally(() => inFlight.delete(remote));
     }
@@ -348,14 +447,30 @@ export const mediaCache = {
    */
   async fetchTemp(
     rawUrl: string | null | undefined,
-    opts?: { onProgress?: (p: number) => void },
+    opts?: { onProgress?: (p: number) => void; enc?: MediaEncContext },
   ): Promise<string | null> {
     if (!rawUrl) return null;
     if (isLocal(rawUrl)) return rawUrl;
     const remote = mediaUrl(rawUrl) ?? rawUrl;
     await ensureTempDir();
     const localPath = `${TEMP_DIR}/${hash(remote)}${extFromUrl(remote)}`;
-    return download(remote, localPath, opts?.onProgress);
+    return download(remote, localPath, opts?.onProgress, opts?.enc);
+  },
+
+  /** Efface un fichier temporaire arbitraire (ex : blob chiffré généré par
+   * `encryptFile` juste avant l'upload, dans `e2ee-upload/` — plus utile une
+   * fois l'upload confirmé). Best-effort, chemin quelconque (pas forcément
+   * connu de ce module). */
+  async forgetTempFile(localUri: string | null | undefined): Promise<void> {
+    if (!localUri) return;
+    const path = localUri.startsWith('file://') ? localUri.slice(7) : localUri;
+    try {
+      if (await ReactNativeBlobUtil.fs.exists(path)) {
+        await ReactNativeBlobUtil.fs.unlink(path);
+      }
+    } catch {
+      /* best-effort */
+    }
   },
 
   /** Efface un fichier téléchargé via `fetchTemp()`. Best-effort. */

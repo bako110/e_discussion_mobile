@@ -11,7 +11,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, type ImageProps, type ImageStyle, type StyleProp } from 'react-native';
 
-import { mediaCache } from '@/services/mediaCache';
+import { mediaCache, type MediaEncContext } from '@/services/mediaCache';
 import { mediaUrl } from '@/utils/media';
 
 interface Props extends Omit<ImageProps, 'source' | 'style'> {
@@ -19,6 +19,9 @@ interface Props extends Omit<ImageProps, 'source' | 'style'> {
   style?: StyleProp<ImageStyle>;
   /** Force le téléchargement même si l'auto-download est coupé (ex: plein écran). */
   forceDownload?: boolean;
+  /** Pièce jointe 1-to-1 chiffrée (voir `mediaCache.encCtxFor`) — `undefined`
+   * pour un média en clair (avatars, stories, groupes, anciens envois). */
+  enc?: MediaEncContext;
 }
 
 export const CachedImage: React.FC<Props> = ({
@@ -26,6 +29,7 @@ export const CachedImage: React.FC<Props> = ({
   style,
   onError,
   forceDownload,
+  enc,
   ...rest
 }) => {
   const mounted = useRef(true);
@@ -34,6 +38,7 @@ export const CachedImage: React.FC<Props> = ({
   const [src, setSrc] = useState<string | undefined>(() =>
     mediaCache.resolve(uri, (local) => mounted.current && setSrc(local), {
       force: forceDownload,
+      enc,
     }),
   );
 
@@ -43,17 +48,21 @@ export const CachedImage: React.FC<Props> = ({
     setSrc(
       mediaCache.resolve(uri, (local) => mounted.current && setSrc(local), {
         force: forceDownload,
+        enc,
       }),
     );
     return () => {
       mounted.current = false;
     };
-  }, [uri, forceDownload]);
+  }, [uri, forceDownload, enc]);
 
   const handleError = useCallback(
     (e: Parameters<NonNullable<ImageProps['onError']>>[0]) => {
-      // fichier local KO -> on essaie l'URL distante une seule fois
-      if (!triedRemote.current && uri) {
+      // fichier local KO -> on essaie l'URL distante une seule fois — SAUF
+      // pour un média chiffré : l'URL distante est un blob illisible tel
+      // quel, le proposer directement à <Image> ne ferait qu'échouer à
+      // nouveau (au mieux) ; on dégrade directement vers "média indisponible".
+      if (!triedRemote.current && uri && !enc) {
         triedRemote.current = true;
         const remote = mediaUrl(uri);
         if (remote && remote !== src) {
@@ -63,7 +72,7 @@ export const CachedImage: React.FC<Props> = ({
       }
       onError?.(e);
     },
-    [uri, src, onError],
+    [uri, src, onError, enc],
   );
 
   if (!src) return null;

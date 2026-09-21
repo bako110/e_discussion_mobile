@@ -22,7 +22,7 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
   route,
   navigation,
 }) => {
-  const { type, thumbnailUrl, messageId, viewOnceMessageId, gallery } = route.params;
+  const { type, thumbnailUrl, messageId, viewOnceMessageId, gallery, enc } = route.params;
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
@@ -36,10 +36,15 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   // image/vidéo : URI affichable — pour une vue unique, TOUJOURS un fichier
-  // temporaire téléchargé ici (jamais le cache persistant habituel).
-  const [displayUri, setDisplayUri] = useState<string | null>(
-    viewOnceMessageId ? null : (mediaCache.localFor(url) ?? mediaUrl(url) ?? url),
-  );
+  // temporaire téléchargé ici (jamais le cache persistant habituel). Pour un
+  // média CHIFFRÉ non encore en cache, l'URL distante est un blob illisible :
+  // on ne l'affiche jamais directement, on attend le fetch+déchiffrement.
+  const [displayUri, setDisplayUri] = useState<string | null>(() => {
+    if (viewOnceMessageId) return null;
+    const local = mediaCache.localFor(url);
+    if (local) return local;
+    return enc ? null : (mediaUrl(url) ?? url);
+  });
   // chemin temporaire à effacer à la fermeture (vue unique uniquement).
   const tempPathRef = useRef<string | null>(null);
   // pour ne confirmer/effacer qu'une seule fois même si l'écran se démonte 2x.
@@ -48,12 +53,16 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
   useEffect(() => {
     if (!viewOnceMessageId) {
       if (type === 'video' && messageId) messageService.markPlayed(messageId);
-      if (type === 'video') {
-        void mediaCache.fetchNow(url).then((local) => {
+      if (type === 'video' || enc) {
+        // Vidéo : jamais auto-téléchargée en amont (comme dans MessageBubble)
+        // -> on la récupère ici. Image chiffrée : idem, jamais affichée tant
+        // qu'elle n'est pas déchiffrée localement.
+        void mediaCache.fetchNow(url, { enc }).then((local) => {
           if (local) setDisplayUri(local);
+          else if (enc) setFailed(true);
         });
       } else {
-        // image (y compris navigation précédent/suivant en galerie) :
+        // image en clair (y compris navigation précédent/suivant en galerie) :
         // même résolution que l'état initial, ré-exécutée à chaque `url`.
         setDisplayUri(mediaCache.localFor(url) ?? mediaUrl(url) ?? url);
       }
@@ -62,7 +71,7 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
     // Vue unique : télécharge dans un dossier TEMPORAIRE avant toute
     // confirmation au serveur — l'ordre garantit que le média a bien fini de
     // charger avant que le fichier ne disparaisse côté serveur.
-    void mediaCache.fetchTemp(url).then((local) => {
+    void mediaCache.fetchTemp(url, { enc }).then((local) => {
       if (!local) {
         setFailed(true);
         setLoading(false);
@@ -71,7 +80,7 @@ export const MediaViewerScreen: React.FC<MainScreenProps<'MediaViewer'>> = ({
       tempPathRef.current = local;
       setDisplayUri(local);
     });
-  }, [type, url, messageId, viewOnceMessageId]);
+  }, [type, url, messageId, viewOnceMessageId, enc]);
 
   useEffect(() => {
     if (type === 'image') setLoading(false);

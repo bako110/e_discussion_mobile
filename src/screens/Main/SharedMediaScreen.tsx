@@ -6,13 +6,14 @@
  * (`SharedFilesScreen`) — jamais imbriquée ici, pour un accès en un seul tap.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { AppHeader, Icon, Screen } from '@/components/common';
+import { AppHeader, CachedImage, Icon, Screen } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { conversationService } from '@/services';
+import { encCtxFromMeta } from '@/services/mediaCache';
 import type { SharedMedia } from '@/types';
 import { mediaUrl } from '@/utils/media';
 
@@ -99,24 +100,28 @@ export const SharedMediaScreen: React.FC<MainScreenProps<'SharedMedia'>> = ({ ro
               </View>
             ) : null
           }
-          renderItem={({ item }) => (
-            <Pressable
-              style={styles.thumb}
-              onPress={() =>
-                navigation.navigate('MediaViewer', {
-                  url: mediaUrl(item.url) ?? item.url,
-                  type: item.type === 'video' ? 'video' : 'image',
-                })
-              }
-            >
-              <Image source={{ uri: mediaUrl(item.url) }} style={styles.thumbImg} />
-              {item.type === 'video' ? (
-                <View style={styles.playBadge}>
-                  <Icon name="play" size={12} color="#fff" />
-                </View>
-              ) : null}
-            </Pressable>
-          )}
+          renderItem={({ item }) => {
+            const enc = encCtxFromMeta(item.sender_id, item.meta);
+            return (
+              <Pressable
+                style={styles.thumb}
+                onPress={() =>
+                  navigation.navigate('MediaViewer', {
+                    url: mediaUrl(item.url) ?? item.url,
+                    type: item.type === 'video' ? 'video' : 'image',
+                    enc,
+                  })
+                }
+              >
+                <CachedImage uri={mediaUrl(item.url)} style={styles.thumbImg} enc={enc} />
+                {item.type === 'video' ? (
+                  <View style={styles.playBadge}>
+                    <Icon name="play" size={12} color="#fff" />
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          }}
           ListEmptyComponent={
             <View style={styles.center}>
               <Icon name="image-multiple-outline" size={40} color={c.textFaint} />

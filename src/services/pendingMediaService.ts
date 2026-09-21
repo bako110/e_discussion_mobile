@@ -39,6 +39,12 @@ interface SendMediaParams {
    * pièce jointe qu'une fois — voir syncEngine (payload `upload_message`)
    * et le backend (`consume_view_once`) pour la suppression définitive. */
   viewOnce?: boolean;
+  /** Transfert d'un média (ex: pièce jointe CHIFFRÉE — voir ChatScreen.doForward,
+   * qui doit déchiffrer/re-chiffrer plutôt que copier l'URL d'origine, donc
+   * repasser par ce pipeline d'envoi normal au lieu de `messageService.send`).
+   * Id du message d'origine + nom de son AUTEUR original (pas le relais). */
+  forwardedFromId?: string | null;
+  forwardedFromName?: string | null;
 }
 
 export const pendingMediaService = {
@@ -78,6 +84,8 @@ export const pendingMediaService = {
       attachmentMeta: meta,
       createdAt,
       viewOnce,
+      forwardedFromId: p.forwardedFromId ?? null,
+      forwardedFromName: p.forwardedFromName ?? null,
     });
 
     // 2) aperçu de la conversation
@@ -102,6 +110,8 @@ export const pendingMediaService = {
       localFile: p.local.file, // { uri, name, type }
       attachmentMeta: meta,
       viewOnce,
+      forwardedFromId: p.forwardedFromId ?? undefined,
+      forwardedFromName: p.forwardedFromName ?? undefined,
       // attachmentUrl absent tant que l'upload n'a pas réussi
     });
   },

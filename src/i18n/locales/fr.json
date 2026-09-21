@@ -765,6 +765,7 @@
     "sentWhenOnline": "Sera envoyé une fois en ligne",
     "failed": "Échec de l'envoi — appuyez pour réessayer",
     "failedE2eeUnavailable": "Non envoyé — ce contact n'a pas encore activé le chiffrement. Appuyez pour réessayer.",
+    "failedFileTooLarge": "Non envoyé — ce fichier est trop volumineux pour être chiffré (80 Mo max).",
     "upToDate": "À jour",
     "onlineRequiredTitle": "Connexion requise",
     "onlineRequiredBody": "Cette action a besoin d'une connexion Internet. Réessayez une fois en ligne."

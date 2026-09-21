@@ -45,8 +45,10 @@ interface Row {
 }
 
 /** Cause d'un `sync_state='failed'` — voir `markFailed`. `null`/absent =
- * échec générique (réseau, serveur) : le "réessayer" standard s'applique. */
-export type FailReason = 'e2ee_unavailable';
+ * échec générique (réseau, serveur) : le "réessayer" standard s'applique.
+ * `file_too_large` : pièce jointe > limite E2EE (voir crypto/fileCrypto.ts,
+ * `FILE_TOO_LARGE_FOR_E2EE`) — jamais uploadée en clair, message dédié. */
+export type FailReason = 'e2ee_unavailable' | 'file_too_large';
 
 export interface LocalMessage extends ChatMessage {
   client_id: string | null;

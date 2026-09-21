@@ -46,7 +46,7 @@ import {
   pendingMediaService,
   userService,
 } from '@/services';
-import { mediaCache } from '@/services/mediaCache';
+import { encCtxFor, mediaCache } from '@/services/mediaCache';
 import { messageService as netMessageService } from '@/services/messageService.net';
 import { getVoiceState, subscribeVoice, toggleVoice } from '@/services/voicePlayer';
 import { retryFailedDecryptions, syncNow } from '@/sync/syncEngine';
@@ -742,6 +742,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         // vidéo reçue -> horodate « ouvert » pour l'expéditeur (écran Infos)
         messageId:
           m.type === 'video' && m.sender_id !== myId && !m.pending ? m.id : undefined,
+        enc: encCtxFor(m),
       });
     },
     [navigation, myId],
@@ -756,11 +757,14 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
 
   const onOpenFile = useCallback(
     async (m: LocalMessage) => {
-      // télécharge d'abord si besoin, puis ouvre le fichier local
+      // télécharge d'abord si besoin, puis ouvre le fichier local (déchiffré
+      // au passage si `attachment_meta.encrypted`, voir `mediaCache.fetchNow`)
+      const enc = encCtxFor(m);
       const local =
-        mediaCache.localFor(m.attachment_url) ?? (await mediaCache.fetchNow(m.attachment_url));
-      const target = local ?? mediaUrl(m.attachment_url);
+        mediaCache.localFor(m.attachment_url) ?? (await mediaCache.fetchNow(m.attachment_url, { enc }));
+      const target = local ?? (enc ? null : mediaUrl(m.attachment_url));
       if (target) void Linking.openURL(target).catch(() => showAlert(t('errors.generic')));
+      else showAlert(t('errors.generic'));
     },
     [t],
   );
@@ -786,11 +790,12 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
             (m.attachment_meta?.thumbnail_url as string | undefined) ?? undefined,
           ),
           viewOnceMessageId: m.id,
+          enc: encCtxFor(m),
         });
         return;
       }
       if (m.type === 'voice') {
-        const local = await mediaCache.fetchTemp(m.attachment_url);
+        const local = await mediaCache.fetchTemp(m.attachment_url, { enc: encCtxFor(m) });
         if (!local) {
           showAlert(t('errors.generic'));
           return;
@@ -822,7 +827,7 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
         return;
       }
       if (m.type === 'file') {
-        const local = await mediaCache.fetchTemp(m.attachment_url);
+        const local = await mediaCache.fetchTemp(m.attachment_url, { enc: encCtxFor(m) });
         if (!local) {
           showAlert(t('errors.generic'));
           return;
@@ -963,9 +968,26 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
     // (l'auteur d'origine, pas le dernier relais) plutôt que de l'écraser.
     const forwardedFromName =
       m.forwarded_from_name ?? (m.sender_id === myId ? me?.display_name || me?.username : partnerName) ?? null;
+    // Pièce jointe CHIFFRÉE (voir crypto/fileCrypto.ts) : `attachment_meta`
+    // porte `file_key_encrypted`, une clé Signal scellée pour MOI (le
+    // destinataire d'origine) — copier `attachment_url`/`attachment_meta` tel
+    // quel vers un nouveau destinataire les laisserait avec une clé qu'ils ne
+    // peuvent pas déchiffrer. On télécharge+déchiffre le fichier localement
+    // d'abord, puis on repart du pipeline d'envoi normal (`pendingMediaService`),
+    // qui le re-chiffrera pour CHAQUE nouveau destinataire comme un envoi neuf.
+    const enc = encCtxFor(m);
     void (async () => {
       const ids = await selectContacts({ title: t('chat.forwardSelectTitle') });
       if (!ids || ids.length === 0) return;
+
+      let localDecryptedUri: string | null = null;
+      if (enc) {
+        localDecryptedUri = await mediaCache.fetchNow(m.attachment_url, { enc });
+        if (!localDecryptedUri) {
+          showToast(t('chat.forwardFailed', { count: ids.length }), { type: 'error' });
+          return;
+        }
+      }
 
       let ok = 0;
       let fail = 0;
@@ -973,17 +995,41 @@ export const ChatScreen: React.FC<MainScreenProps<'Chat'>> = ({ route, navigatio
       for (const contactId of ids) {
         try {
           const detail = await conversationService.start(contactId);
-          await messageService.send({
-            conversationId: detail.id,
-            partnerId: contactId,
-            senderId: myId,
-            type: m.type,
-            body: m.body,
-            attachmentUrl: m.attachment_url,
-            attachmentMeta: m.attachment_meta,
-            forwardedFromId: m.id,
-            forwardedFromName,
-          });
+          if (enc && localDecryptedUri) {
+            const meta = m.attachment_meta ?? {};
+            await pendingMediaService.sendMedia({
+              conversationId: detail.id,
+              partnerId: contactId,
+              senderId: myId,
+              body: m.body,
+              local: {
+                file: {
+                  uri: localDecryptedUri,
+                  name: (meta.name as string) || `media_${Date.now()}`,
+                  type: (meta.mime as string) || 'application/octet-stream',
+                },
+                kind: m.type as LocalMediaFile['kind'],
+                size: (meta.size as number) ?? null,
+                width: (meta.width as number) ?? null,
+                height: (meta.height as number) ?? null,
+                durationSec: (meta.duration_sec as number) ?? null,
+              },
+              forwardedFromId: m.id,
+              forwardedFromName,
+            });
+          } else {
+            await messageService.send({
+              conversationId: detail.id,
+              partnerId: contactId,
+              senderId: myId,
+              type: m.type,
+              body: m.body,
+              attachmentUrl: m.attachment_url,
+              attachmentMeta: m.attachment_meta,
+              forwardedFromId: m.id,
+              forwardedFromName,
+            });
+          }
           ok += 1;
         } catch (e) {
           console.warn('[forward] échec pour', contactId, ':', e);

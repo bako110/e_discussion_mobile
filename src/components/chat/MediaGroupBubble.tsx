@@ -24,6 +24,7 @@ import { CachedImage, Icon } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import type { LocalMessage } from '@/db/repositories/messageRepo';
 import { useCachedMedia, type CachedMedia } from '@/hooks/useCachedMedia';
+import { encCtxFor } from '@/services/mediaCache';
 import { clockTime } from '@/utils/time';
 import { mediaUrl } from '@/utils/media';
 import { useTranslation } from 'react-i18next';
@@ -89,7 +90,7 @@ const GroupTile: React.FC<{
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} style={style}>
       {ready ? (
-        <CachedImage uri={thumbFor(message)} style={styles.tileImg} resizeMode="cover" />
+        <CachedImage uri={thumbFor(message)} style={styles.tileImg} resizeMode="cover" enc={encCtxFor(message)} />
       ) : (
         <View style={[styles.tileImg, styles.tilePlaceholder]} />
       )}
@@ -131,7 +132,7 @@ const GroupTile: React.FC<{
  * entre rendus (règle des hooks), `messages[i]` change juste de valeur. */
 function useTileCache(messages: LocalMessage[], i: number): CachedMedia {
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  return useCachedMedia(messages[i]?.attachment_url);
+  return useCachedMedia(messages[i]?.attachment_url, encCtxFor(messages[i]));
 }
 
 export const MediaGroupBubble: React.FC<Props> = ({ messages, mine, onOpenAt, onLongPress }) => {

@@ -7,6 +7,7 @@ import { useChatPrefs } from '@/context/ChatPrefsContext';
 import { useTheme } from '@/context/ThemeContext';
 import type { LocalMessage } from '@/db/repositories/messageRepo';
 import { useCachedMedia } from '@/hooks/useCachedMedia';
+import { encCtxFor } from '@/services/mediaCache';
 import { clockTime } from '@/utils/time';
 import { mediaUrl } from '@/utils/media';
 import { VoiceNoteBubble } from './VoiceNoteBubble';
@@ -108,8 +109,11 @@ export const MessageBubble: React.FC<Props> = ({
   const { fontScale } = useChatPrefs();
   const c = theme.colors;
 
+  // Contexte de déchiffrement (conversation 1-to-1 uniquement, voir
+  // `encCtxFor`) — `undefined` pour un média en clair (rien ne change alors).
+  const encCtx = encCtxFor(message);
   // état du fichier joint vis-à-vis du cache disque persistant (hook : avant tout return)
-  const cached = useCachedMedia(message.attachment_url);
+  const cached = useCachedMedia(message.attachment_url, encCtx);
 
   if (message.deleted_at) {
     // Toujours appuyable en appui long : permet de retirer définitivement
@@ -223,7 +227,7 @@ export const MessageBubble: React.FC<Props> = ({
           onLongPress={onLongPress}
           style={[styles.mediaWrap, { aspectRatio: Math.max(0.6, Math.min(1.9, ratio)) }]}
         >
-          <CachedImage uri={thumb} style={styles.mediaImg} resizeMode="cover" />
+          <CachedImage uri={thumb} style={styles.mediaImg} resizeMode="cover" enc={encCtx} />
           {message.pending ? (
             <View style={styles.mediaPending}>
               <ActivityIndicator color="#fff" />
@@ -509,7 +513,11 @@ export const MessageBubble: React.FC<Props> = ({
 
       {failed ? (
         <Text style={[styles.failedHint, { color: c.danger }]}>
-          {message.failReason === 'e2ee_unavailable' ? t('sync.failedE2eeUnavailable') : t('sync.failed')}
+          {message.failReason === 'e2ee_unavailable'
+            ? t('sync.failedE2eeUnavailable')
+            : message.failReason === 'file_too_large'
+              ? t('sync.failedFileTooLarge')
+              : t('sync.failed')}
         </Text>
       ) : null}
     </Pressable>

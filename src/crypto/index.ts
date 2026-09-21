@@ -12,3 +12,12 @@ export {
   resetLocalE2EE,
   type EncryptedPayload,
 } from './sessionManager';
+
+export {
+  decryptFile,
+  encryptFile,
+  FileTooLargeError,
+  FILE_MAX_SIZE_BYTES,
+} from './fileCrypto';
+
+export { toBase64, fromBase64 } from './primitives';

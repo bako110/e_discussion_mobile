@@ -765,6 +765,7 @@
     "sentWhenOnline": "Will be sent once online",
     "failed": "Failed to send — tap to retry",
     "failedE2eeUnavailable": "Not sent — this contact hasn't enabled encryption yet. Tap to retry.",
+    "failedFileTooLarge": "Not sent — this file is too large to be encrypted (80 MB max).",
     "upToDate": "Up to date",
     "onlineRequiredTitle": "Connection required",
     "onlineRequiredBody": "This action needs an internet connection. Try again once you're online."

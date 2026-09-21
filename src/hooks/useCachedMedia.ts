@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { mediaCache, type MediaCacheState } from '@/services/mediaCache';
+import { mediaCache, type MediaCacheState, type MediaEncContext } from '@/services/mediaCache';
 
 export interface CachedMedia {
   localUri: string | null;
@@ -22,7 +22,10 @@ export interface CachedMedia {
   download: () => Promise<string | null>;
 }
 
-export function useCachedMedia(rawUrl: string | null | undefined): CachedMedia {
+export function useCachedMedia(
+  rawUrl: string | null | undefined,
+  enc?: MediaEncContext,
+): CachedMedia {
   const isLocalUri = !!rawUrl && /^(file:|content:|data:|blob:)/.test(rawUrl);
   const [localUri, setLocalUri] = useState<string | null>(
     isLocalUri ? (rawUrl as string) : mediaCache.localFor(rawUrl),
@@ -73,6 +76,7 @@ export function useCachedMedia(rawUrl: string | null | undefined): CachedMedia {
     try {
       const uri = await mediaCache.fetchNow(rawUrl, {
         onProgress: (p) => mounted.current && setProgress(p),
+        enc,
       });
       if (mounted.current) {
         setLocalUri(uri);
@@ -83,7 +87,7 @@ export function useCachedMedia(rawUrl: string | null | undefined): CachedMedia {
       if (mounted.current) setDownloading(false);
       return null;
     }
-  }, [rawUrl, isLocalUri, localUri]);
+  }, [rawUrl, isLocalUri, localUri, enc]);
 
   const state: MediaCacheState = localUri
     ? 'local'

@@ -21,6 +21,8 @@ import { messageService as netMessages } from '@/services/messageService.net';
 import { mediaService } from '@/services/mediaService';
 import { mediaCache } from '@/services/mediaCache';
 import { storyService } from '@/services/storyService';
+import { encryptFile, encryptMessageForUser, toBase64 } from '@/crypto';
+import { E2EE_ENABLED } from '@/utils/constants';
 import type { ChatMessage, ConversationSummary, Group, GroupMessage, Story } from '@/types';
 
 import { notifyMutationApplied, outbox, setOnEnqueued, type OutboxEntry } from './outbox';
@@ -125,15 +127,71 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
           // fichier introuvable -> échec définitif
           throw new ApiError(422, 'fichier local manquant', 'local_file_missing');
         }
-        const up = await mediaService.upload(localFile);
+        const partnerId = p.partnerId as string | undefined;
+
+        // Chiffre le fichier AVANT l'upload (1-to-1 uniquement — cette entrée
+        // n'existe jamais pour les groupes, voir `upload_group_message`) :
+        // même principe que le texte (messageService.send) — jamais d'envoi
+        // en clair silencieux quand l'E2EE est actif. Un échec de
+        // chiffrement pour refus volontaire (destinataire sans appareil E2EE,
+        // ou bundle non authentifié) doit faire échouer ce job proprement
+        // plutôt que d'uploader le fichier en clair.
+        let fileToUpload: UploadFile = localFile;
+        let fileKeyEncrypted: string | undefined;
+        if (E2EE_ENABLED && !meta.encrypted) {
+          if (!partnerId) {
+            throw new ApiError(422, 'destinataire introuvable pour le chiffrement', 'e2ee_unavailable');
+          }
+          let fileKey: Uint8Array;
+          try {
+            const enc = await encryptFile(localFile.uri);
+            fileToUpload = { uri: enc.encryptedUri, name: localFile.name, type: 'application/octet-stream' };
+            fileKey = enc.fileKey;
+          } catch (e) {
+            const msg = String((e as Error)?.message ?? e);
+            if (msg.includes('FILE_TOO_LARGE_FOR_E2EE')) {
+              // Erreur définitive et distincte (pas un simple hoquet réseau) :
+              // pas de repli en clair, le job échoue et la bulle passe en
+              // `failed` avec un message dédié (voir `sync.failedFileTooLarge`,
+              // reason mappée par `pushOutbox` via le code `file_too_large`).
+              throw new ApiError(413, msg, 'file_too_large');
+            }
+            throw e;
+          }
+          try {
+            const payload = await encryptMessageForUser(partnerId, toBase64(fileKey));
+            fileKeyEncrypted = JSON.stringify(payload);
+          } catch (e) {
+            const msg = String(e);
+            if (msg.includes('E2EE_NO_DEVICE') || msg.includes('SIGNATURE_INVALID')) {
+              // Refus volontaire (comme pour le texte, voir messageService.send) :
+              // jamais de repli en clair — le job échoue définitivement.
+              throw new ApiError(422, msg, 'e2ee_unavailable');
+            }
+            // échec transitoire (réseau, session locale) : on abandonne cette
+            // tentative sans marquer `failed` définitivement — l'outbox retente.
+            throw e;
+          }
+        }
+
+        // `meta.thumbnail_url` posé par pendingMediaService est une URI LOCALE
+        // (file://…) — valable uniquement sur CE device pour l'aperçu optimiste
+        // avant sync. Pour un envoi chiffré, le serveur ne peut générer aucune
+        // vraie miniature (il ne voit qu'un blob opaque) : on ne doit PAS
+        // envoyer cette URI locale au destinataire (inexploitable sur son
+        // device) — on l'efface, le récepteur affichera l'image/vidéo pleine
+        // taille déchiffrée à la place (voir MessageBubble : `thumb` retombe
+        // sur `url` quand `thumbnail_url` est absent).
+        const up = await mediaService.upload(fileToUpload);
         attachmentUrl = up.url;
         meta = {
           ...meta,
-          thumbnail_url: up.thumbnail_url ?? meta.thumbnail_url,
+          thumbnail_url: fileKeyEncrypted ? undefined : (up.thumbnail_url ?? meta.thumbnail_url),
           width: up.width ?? meta.width,
           height: up.height ?? meta.height,
           duration_sec: up.duration_sec ?? meta.duration_sec,
           size: up.size ?? meta.size,
+          ...(fileKeyEncrypted ? { encrypted: true, file_key_encrypted: fileKeyEncrypted } : {}),
         };
         // mémorise l'URL pour ne pas ré-uploader si l'envoi échoue ensuite
         p.attachmentUrl = attachmentUrl;
@@ -144,13 +202,23 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
         ]);
         // le fichier que l'utilisateur vient d'envoyer -> on le range dans le
         // cache disque SOUS l'URL serveur, pour que <CachedImage> l'affiche
-        // sans re-télécharger (et même hors-ligne juste après).
+        // sans re-télécharger (et même hors-ligne juste après). On adopte
+        // TOUJOURS le fichier local EN CLAIR (jamais le blob chiffré
+        // temporaire) : c'est notre propre envoi, pas besoin de le déchiffrer.
         await mediaCache.adopt(attachmentUrl, localFile.uri);
         if (meta.thumbnail_url && typeof meta.thumbnail_url === 'string') {
           await mediaCache.adopt(meta.thumbnail_url as string, localFile.uri);
         }
         // met à jour la ligne locale : l'aperçu pointe désormais vers le serveur
         await messageRepo.setAttachment(entry.client_id, attachmentUrl, meta);
+
+        // Le fichier chiffré temporaire n'a plus d'utilité une fois l'upload
+        // réussi — il vit dans un dossier séparé du cache persistant
+        // (`e2ee-upload/`), autant l'effacer tout de suite plutôt que
+        // d'attendre un nettoyage de cache global.
+        if (fileToUpload.uri !== localFile.uri) {
+          await mediaCache.forgetTempFile(fileToUpload.uri);
+        }
       }
 
       const saved = await apiClient.post<ChatMessage>(
@@ -164,6 +232,8 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
           reply_to_id: p.replyToId ?? undefined,
           client_id: entry.client_id,
           view_once: !!p.viewOnce,
+          forwarded_from_id: p.forwardedFromId ?? undefined,
+          forwarded_from_name: p.forwardedFromName ?? undefined,
         },
       );
       await messageRepo.confirmSent(entry.client_id, { ...saved, body: saved.body });
@@ -445,8 +515,16 @@ export async function pushOutbox(): Promise<void> {
       const isGroupMsgKind =
         entry.kind === 'send_group_message' || entry.kind === 'upload_group_message';
       const isStoryKind = entry.kind === 'create_story' || entry.kind === 'upload_story';
+      // `e2ee_unavailable` / `file_too_large` : codes posés par `applyEntry`
+      // (refus E2EE volontaire ou fichier > limite, voir cas `upload_message`)
+      // — propagés jusqu'au `fail_reason` local pour un message d'erreur ciblé
+      // dans MessageBubble, au lieu de l'échec générique "réessayer".
+      const reason =
+        err instanceof ApiError && (err.code === 'e2ee_unavailable' || err.code === 'file_too_large')
+          ? err.code
+          : undefined;
       const markFailed = async () => {
-        if (isMsgKind) await messageRepo.markFailed(entry.client_id);
+        if (isMsgKind) await messageRepo.markFailed(entry.client_id, reason);
         else if (isGroupMsgKind) await groupRepo.markFailed(entry.client_id);
         else if (isStoryKind) storyService.markPendingFailedLocal(entry.client_id);
       };

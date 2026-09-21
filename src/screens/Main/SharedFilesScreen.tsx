@@ -11,7 +11,7 @@ import { AppHeader, Icon, Screen, showAlert } from '@/components/common';
 import { useTheme } from '@/context/ThemeContext';
 import type { MainScreenProps } from '@/navigation/types';
 import { conversationService } from '@/services';
-import { mediaCache } from '@/services/mediaCache';
+import { encCtxFromMeta, mediaCache } from '@/services/mediaCache';
 import type { SharedMedia } from '@/types';
 import { dayLabel, clockTime } from '@/utils/time';
 
@@ -83,9 +83,11 @@ export const SharedFilesScreen: React.FC<MainScreenProps<'SharedFiles'>> = ({ ro
   const openFile = async (m: SharedMedia) => {
     setDownloadingId(m.message_id);
     try {
-      const local = mediaCache.localFor(m.url) ?? (await mediaCache.fetchNow(m.url));
-      const target = local ?? m.url;
+      const enc = encCtxFromMeta(m.sender_id, m.meta);
+      const local = mediaCache.localFor(m.url) ?? (await mediaCache.fetchNow(m.url, { enc }));
+      const target = local ?? (enc ? null : m.url);
       if (target) await Linking.openURL(target);
+      else showAlert(t('errors.generic'));
     } catch {
       showAlert(t('errors.generic'));
     } finally {
