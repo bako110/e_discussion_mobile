@@ -145,7 +145,17 @@ async function applyEntry(entry: OutboxEntry): Promise<void> {
           let fileKey: Uint8Array;
           try {
             const enc = await encryptFile(localFile.uri);
-            fileToUpload = { uri: enc.encryptedUri, name: localFile.name, type: 'application/octet-stream' };
+            // Nom SANS l'extension d'origine (ex: "photo.jpg" -> "photo.bin") :
+            // le serveur catégorise d'abord par extension de nom de fichier
+            // (voir media_service.py `_categorize`) avant le content-type —
+            // garder ".jpg" sur un blob chiffré illisible lui faisait tenter
+            // un traitement image qui échouait. `.bin` + content-type opaque
+            // route proprement vers le traitement "file" (copie brute).
+            fileToUpload = {
+              uri: enc.encryptedUri,
+              name: `${localFile.name.replace(/\.[^./]+$/, '')}.bin`,
+              type: 'application/octet-stream',
+            };
             fileKey = enc.fileKey;
           } catch (e) {
             const msg = String((e as Error)?.message ?? e);
