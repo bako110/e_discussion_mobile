@@ -11,7 +11,7 @@
  *   failed   — l'envoi a échoué définitivement (à re-tenter manuellement)
  */
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 export const MIGRATIONS: string[] = [
   // ── v1 ────────────────────────────────────────────────────────────────
@@ -319,5 +319,14 @@ export const MIGRATIONS: string[] = [
   // message 1-1 n'est jamais lui-même retransféré ailleurs pour l'instant.
   `
   ALTER TABLE group_messages ADD COLUMN forward_count INTEGER NOT NULL DEFAULT 0;
+  `,
+
+  // ── v17 : raison d'un envoi en échec (sync_state='failed') — distingue
+  // "destinataire sans appareil E2EE" (blocage volontaire, jamais reparti en
+  // clair silencieusement) d'un simple échec réseau/serveur générique, pour
+  // afficher le bon message et ne PAS proposer "réessayer" en boucle tant que
+  // le destinataire n'a pas de chiffrement actif. NULL = raison générique.
+  `
+  ALTER TABLE messages ADD COLUMN fail_reason TEXT;
   `,
 ];

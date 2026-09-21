@@ -163,7 +163,27 @@ export const messageService = {
           encrypted = true;
           await messageRepo.setEncrypted(clientId, cipher);
         } catch (e) {
-          console.warn('[send] E2E indisponible, envoi en clair:', String(e));
+          const msg = String(e);
+          // Ces deux cas sont des refus VOLONTAIRES de chiffrer — jamais un
+          // simple hoquet réseau — donc jamais de repli silencieux en clair
+          // (façon WhatsApp : soit chiffré, soit ça n'arrive pas) :
+          //  - E2EE_NO_DEVICE : le destinataire n'a AUCUN appareil E2EE publié
+          //    (vieille version de l'app côté pair, jamais relancée depuis la
+          //    mise à jour).
+          //  - SIGNATURE_INVALID : le bundle reçu ne s'authentifie pas contre
+          //    l'identity_key du destinataire — signal possible de
+          //    compromission du serveur (clés substituées en transit).
+          if (msg.includes('E2EE_NO_DEVICE') || msg.includes('SIGNATURE_INVALID')) {
+            console.warn('[send] chiffrement refusé — envoi bloqué:', msg);
+            await messageRepo.markFailed(clientId, 'e2ee_unavailable').catch(() => undefined);
+            notifyMutationApplied({ conversationId: p.conversationId });
+            return;
+          }
+          // Autre échec (réseau, session locale temporairement indisponible) :
+          // pas de blocage définitif — l'outbox retentera d'elle-même, on
+          // repart en clair pour CETTE tentative plutôt que de perdre le
+          // message (le prochain envoi retentera le chiffrement à zéro).
+          console.warn('[send] E2E indisponible, envoi en clair:', msg);
         }
       }
       try {

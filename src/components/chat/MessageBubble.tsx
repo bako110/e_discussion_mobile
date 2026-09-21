@@ -508,7 +508,9 @@ export const MessageBubble: React.FC<Props> = ({
       </View>
 
       {failed ? (
-        <Text style={[styles.failedHint, { color: c.danger }]}>{t('sync.failed')}</Text>
+        <Text style={[styles.failedHint, { color: c.danger }]}>
+          {message.failReason === 'e2ee_unavailable' ? t('sync.failedE2eeUnavailable') : t('sync.failed')}
+        </Text>
       ) : null}
     </Pressable>
   );

@@ -41,11 +41,17 @@ interface Row {
   forwarded_from_name: string | null;
   view_once: number;
   view_once_opened: number;
+  fail_reason: string | null;
 }
+
+/** Cause d'un `sync_state='failed'` — voir `markFailed`. `null`/absent =
+ * échec générique (réseau, serveur) : le "réessayer" standard s'applique. */
+export type FailReason = 'e2ee_unavailable';
 
 export interface LocalMessage extends ChatMessage {
   client_id: string | null;
   sync_state: SyncState;
+  failReason: FailReason | null;
   /** vocal/vidéo REÇU : `true` si je l'ai déjà écouté / ouvert. */
   voicePlayed: boolean;
 }
@@ -83,6 +89,7 @@ function toMsg(r: Row): LocalMessage {
     decryptFailed,
     voicePlayed: !!r.voice_played,
     sync_state: r.sync_state as SyncState,
+    failReason: (r.fail_reason as FailReason | null) ?? null,
     pending: r.sync_state !== 'synced',
   };
 }
@@ -194,8 +201,11 @@ export const messageRepo = {
     );
   },
 
-  async markFailed(clientId: string): Promise<void> {
-    await run("UPDATE messages SET sync_state='failed' WHERE client_id=?", [clientId]);
+  async markFailed(clientId: string, reason?: FailReason): Promise<void> {
+    await run("UPDATE messages SET sync_state='failed', fail_reason=? WHERE client_id=?", [
+      reason ?? null,
+      clientId,
+    ]);
   },
 
   /** Le chiffrement E2E (asynchrone) a abouti : on stocke le blob à transmettre

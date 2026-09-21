@@ -104,6 +104,9 @@ export async function initDb(): Promise<DB> {
       // ajoutee en v15 — meme rattrapage prealable, meme raison (colonne
       // referencee par les nouveaux INSERT/UPSERT de messageRepo).
       ['forwarded_from_name', 'TEXT'],
+      // ajoutee en v17 — meme rattrapage prealable (referencee par
+      // messageRepo.markFailed).
+      ['fail_reason', 'TEXT'],
     ];
     try {
       const info = await db.execute('PRAGMA table_info(messages);');

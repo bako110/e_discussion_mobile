@@ -764,6 +764,7 @@
     "pendingCount": "{{count}} waiting to sync",
     "sentWhenOnline": "Will be sent once online",
     "failed": "Failed to send — tap to retry",
+    "failedE2eeUnavailable": "Not sent — this contact hasn't enabled encryption yet. Tap to retry.",
     "upToDate": "Up to date",
     "onlineRequiredTitle": "Connection required",
     "onlineRequiredBody": "This action needs an internet connection. Try again once you're online."
